@@ -190,7 +190,7 @@ export function KeyManagerModal({ onClose }: Props) {
       }
     } catch (err: any) {
       if (err.name === 'AbortError' || abortCtrl.signal.aborted) {
-        setError("获取图片密钥超时（2分钟），请重试")
+        setError("获取图片密钥超时（2分钟）。请检查：1) 数据存储路径是否配置正确 2) 是否在微信中打开了多张图片")
       } else {
         console.error('Image Key Error:', err)
         setError(err.message || "请求失败")
