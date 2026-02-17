@@ -115,6 +115,7 @@ func (s *Service) setupRoutes() {
 		// AI 路由
 		aiGroup := v1.Group("/ai")
 		{
+			aiGroup.POST("/test", s.api.AITestConnection)
 			aiGroup.POST("/summarize", s.api.AISummarize)
 			aiGroup.POST("/simulate", s.api.AISimulate)
 			aiGroup.POST("/sentiment", s.api.AISentiment)

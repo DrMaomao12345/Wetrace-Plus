@@ -373,6 +373,9 @@ function SyncConfigSection() {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
+        <div className="rounded-md bg-muted/50 p-3 text-xs text-muted-foreground">
+          💡 获取密钥后，点击"立即同步"按钮将微信数据解密并导入到本地数据库
+        </div>
         <div className="flex items-center justify-between">
           <label className="text-sm font-medium leading-none">启用自动同步</label>
           <Switch checked={enabled} onCheckedChange={setEnabled} />

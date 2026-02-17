@@ -111,7 +111,7 @@ export const systemApi = {
   // AI Config
   getAIConfig: () => request.get<AIConfig>("/api/v1/system/ai_config"),
   updateAIConfig: (data: AIConfigUpdate) => request.post("/api/v1/system/ai_config", data),
-  testAIConfig: () => request.post<{ status: string; model: string; latency_ms: number }>("/api/v1/system/ai_config/test"),
+  testAIConfig: () => request.post("/api/v1/ai/test"),
 
   // AI Prompts
   getAIPrompts: () => request.get<AIPromptsResponse>("/api/v1/system/ai_prompts"),

@@ -655,3 +655,18 @@ func extractJSON(raw string) string {
 	}
 	return ""
 }
+
+// AITestConnection 测试 AI 连接
+func (a *API) AITestConnection(c *gin.Context) {
+	if a.AI == nil {
+		transport.BadRequest(c, "AI 功能未启用")
+		return
+	}
+
+	if err := a.AI.TestConnection(); err != nil {
+		transport.InternalServerError(c, err.Error())
+		return
+	}
+
+	transport.SendSuccess(c, "AI 连接测试成功")
+}
