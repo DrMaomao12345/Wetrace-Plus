@@ -1,7 +1,4 @@
 # Wetrace - 微信聊天记录取证与分析工具
-modify something
-modfiy happynewyear
-modify happy new year
 
 Wetrace 是一款专为 PC 端微信设计的聊天记录取证、备份与可视化分析工具。它能够自动提取微信数据库密钥，解密并解析本地数据库，提供流畅的 Web 交互界面进行浏览、搜索、导出以及深度的聊天行为分析。
 
