@@ -1104,9 +1104,15 @@ const PAIR_URL_STORAGE = "mobile_pair_public_url"
 
 function MobilePairingSection() {
   const queryClient = useQueryClient()
-  // 公网访问地址（手机要能连到的地址），存 localStorage
+  // 公网访问地址（手机要能连到的地址），存 localStorage。
+  // 默认用当前网页地址 —— 局域网场景下手机用同一地址即可直连。
   const [publicURL, setPublicURL] = useState<string>(() => {
-    return localStorage.getItem(PAIR_URL_STORAGE) || ""
+    const saved = localStorage.getItem(PAIR_URL_STORAGE)
+    if (saved && saved.trim()) return saved
+    // 取当前访问地址；127.0.0.1 / localhost 对手机无意义，留空让用户填
+    const origin = window.location.origin
+    if (origin.includes("127.0.0.1") || origin.includes("localhost")) return ""
+    return origin
   })
 
   const { data, isLoading } = useQuery({
