@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"runtime"
+	"strings"
 	"syscall"
 
 	"github.com/afumu/wetrace/store"
@@ -112,12 +113,14 @@ func main() {
 		log.Fatalf("启动 web 服务失败: %v", err)
 	}
 
-	// 打印访问地址并自动打开浏览器
+	// 打印访问地址并自动打开浏览器。
+	// 监听地址里的 0.0.0.0 / 空 host 不是可访问地址，浏览器用 127.0.0.1 代替。
 	baseURL := listenAddr
 	if len(baseURL) > 0 && baseURL[0] == ':' {
 		baseURL = "127.0.0.1" + baseURL
 	}
-	url := "http://" + baseURL
+	browseURL := strings.Replace(baseURL, "0.0.0.0:", "127.0.0.1:", 1)
+	url := "http://" + browseURL
 	log.Printf("服务已启动，请访问: %s", url)
 	openBrowser(url)
 
