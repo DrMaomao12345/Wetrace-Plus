@@ -203,3 +203,12 @@
 - **联系人类型分类完善**：识别 `@openim` 和 `数字@xxx` 为企业号（之前都被归到「私人好友」）
 - **筛选 tab 扩展**：全部 / 私人好友 / 群聊 / **公众号** / **企业号** 五个 tab，每个 tab 右侧带实时数字
 - **企业号徽章**：紫色 [企业号] 标签
+
+## v1.6.0 — 2026-05-17
+
+- **移动端 API 鉴权**（为 iOS 客户端准备）
+  - 新增持久化的「移动端 API Token」（存 `.env` 的 `MOBILE_API_TOKEN`）
+  - 端点：`GET/POST/DELETE /api/v1/system/mobile/token`、`GET /api/v1/system/mobile/ping`
+  - 鉴权中间件升级：设置了密码 **或** 移动端 token 时即生效；接受 Web 会话 token **或** 移动端 token 两种凭据
+  - iOS App 配对后用 `X-Auth-Token: <移动端token>` 访问全部 API
+- 配套独立仓库 `WetraceProiOS`：iOS 26 / SwiftUI / Liquid Glass 客户端骨架

@@ -71,6 +71,15 @@ func (s *Service) setupRoutes() {
 			// 数据版本指纹（前端用来判断本地缓存是否仍然有效）
 			system.GET("/data_version", s.api.GetDataVersion)
 
+			// 移动端 API Token（iOS App 配对）
+			mobile := system.Group("/mobile")
+			{
+				mobile.GET("/token", s.api.GetMobileToken)
+				mobile.POST("/token", s.api.CreateMobileToken)
+				mobile.DELETE("/token", s.api.RevokeMobileToken)
+				mobile.GET("/ping", s.api.MobilePing)
+			}
+
 			// 有效聊天记录起始时间（年）
 			system.GET("/effective_chat_start", s.api.GetEffectiveChatStart)
 			system.POST("/effective_chat_start", s.api.UpdateEffectiveChatStart)
