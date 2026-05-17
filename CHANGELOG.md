@@ -212,3 +212,12 @@
   - 鉴权中间件升级：设置了密码 **或** 移动端 token 时即生效；接受 Web 会话 token **或** 移动端 token 两种凭据
   - iOS App 配对后用 `X-Auth-Token: <移动端token>` 访问全部 API
 - 配套独立仓库 `WetraceProiOS`：iOS 26 / SwiftUI / Liquid Glass 客户端骨架
+
+## v1.6.1 — 2026-05-17
+
+- **设置页新增「iOS App 配对」卡片**：完成移动端配对闭环
+  - 填入公网访问地址（Tailscale / 内网穿透地址）
+  - 一键生成 / 重新生成 / 吊销移动端 token
+  - 自动渲染二维码（内容 = `{url, token}` JSON），iOS App 扫码即连
+  - 附「手动配对信息」可展开，复制地址 + token 手动输入
+- 前端依赖加 `qrcode.react`

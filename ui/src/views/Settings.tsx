@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from "react"
+import { QRCodeSVG } from "qrcode.react"
 import { cn } from "@/lib/utils"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { systemApi, sessionApi } from "@/api"
@@ -29,6 +30,7 @@ import {
   Mic,
   FolderOpen,
   CalendarRange,
+  Smartphone,
 } from "lucide-react"
 
 /* ============================================================
@@ -1095,6 +1097,154 @@ const TZ_OPTIONS_SETTINGS: { label: string; offset: number }[] = [
   { label: "UTC+13", offset: 780 }, { label: "UTC+14", offset: 840 },
 ]
 
+/* ============================================================
+ * Mobile Pairing Section — iOS App 配对
+ * ============================================================ */
+const PAIR_URL_STORAGE = "mobile_pair_public_url"
+
+function MobilePairingSection() {
+  const queryClient = useQueryClient()
+  // 公网访问地址（手机要能连到的地址），存 localStorage
+  const [publicURL, setPublicURL] = useState<string>(() => {
+    return localStorage.getItem(PAIR_URL_STORAGE) || ""
+  })
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["mobile-token"],
+    queryFn: () => systemApi.getMobileToken(),
+  })
+
+  const createMutation = useMutation({
+    mutationFn: () => systemApi.createMobileToken(),
+    onSuccess: () => {
+      toast.success("已生成配对 token")
+      queryClient.invalidateQueries({ queryKey: ["mobile-token"] })
+    },
+    onError: (e: Error) => toast.error("生成失败: " + e.message),
+  })
+
+  const revokeMutation = useMutation({
+    mutationFn: () => systemApi.revokeMobileToken(),
+    onSuccess: () => {
+      toast.success("已吊销，已配对的 App 立即失效")
+      queryClient.invalidateQueries({ queryKey: ["mobile-token"] })
+    },
+    onError: (e: Error) => toast.error("吊销失败: " + e.message),
+  })
+
+  const saveURL = (v: string) => {
+    setPublicURL(v)
+    localStorage.setItem(PAIR_URL_STORAGE, v.trim())
+  }
+
+  const token = data?.token || ""
+  const hasToken = data?.has_token ?? false
+  // 二维码内容：与 iOS 端 PairingPayload 对应的 JSON
+  const qrPayload = useMemo(() => {
+    if (!hasToken || !publicURL.trim()) return null
+    return JSON.stringify({ url: publicURL.trim().replace(/\/+$/, ""), token })
+  }, [hasToken, publicURL, token])
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <Smartphone className="w-4 h-4 text-primary" />
+          iOS App 配对
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="rounded-md bg-muted/50 p-3 text-xs text-muted-foreground space-y-1">
+          <p>📱 用 Wetrace Pro iOS App 扫描下方二维码即可远程访问数据。</p>
+          <p>1. 填入手机能访问到的「公网地址」（如 Tailscale / 内网穿透地址）</p>
+          <p>2. 生成配对 token → 出现二维码 → App 扫码</p>
+        </div>
+
+        {/* 公网地址 */}
+        <div className="space-y-1.5">
+          <label className="text-sm font-medium leading-none">公网访问地址</label>
+          <Input
+            value={publicURL}
+            onChange={(e) => saveURL(e.target.value)}
+            placeholder="https://your-pc.tailxxxx.ts.net:5200"
+            className="h-9 font-mono text-xs"
+          />
+          <p className="text-xs text-muted-foreground">
+            手机和电脑不在同一网络时，需要先用 Tailscale / Cloudflare Tunnel / frp 把本服务暴露出去
+          </p>
+        </div>
+
+        {/* token 状态 + 操作 */}
+        <div className="flex items-center gap-2">
+          {isLoading ? (
+            <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+          ) : hasToken ? (
+            <>
+              <span className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
+                <CheckCircle className="w-3.5 h-3.5" /> 已生成配对 token
+              </span>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => createMutation.mutate()}
+                disabled={createMutation.isPending}
+              >
+                {createMutation.isPending && <Loader2 className="w-4 h-4 animate-spin mr-1" />}
+                重新生成
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="text-destructive hover:text-destructive"
+                onClick={() => {
+                  if (confirm("吊销后已配对的 App 立即无法访问，确定？")) revokeMutation.mutate()
+                }}
+                disabled={revokeMutation.isPending}
+              >
+                吊销
+              </Button>
+            </>
+          ) : (
+            <Button
+              size="sm"
+              onClick={() => createMutation.mutate()}
+              disabled={createMutation.isPending}
+            >
+              {createMutation.isPending && <Loader2 className="w-4 h-4 animate-spin mr-1" />}
+              生成配对 token
+            </Button>
+          )}
+        </div>
+
+        {/* 二维码 */}
+        {hasToken && (
+          publicURL.trim() ? (
+            qrPayload && (
+              <div className="flex flex-col items-center gap-2 pt-2">
+                <div className="bg-white p-3 rounded-lg">
+                  <QRCodeSVG value={qrPayload} size={200} level="M" />
+                </div>
+                <p className="text-xs text-muted-foreground">用 iOS App 的「扫描二维码」对准此码</p>
+                <details className="text-xs text-muted-foreground">
+                  <summary className="cursor-pointer">手动配对信息</summary>
+                  <div className="mt-1 font-mono break-all bg-muted/50 p-2 rounded">
+                    <div>地址: {publicURL.trim().replace(/\/+$/, "")}</div>
+                    <div>Token: {token}</div>
+                  </div>
+                </details>
+              </div>
+            )
+          ) : (
+            <p className="text-xs text-amber-600 dark:text-amber-400">
+              ⚠ 请先填写「公网访问地址」，二维码才能生成
+            </p>
+          )
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
 function DefaultTimezoneSection() {
   const queryClient = useQueryClient()
   const [offset, setOffset] = useState<number | null>(null)
@@ -1305,6 +1455,7 @@ export default function SettingsView() {
         </div>
 
         <DataDirSection />
+        <MobilePairingSection />
         <DefaultTimezoneSection />
         <EffectiveChatStartSection />
         <AIConfigSection />
