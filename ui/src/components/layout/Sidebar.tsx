@@ -247,7 +247,7 @@ export function Sidebar() {
       <div className="mt-auto px-2 flex flex-col gap-0.5 pt-2 border-t border-border mx-2">
         {renderNavItem(settingsItem)}
 
-        <div className="text-[10px] text-muted-foreground/40 text-center py-1 select-none">v1.6.2</div>
+        <div className="text-[10px] text-muted-foreground/40 text-center py-1 select-none">v1.6.3</div>
 
         <div className="flex items-center gap-1 mt-1 px-1">
           <button

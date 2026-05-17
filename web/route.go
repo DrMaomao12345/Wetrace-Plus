@@ -71,12 +71,13 @@ func (s *Service) setupRoutes() {
 			// 数据版本指纹（前端用来判断本地缓存是否仍然有效）
 			system.GET("/data_version", s.api.GetDataVersion)
 
-			// 移动端 API Token（iOS App 配对）
+			// 移动端配对（iOS App）—— 多设备记录 + 历史
 			mobile := system.Group("/mobile")
 			{
-				mobile.GET("/token", s.api.GetMobileToken)
-				mobile.POST("/token", s.api.CreateMobileToken)
-				mobile.DELETE("/token", s.api.RevokeMobileToken)
+				mobile.GET("/pairings", s.api.ListMobilePairings)
+				mobile.POST("/pairings", s.api.CreateMobilePairing)
+				mobile.DELETE("/pairings/:id", s.api.DeleteMobilePairing)
+				mobile.PUT("/pairings/:id", s.api.RenameMobilePairing)
 				mobile.GET("/ping", s.api.MobilePing)
 			}
 

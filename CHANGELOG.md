@@ -229,3 +229,13 @@
   - 修复：本机（loopback 127.0.0.1/::1）访问 + 未设密码时放行。移动端 token 只防远程访问，本机始终可信。用 `RemoteAddr`（真实 TCP 对端，不可伪造）判断 loopback，不用受 `X-Forwarded-For` 影响的 `ClientIP`
   - 设了密码的情况不受影响：本机也照样要密码
 - **配对卡片公网地址自动预填**：默认用当前网页的访问地址（非 localhost 时），局域网场景生成 token 后二维码立即出现
+
+## v1.6.3 — 2026-05-17
+
+- **移动端配对改为「多设备 + 历史记录」**
+  - 后端：`MobilePairingStore` 持久化到 `data/mobile_pairings.json`，每条记录含 id / token / 备注名 / 创建时间 / 最后访问时间
+  - 每次「新建配对」生成一条独立记录（一台设备一条），不再覆盖
+  - 鉴权中间件校验 token 时遍历所有记录；命中后更新该记录的「最后访问」（节流 60s）
+  - 旧的单 token（`.env` 的 `MOBILE_API_TOKEN`）启动时自动迁移成一条记录
+  - 端点：`GET/POST /api/v1/system/mobile/pairings`、`DELETE/PUT /api/v1/system/mobile/pairings/:id`
+- **设置页配对卡片重做**：配对历史列表，每条可重命名（失焦保存）、展开看二维码、删除；显示创建时间和最后访问时间

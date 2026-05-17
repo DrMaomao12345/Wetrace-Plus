@@ -1102,40 +1102,55 @@ const TZ_OPTIONS_SETTINGS: { label: string; offset: number }[] = [
  * ============================================================ */
 const PAIR_URL_STORAGE = "mobile_pair_public_url"
 
+function fmtTime(sec: number): string {
+  if (!sec) return "从未"
+  return new Date(sec * 1000).toLocaleString()
+}
+
 function MobilePairingSection() {
   const queryClient = useQueryClient()
-  // 公网访问地址（手机要能连到的地址），存 localStorage。
-  // 默认用当前网页地址 —— 局域网场景下手机用同一地址即可直连。
+  // 公网访问地址（手机要能连到的地址），存 localStorage。默认用当前网页地址。
   const [publicURL, setPublicURL] = useState<string>(() => {
     const saved = localStorage.getItem(PAIR_URL_STORAGE)
     if (saved && saved.trim()) return saved
-    // 取当前访问地址；127.0.0.1 / localhost 对手机无意义，留空让用户填
     const origin = window.location.origin
     if (origin.includes("127.0.0.1") || origin.includes("localhost")) return ""
     return origin
   })
+  const [newLabel, setNewLabel] = useState("")
+  // 当前展开显示二维码的记录 id
+  const [qrFor, setQrFor] = useState<string | null>(null)
 
   const { data, isLoading } = useQuery({
-    queryKey: ["mobile-token"],
-    queryFn: () => systemApi.getMobileToken(),
+    queryKey: ["mobile-pairings"],
+    queryFn: () => systemApi.listMobilePairings(),
   })
+  const pairings = data?.pairings ?? []
 
   const createMutation = useMutation({
-    mutationFn: () => systemApi.createMobileToken(),
-    onSuccess: () => {
-      toast.success("已生成配对 token")
-      queryClient.invalidateQueries({ queryKey: ["mobile-token"] })
+    mutationFn: (label: string) => systemApi.createMobilePairing(label),
+    onSuccess: (rec) => {
+      toast.success("已创建配对")
+      setNewLabel("")
+      setQrFor(rec.id)   // 创建后自动展开新记录的二维码
+      queryClient.invalidateQueries({ queryKey: ["mobile-pairings"] })
     },
-    onError: (e: Error) => toast.error("生成失败: " + e.message),
+    onError: (e: Error) => toast.error("创建失败: " + e.message),
   })
 
-  const revokeMutation = useMutation({
-    mutationFn: () => systemApi.revokeMobileToken(),
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => systemApi.deleteMobilePairing(id),
     onSuccess: () => {
-      toast.success("已吊销，已配对的 App 立即失效")
-      queryClient.invalidateQueries({ queryKey: ["mobile-token"] })
+      toast.success("已删除，该设备立即失效")
+      queryClient.invalidateQueries({ queryKey: ["mobile-pairings"] })
     },
-    onError: (e: Error) => toast.error("吊销失败: " + e.message),
+    onError: (e: Error) => toast.error("删除失败: " + e.message),
+  })
+
+  const renameMutation = useMutation({
+    mutationFn: (v: { id: string; label: string }) => systemApi.renameMobilePairing(v.id, v.label),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["mobile-pairings"] }),
+    onError: (e: Error) => toast.error("重命名失败: " + e.message),
   })
 
   const saveURL = (v: string) => {
@@ -1143,13 +1158,9 @@ function MobilePairingSection() {
     localStorage.setItem(PAIR_URL_STORAGE, v.trim())
   }
 
-  const token = data?.token || ""
-  const hasToken = data?.has_token ?? false
-  // 二维码内容：与 iOS 端 PairingPayload 对应的 JSON
-  const qrPayload = useMemo(() => {
-    if (!hasToken || !publicURL.trim()) return null
-    return JSON.stringify({ url: publicURL.trim().replace(/\/+$/, ""), token })
-  }, [hasToken, publicURL, token])
+  const cleanURL = publicURL.trim().replace(/\/+$/, "")
+  const qrValue = (token: string) =>
+    JSON.stringify({ url: cleanURL, token })
 
   return (
     <Card>
@@ -1161,9 +1172,8 @@ function MobilePairingSection() {
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="rounded-md bg-muted/50 p-3 text-xs text-muted-foreground space-y-1">
-          <p>📱 用 Wetrace Pro iOS App 扫描下方二维码即可远程访问数据。</p>
-          <p>1. 填入手机能访问到的「公网地址」（如 Tailscale / 内网穿透地址）</p>
-          <p>2. 生成配对 token → 出现二维码 → App 扫码</p>
+          <p>📱 每次「新建配对」生成一条独立记录（对应一台设备），可在下方历史里随时查看二维码、重命名、删除。</p>
+          <p>手机/电脑不在同一网络时，先用 Tailscale / Cloudflare Tunnel / frp 把本服务暴露出去。</p>
         </div>
 
         {/* 公网地址 */}
@@ -1175,77 +1185,99 @@ function MobilePairingSection() {
             placeholder="https://your-pc.tailxxxx.ts.net:5200"
             className="h-9 font-mono text-xs"
           />
-          <p className="text-xs text-muted-foreground">
-            手机和电脑不在同一网络时，需要先用 Tailscale / Cloudflare Tunnel / frp 把本服务暴露出去
-          </p>
         </div>
 
-        {/* token 状态 + 操作 */}
+        {/* 新建配对 */}
         <div className="flex items-center gap-2">
+          <Input
+            value={newLabel}
+            onChange={(e) => setNewLabel(e.target.value)}
+            placeholder="备注名（如：我的 iPhone）"
+            className="h-9 text-sm"
+          />
+          <Button
+            size="sm"
+            onClick={() => createMutation.mutate(newLabel.trim() || "新配对")}
+            disabled={createMutation.isPending}
+          >
+            {createMutation.isPending && <Loader2 className="w-4 h-4 animate-spin mr-1" />}
+            新建配对
+          </Button>
+        </div>
+
+        {/* 历史记录列表 */}
+        <div className="space-y-2">
+          <div className="text-xs font-medium text-muted-foreground">
+            配对历史（{pairings.length}）
+          </div>
           {isLoading ? (
             <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
-          ) : hasToken ? (
-            <>
-              <span className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
-                <CheckCircle className="w-3.5 h-3.5" /> 已生成配对 token
-              </span>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => createMutation.mutate()}
-                disabled={createMutation.isPending}
-              >
-                {createMutation.isPending && <Loader2 className="w-4 h-4 animate-spin mr-1" />}
-                重新生成
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="text-destructive hover:text-destructive"
-                onClick={() => {
-                  if (confirm("吊销后已配对的 App 立即无法访问，确定？")) revokeMutation.mutate()
-                }}
-                disabled={revokeMutation.isPending}
-              >
-                吊销
-              </Button>
-            </>
+          ) : pairings.length === 0 ? (
+            <p className="text-xs text-muted-foreground">还没有配对记录，点上方「新建配对」</p>
           ) : (
-            <Button
-              size="sm"
-              onClick={() => createMutation.mutate()}
-              disabled={createMutation.isPending}
-            >
-              {createMutation.isPending && <Loader2 className="w-4 h-4 animate-spin mr-1" />}
-              生成配对 token
-            </Button>
+            pairings.map((p) => (
+              <div key={p.id} className="border rounded-lg p-3 space-y-2">
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 min-w-0">
+                    <input
+                      defaultValue={p.label}
+                      onBlur={(e) => {
+                        const v = e.target.value.trim()
+                        if (v && v !== p.label) renameMutation.mutate({ id: p.id, label: v })
+                      }}
+                      className="bg-transparent text-sm font-medium w-full outline-none border-b border-transparent focus:border-border"
+                    />
+                    <div className="text-[11px] text-muted-foreground mt-0.5">
+                      创建 {fmtTime(p.created_at)} · 最后访问 {fmtTime(p.last_seen_at)}
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="text-xs"
+                    onClick={() => setQrFor(qrFor === p.id ? null : p.id)}
+                  >
+                    {qrFor === p.id ? "收起" : "二维码"}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="text-destructive hover:text-destructive"
+                    onClick={() => {
+                      if (confirm(`删除「${p.label}」？该设备将立即无法访问。`)) {
+                        deleteMutation.mutate(p.id)
+                      }
+                    }}
+                  >
+                    <X className="w-4 h-4" />
+                  </Button>
+                </div>
+
+                {qrFor === p.id && (
+                  cleanURL ? (
+                    <div className="flex flex-col items-center gap-2 pt-1">
+                      <div className="bg-white p-3 rounded-lg">
+                        <QRCodeSVG value={qrValue(p.token)} size={200} level="M" />
+                      </div>
+                      <p className="text-xs text-muted-foreground">用 iOS App 扫描此码</p>
+                      <details className="text-xs text-muted-foreground w-full">
+                        <summary className="cursor-pointer">手动配对信息</summary>
+                        <div className="mt-1 font-mono break-all bg-muted/50 p-2 rounded">
+                          <div>地址: {cleanURL}</div>
+                          <div>Token: {p.token}</div>
+                        </div>
+                      </details>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-amber-600 dark:text-amber-400">
+                      ⚠ 请先填写上方「公网访问地址」，二维码才能生成
+                    </p>
+                  )
+                )}
+              </div>
+            ))
           )}
         </div>
-
-        {/* 二维码 */}
-        {hasToken && (
-          publicURL.trim() ? (
-            qrPayload && (
-              <div className="flex flex-col items-center gap-2 pt-2">
-                <div className="bg-white p-3 rounded-lg">
-                  <QRCodeSVG value={qrPayload} size={200} level="M" />
-                </div>
-                <p className="text-xs text-muted-foreground">用 iOS App 的「扫描二维码」对准此码</p>
-                <details className="text-xs text-muted-foreground">
-                  <summary className="cursor-pointer">手动配对信息</summary>
-                  <div className="mt-1 font-mono break-all bg-muted/50 p-2 rounded">
-                    <div>地址: {publicURL.trim().replace(/\/+$/, "")}</div>
-                    <div>Token: {token}</div>
-                  </div>
-                </details>
-              </div>
-            )
-          ) : (
-            <p className="text-xs text-amber-600 dark:text-amber-400">
-              ⚠ 请先填写「公网访问地址」，二维码才能生成
-            </p>
-          )
-        )}
       </CardContent>
     </Card>
   )

@@ -50,6 +50,7 @@ type API struct {
 	tgBotMu         sync.Mutex
 	TTS             tts.Transcriber
 	Transcripts     *transcripts.Store
+	MobilePairings  *MobilePairingStore
 	mu                 sync.Mutex
 	summarizeCancel    context.CancelFunc
 	currentSummaryJob  *SummaryHistoryItem
@@ -100,6 +101,14 @@ func NewAPI(s store.Store, m *media.Service, conf *Config, staticFS fs.FS) *API 
 
 	// 初始化分词器（支持用户词典 data/wordcloud_dict.txt）
 	wordcloud.Init(conf.DataDir)
+
+	// 初始化移动端配对记录 store，并迁移旧的单 token
+	a.MobilePairings = NewMobilePairingStore(conf.DataDir)
+	if legacy := viper.GetString(mobileTokenViperKey); legacy != "" {
+		a.MobilePairings.MigrateLegacyToken(legacy)
+		viper.Set(mobileTokenViperKey, "")
+		_ = viper.WriteConfig()
+	}
 
 	// 启动时把全局默认时区配置同步到 Store（影响联系人侧分析查询）
 	if off, ok := defaultTzOffsetMinutes(); ok {

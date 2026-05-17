@@ -1,78 +1,69 @@
 package api
 
 import (
-	"crypto/rand"
-	"encoding/hex"
-
 	"github.com/afumu/wetrace/web/transport"
 	"github.com/gin-gonic/gin"
-	"github.com/spf13/viper"
 )
 
-// 移动端 API Token 持久化在 viper（.env）里。
-// 它是一个长期有效的凭据，iOS App 配对后保存在 Keychain，
-// 之后所有请求带 X-Auth-Token: <token> 即可。
-
+// mobileTokenViperKey 旧版单 token 的 viper 键（仅用于启动迁移）
 const mobileTokenViperKey = "MOBILE_API_TOKEN"
 
-// genMobileToken 生成 32 字节随机 token
-func genMobileToken() (string, error) {
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(b), nil
-}
-
-// currentMobileToken 读当前移动端 token（可能为空）
-func currentMobileToken() string {
-	return viper.GetString(mobileTokenViperKey)
-}
-
-// isValidMobileToken 校验 token 是否为有效的移动端 token
-func isValidMobileToken(token string) bool {
-	cur := currentMobileToken()
-	return cur != "" && token != "" && token == cur
-}
-
-// GetMobileToken 查询当前移动端 token 状态
-// GET /api/v1/system/mobile/token
-func (a *API) GetMobileToken(c *gin.Context) {
-	tok := currentMobileToken()
+// ListMobilePairings 列出所有配对记录（含历史）
+// GET /api/v1/system/mobile/pairings
+func (a *API) ListMobilePairings(c *gin.Context) {
 	transport.SendSuccess(c, gin.H{
-		"has_token": tok != "",
-		"token":     tok, // 仅在本地 Web UI 内展示，用于生成二维码
+		"pairings": a.MobilePairings.List(),
 	})
 }
 
-// CreateMobileToken 生成（或重新生成）移动端 token
-// POST /api/v1/system/mobile/token
-func (a *API) CreateMobileToken(c *gin.Context) {
-	tok, err := genMobileToken()
+// CreateMobilePairing 新建一条配对记录
+// POST /api/v1/system/mobile/pairings  body: { "label": "我的 iPhone" }
+func (a *API) CreateMobilePairing(c *gin.Context) {
+	var req struct {
+		Label string `json:"label"`
+	}
+	_ = c.ShouldBindJSON(&req)
+	if req.Label == "" {
+		req.Label = "新配对"
+	}
+	rec, err := a.MobilePairings.Create(req.Label)
 	if err != nil {
-		transport.InternalServerError(c, "生成 token 失败")
+		transport.InternalServerError(c, "生成配对失败")
 		return
 	}
-	viper.Set(mobileTokenViperKey, tok)
-	if err := viper.WriteConfig(); err != nil {
-		transport.InternalServerError(c, "保存配置失败: "+err.Error())
-		return
-	}
-	transport.SendSuccess(c, gin.H{"token": tok})
+	transport.SendSuccess(c, rec)
 }
 
-// RevokeMobileToken 吊销移动端 token（已配对的 App 立即失效）
-// DELETE /api/v1/system/mobile/token
-func (a *API) RevokeMobileToken(c *gin.Context) {
-	viper.Set(mobileTokenViperKey, "")
-	if err := viper.WriteConfig(); err != nil {
-		transport.InternalServerError(c, "保存配置失败: "+err.Error())
+// DeleteMobilePairing 删除一条配对记录（该设备立即失效）
+// DELETE /api/v1/system/mobile/pairings/:id
+func (a *API) DeleteMobilePairing(c *gin.Context) {
+	id := c.Param("id")
+	if !a.MobilePairings.Delete(id) {
+		transport.BadRequest(c, "记录不存在")
 		return
 	}
-	transport.SendSuccess(c, gin.H{"status": "revoked"})
+	transport.SendSuccess(c, gin.H{"status": "deleted"})
 }
 
-// MobilePing iOS App 用来验证 token 是否有效 + 拿基础信息
+// RenameMobilePairing 重命名一条配对记录
+// PUT /api/v1/system/mobile/pairings/:id  body: { "label": "..." }
+func (a *API) RenameMobilePairing(c *gin.Context) {
+	id := c.Param("id")
+	var req struct {
+		Label string `json:"label"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || req.Label == "" {
+		transport.BadRequest(c, "label 不能为空")
+		return
+	}
+	if !a.MobilePairings.Rename(id, req.Label) {
+		transport.BadRequest(c, "记录不存在")
+		return
+	}
+	transport.SendSuccess(c, gin.H{"status": "renamed"})
+}
+
+// MobilePing iOS App 验证 token 是否有效 + 探测连通性
 // GET /api/v1/system/mobile/ping
 func (a *API) MobilePing(c *gin.Context) {
 	transport.SendSuccess(c, gin.H{

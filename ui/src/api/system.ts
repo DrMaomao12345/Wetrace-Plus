@@ -7,6 +7,14 @@ export interface ComplianceStatus {
   version: string;
 }
 
+export interface MobilePairing {
+  id: string;
+  token: string;
+  label: string;
+  created_at: number;   // 秒
+  last_seen_at: number; // 秒，0 = 从未
+}
+
 export interface AIConfig {
   enabled: boolean;
   provider: string;
@@ -163,10 +171,15 @@ export const systemApi = {
   // 当前消息 DB 文件的指纹（path+size+mtime 的 md5），用于客户端缓存校验
   getDataVersion: () => request.get<{ version: string }>("/api/v1/system/data_version"),
 
-  // 移动端配对 token（iOS App）
-  getMobileToken: () => request.get<{ has_token: boolean; token: string }>("/api/v1/system/mobile/token"),
-  createMobileToken: () => request.post<{ token: string }>("/api/v1/system/mobile/token"),
-  revokeMobileToken: () => request.delete<{ status: string }>("/api/v1/system/mobile/token"),
+  // 移动端配对（iOS App）—— 多设备记录 + 历史
+  listMobilePairings: () =>
+    request.get<{ pairings: MobilePairing[] }>("/api/v1/system/mobile/pairings"),
+  createMobilePairing: (label: string) =>
+    request.post<MobilePairing>("/api/v1/system/mobile/pairings", { label }),
+  deleteMobilePairing: (id: string) =>
+    request.delete<{ status: string }>(`/api/v1/system/mobile/pairings/${id}`),
+  renameMobilePairing: (id: string, label: string) =>
+    request.put<{ status: string }>(`/api/v1/system/mobile/pairings/${id}`, { label }),
   testTTSConfigUrl: (text?: string, voice?: string, speed?: number): string => {
     const baseURL = getApiBaseUrl();
     const params = new URLSearchParams();

@@ -32,10 +32,10 @@ func isLoopbackRequest(c *gin.Context) bool {
 func AuthMiddleware(a *api.API) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		hash := viper.GetString("PASSWORD_HASH")
-		mobileToken := viper.GetString("MOBILE_API_TOKEN")
+		hasMobilePairings := a.MobilePairings != nil && len(a.MobilePairings.List()) > 0
 
-		// 既没密码也没移动端 token → 完全开放
-		if hash == "" && mobileToken == "" {
+		// 既没密码也没任何移动端配对 → 完全开放
+		if hash == "" && !hasMobilePairings {
 			c.Next()
 			return
 		}
@@ -67,10 +67,13 @@ func AuthMiddleware(a *api.API) gin.HandlerFunc {
 			token, _ = c.Cookie("auth_token")
 		}
 
-		// 校验：Web 会话 token 或 移动端 API token
+		// 校验：Web 会话 token 或 某条移动端配对的 token
 		validWebSession := hash != "" && token != "" && a.Password.IsValidSession(token)
-		validMobile := mobileToken != "" && token != "" && token == mobileToken
+		validMobile := a.MobilePairings != nil && a.MobilePairings.IsValidToken(token)
 		if validWebSession || validMobile {
+			if validMobile {
+				a.MobilePairings.Touch(token) // 更新该配对的「最后访问」
+			}
 			c.Next()
 			return
 		}
