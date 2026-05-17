@@ -63,6 +63,21 @@ func (s *Service) setupRoutes() {
 			// TTS 语音转文字配置路由
 			system.GET("/tts_config", s.api.GetTTSConfig)
 			system.POST("/tts_config", s.api.UpdateTTSConfig)
+
+			// 数据目录
+			system.GET("/data_dir", s.api.GetDataDir)
+			system.POST("/data_dir/open", s.api.OpenDataDir)
+
+			// 数据版本指纹（前端用来判断本地缓存是否仍然有效）
+			system.GET("/data_version", s.api.GetDataVersion)
+
+			// 有效聊天记录起始时间（年）
+			system.GET("/effective_chat_start", s.api.GetEffectiveChatStart)
+			system.POST("/effective_chat_start", s.api.UpdateEffectiveChatStart)
+
+			// 默认时区（影响联系人侧分析）
+			system.GET("/default_timezone", s.api.GetDefaultTimezone)
+			system.POST("/default_timezone", s.api.UpdateDefaultTimezone)
 		}
 
 		// 会话路由
@@ -92,6 +107,9 @@ func (s *Service) setupRoutes() {
 		v1.POST("/media/cache/start", s.api.HandleStartCache)
 		v1.GET("/media/cache/status", s.api.GetCacheStatus)
 		v1.POST("/media/voice/transcribe", s.api.TranscribeVoice)
+		v1.GET("/media/voice/transcript", s.api.GetVoiceTranscript)
+		v1.POST("/media/voice/transcribe-session", s.api.TranscribeSession)
+		v1.GET("/media/voice/transcribe-session/status", s.api.GetTranscribeSessionStatus)
 
 		// 导出路由
 		v1.GET("/export/chat", s.api.ExportChat)
@@ -110,6 +128,11 @@ func (s *Service) setupRoutes() {
 		reportGroup := v1.Group("/report")
 		{
 			reportGroup.GET("/annual", s.api.GetAnnualReport)
+			reportGroup.POST("/annual", s.api.GetAnnualReport)
+			reportGroup.POST("/annual/stream", s.api.StreamAnnualReport)
+			reportGroup.POST("/word_count", s.api.GetAnnualWordCounts)
+			reportGroup.GET("/past_monthly_avg", s.api.GetPastYearsMonthlyAvg)
+			reportGroup.GET("/baseline", s.api.GetReportBaseline)
 		}
 
 		// AI 路由
@@ -117,6 +140,9 @@ func (s *Service) setupRoutes() {
 		{
 			aiGroup.POST("/test", s.api.AITestConnection)
 			aiGroup.POST("/summarize", s.api.AISummarize)
+			aiGroup.POST("/summarize/cancel", s.api.CancelAISummarize)
+			aiGroup.GET("/summary_history", s.api.GetSummaryHistory)
+			aiGroup.DELETE("/summary_history/:id", s.api.DeleteSummaryHistory)
 			aiGroup.POST("/simulate", s.api.AISimulate)
 			aiGroup.POST("/sentiment", s.api.AISentiment)
 			aiGroup.POST("/summary", s.api.AISummary)
@@ -134,10 +160,16 @@ func (s *Service) setupRoutes() {
 			analysisGroup.GET("/weekday/:id", s.api.GetWeekdayActivity)
 			analysisGroup.GET("/monthly/:id", s.api.GetMonthlyActivity)
 			analysisGroup.GET("/type_distribution/:id", s.api.GetMessageTypeDistribution)
+			analysisGroup.GET("/calls/:id", s.api.GetCallStats)
+			analysisGroup.GET("/yearly_monthly/:id", s.api.GetYearlyMonthlyActivity)
+			analysisGroup.GET("/top_contacts_monthly_avg", s.api.GetTopContactsHistoricalMonthlyAvg)
 			analysisGroup.GET("/member_activity/:id", s.api.GetMemberActivity)
 			analysisGroup.GET("/repeat/:id", s.api.GetRepeatAnalysis)
 			analysisGroup.GET("/wordcloud/global", s.api.GetWordCloudGlobal)
 			analysisGroup.GET("/wordcloud/:id", s.api.GetWordCloud)
+			analysisGroup.POST("/wordcloud/reload_stopwords", s.api.ReloadWordCloudStopwords)
+			analysisGroup.GET("/wordcloud/dict", s.api.GetWordCloudDict)
+			analysisGroup.POST("/wordcloud/dict", s.api.UpdateWordCloudDict)
 		}
 
 		// 回放路由 (需求16)
@@ -160,6 +192,14 @@ func (s *Service) setupRoutes() {
 			feishuGroup.PUT("/config", s.api.UpdateFeishuConfig)
 			feishuGroup.POST("/test", s.api.TestFeishuBot)
 			feishuGroup.POST("/test_bitable", s.api.TestFeishuBitable)
+		}
+
+		// Telegram 配置路由
+		telegramGroup := v1.Group("/telegram")
+		{
+			telegramGroup.GET("/config", s.api.GetTelegramConfig)
+			telegramGroup.PUT("/config", s.api.UpdateTelegramConfig)
+			telegramGroup.POST("/test", s.api.TestTelegramBotGlobal)
 		}
 	}
 

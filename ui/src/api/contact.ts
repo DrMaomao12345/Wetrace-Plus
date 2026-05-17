@@ -19,10 +19,14 @@ function getAvatarUrl(username?: string): string {
 
 function transformContact(backendContact: BackendContact): Contact {
   let type: ContactType
-  if (backendContact.userName.endsWith('@chatroom')) {
+  const u = backendContact.userName
+  if (u.endsWith('@chatroom')) {
     type = ContactType.Chatroom
-  } else if (backendContact.userName.startsWith('gh_')) {
+  } else if (u.startsWith('gh_')) {
     type = ContactType.Official
+  } else if (u.endsWith('@openim') || /^\d+@/.test(u)) {
+    // @openim = 企业微信对外联系人；纯数字@xxx 也归为企业
+    type = ContactType.Enterprise
   } else {
     type = ContactType.Friend
   }
@@ -57,12 +61,14 @@ export interface NeedContactItem {
 
 export const contactApi = {
   getContacts: async (params?: ContactParams): Promise<Contact[]> => {
-    const response = await request.get<BackendContact[]>('/api/v1/contacts', params)
-    
+    // 显式指定大 limit，覆盖全局拦截器默认的 200
+    const merged = { limit: 100000, ...(params || {}) }
+    const response = await request.get<BackendContact[]>('/api/v1/contacts', merged)
+
     if (Array.isArray(response)) {
       return response.map(transformContact)
     }
-    
+
     return []
   },
 

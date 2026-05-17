@@ -15,7 +15,7 @@ import {
 } from "lucide-react"
 import { useSessions } from "@/hooks/useSession"
 
-type ContactFilter = "all" | "friend" | "chatroom"
+type ContactFilter = "all" | "friend" | "chatroom" | "official" | "enterprise"
 
 function ExportDropdown({
   onExport,
@@ -63,10 +63,25 @@ export default function ContactsView() {
 
   const filteredContacts = useMemo(() => {
     if (!contacts) return undefined
-    if (contactFilter === "all") return contacts
-    if (contactFilter === "friend") return contacts.filter(c => c.type === ContactType.Friend)
-    return contacts.filter(c => c.type === ContactType.Chatroom)
+    switch (contactFilter) {
+      case "all": return contacts
+      case "friend": return contacts.filter(c => c.type === ContactType.Friend)
+      case "chatroom": return contacts.filter(c => c.type === ContactType.Chatroom)
+      case "official": return contacts.filter(c => c.type === ContactType.Official)
+      case "enterprise": return contacts.filter(c => c.type === ContactType.Enterprise)
+    }
   }, [contacts, contactFilter])
+
+  const countByType = useMemo(() => {
+    if (!contacts) return { all: 0, friend: 0, chatroom: 0, official: 0, enterprise: 0 }
+    return {
+      all: contacts.length,
+      friend: contacts.filter(c => c.type === ContactType.Friend).length,
+      chatroom: contacts.filter(c => c.type === ContactType.Chatroom).length,
+      official: contacts.filter(c => c.type === ContactType.Official).length,
+      enterprise: contacts.filter(c => c.type === ContactType.Enterprise).length,
+    }
+  }, [contacts])
 
   const handleSearch = () => {
     setSearchKeyword(keyword.trim())
@@ -130,11 +145,13 @@ export default function ContactsView() {
         </div>
 
         {/* Filter tabs */}
-        <div className="flex gap-1 mb-4">
+        <div className="flex gap-1 mb-4 flex-wrap">
           {([
             { value: "all", label: "全部" },
             { value: "friend", label: "私人好友" },
             { value: "chatroom", label: "群聊" },
+            { value: "official", label: "公众号" },
+            { value: "enterprise", label: "企业号" },
           ] as const).map((tab) => (
             <Button
               key={tab.value}
@@ -146,11 +163,7 @@ export default function ContactsView() {
               {tab.label}
               {contacts && (
                 <span className="ml-1 opacity-70">
-                  ({tab.value === "all"
-                    ? contacts.length
-                    : tab.value === "friend"
-                      ? contacts.filter(c => c.type === ContactType.Friend).length
-                      : contacts.filter(c => c.type === ContactType.Chatroom).length})
+                  ({countByType[tab.value]})
                 </span>
               )}
             </Button>
@@ -225,7 +238,9 @@ function ContactCard({ contact, sessions }: { contact: Contact; sessions: Sessio
       ? { label: "群聊", className: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300" }
       : contact.type === "official"
         ? { label: "公众号", className: "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300" }
-        : { label: "好友", className: "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300" }
+        : contact.type === "enterprise"
+          ? { label: "企业号", className: "bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300" }
+          : { label: "好友", className: "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300" }
 
   return (
     <Card className="overflow-hidden border-none shadow-sm bg-card hover:shadow-md hover:ring-1 hover:ring-primary/20 transition-all">

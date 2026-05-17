@@ -68,7 +68,19 @@ export const mediaApi = {
   },
 
   transcribeVoice: (id: string) => {
-    return request.post<{ text: string }>('/api/v1/media/voice/transcribe', { id })
+    return request.post<{ text: string; cached: boolean }>('/api/v1/media/voice/transcribe', { id })
+  },
+
+  getVoiceTranscript: (id: string) => {
+    return request.get<{ text: string | null; cached: boolean }>('/api/v1/media/voice/transcript', { id })
+  },
+
+  transcribeSession: (talker: string) => {
+    return request.post<{ message: string }>('/api/v1/media/voice/transcribe-session', { talker })
+  },
+
+  transcribeSessionStatus: () => {
+    return request.get<{ running: boolean; total: number; done: number; errors: number; talker: string }>('/api/v1/media/voice/transcribe-session/status')
   },
 
   getExportVoicesUrl: (talker: string, name?: string): string => {

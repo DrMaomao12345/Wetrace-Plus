@@ -17,6 +17,15 @@ export function VoiceMessage({ id, isSelf, duration }: VoiceMessageProps) {
   const [transcribeText, setTranscribeText] = useState<string | null>(null)
   const [isTranscribing, setIsTranscribing] = useState(false)
 
+  // 启动时自动加载已缓存的转文字结果
+  useEffect(() => {
+    mediaApi.getVoiceTranscript(id).then((res) => {
+      if (res.cached && res.text) {
+        setTranscribeText(res.text)
+      }
+    }).catch(() => {})
+  }, [id])
+
   const voiceUrl = mediaApi.getVoiceUrl(id)
   
   // Clean up duration for display

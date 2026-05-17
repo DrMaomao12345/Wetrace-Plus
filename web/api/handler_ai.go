@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/afumu/wetrace/internal/ai"
+	"github.com/afumu/wetrace/internal/model"
 	"github.com/afumu/wetrace/pkg/util"
 	"github.com/afumu/wetrace/store/types"
 	"github.com/afumu/wetrace/web/transport"
@@ -18,8 +19,10 @@ import (
 
 // AISummarizeRequest AI 总结请求
 type AISummarizeRequest struct {
-	Talker    string `json:"talker" binding:"required"`
-	TimeRange string `json:"time_range"`
+	Talker       string `json:"talker" binding:"required"`
+	TimeRange    string `json:"time_range"`
+	CustomPrompt string `json:"custom_prompt"`
+	RetryOf      string `json:"retry_of"` // 重试时填上一次失败记录的 ID
 }
 
 // AISimulateRequest AI 模拟对话请求
@@ -67,6 +70,59 @@ type RelationshipIndicators struct {
 	IntimacyTrend   string  `json:"intimacy_trend"`
 }
 
+// buildChatText 将消息列表转为文本，连续同一发送者的消息合并为一行。
+// lookupVoice 可选：传入时会将已缓存的语音转文字结果包含在文本中。
+func buildChatText(msgs []*model.Message, lookupVoice func(id string) string) (text string, count int) {
+	type block struct {
+		sender string
+		parts  []string
+	}
+	var blocks []block
+	for _, m := range msgs {
+		var line string
+		if m.Type == 1 {
+			line = m.Content
+		} else if m.Type == 34 && lookupVoice != nil && m.Contents != nil {
+			if v, ok := m.Contents["voice"]; ok {
+				if t := lookupVoice(fmt.Sprint(v)); t != "" {
+					line = "[语音] " + t
+				}
+			}
+		}
+		if line == "" {
+			continue
+		}
+		count++
+		if len(blocks) > 0 && blocks[len(blocks)-1].sender == m.SenderName {
+			blocks[len(blocks)-1].parts = append(blocks[len(blocks)-1].parts, line)
+		} else {
+			blocks = append(blocks, block{sender: m.SenderName, parts: []string{line}})
+		}
+	}
+	var sb strings.Builder
+	for _, b := range blocks {
+		sb.WriteString(b.sender)
+		sb.WriteString(": ")
+		sb.WriteString(strings.Join(b.parts, " "))
+		sb.WriteByte('\n')
+	}
+	return sb.String(), count
+}
+
+// voiceLookup returns a function that looks up cached voice transcripts.
+func (a *API) voiceLookup() func(id string) string {
+	if a.Transcripts == nil {
+		return nil
+	}
+	ts := a.Transcripts
+	return func(id string) string {
+		if t, ok := ts.Get(id); ok {
+			return t
+		}
+		return ""
+	}
+}
+
 // AISummarize 总结聊天内容
 func (a *API) AISummarize(c *gin.Context) {
 	if a.AI == nil {
@@ -86,19 +142,16 @@ func (a *API) AISummarize(c *gin.Context) {
 	if req.TimeRange != "" {
 		start, end, ok = util.TimeRangeOf(req.TimeRange)
 	}
-
 	if !ok {
-		// 如果未指定或无效，则默认为过去 20 年
 		end = time.Now()
 		start = end.AddDate(-20, 0, 0)
 	}
 
-	// 获取消息进行总结
 	msgs, err := a.Store.GetMessages(context.Background(), types.MessageQuery{
 		Talker:    req.Talker,
 		StartTime: start,
 		EndTime:   end,
-		Limit:     500, // 时间范围总结可能需要更多上下文，增加到 500 条
+		Limit:     500,
 	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -110,29 +163,96 @@ func (a *API) AISummarize(c *gin.Context) {
 		return
 	}
 
-	// 我们希望总结的是该范围内的前 500 条（或全部）
 	if len(msgs) > 500 {
 		msgs = msgs[:500]
 	}
 
-	var sb strings.Builder
-	for _, m := range msgs {
-		if m.Type == 1 { // 文本消息
-			sb.WriteString(fmt.Sprintf("%s: %s\n", m.SenderName, m.Content))
-		}
+	chatText, msgCount := buildChatText(msgs, a.voiceLookup())
+
+	promptBase := GetAIPrompt("summarize")
+	if req.CustomPrompt != "" {
+		promptBase = req.CustomPrompt + "\n\n"
 	}
+	prompt := promptBase + chatText
 
-	prompt := GetAIPrompt("summarize") + sb.String()
+	// 注册可取消的 context，用 Background 避免 HTTP 连接关闭时自动取消
+	ctx, cancel := context.WithCancel(context.Background())
+	a.mu.Lock()
+	if a.summarizeCancel != nil {
+		a.summarizeCancel() // 取消上一个未完成的请求
+	}
+	a.summarizeCancel = cancel
+	a.currentSummaryJob = &SummaryHistoryItem{
+		ID:         "running",
+		Talker:     req.Talker,
+		TimeRange:  req.TimeRange,
+		PromptUsed: promptBase,
+		MsgCount:   msgCount,
+		Status:     "running",
+		CreatedAt:  time.Now(),
+	}
+	a.mu.Unlock()
 
-	summary, err := a.AI.Chat([]ai.Message{
+	defer func() {
+		a.mu.Lock()
+		a.summarizeCancel = nil
+		a.currentSummaryJob = nil
+		a.mu.Unlock()
+		cancel()
+	}()
+
+	retryCount := getRetryCount(req.RetryOf)
+
+	summary, err := a.AI.ChatWithContext(ctx, []ai.Message{
 		{Role: "user", Content: prompt},
 	})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		errMsg := err.Error()
+		go appendSummaryHistory(SummaryHistoryItem{
+			ID:         newHistoryID(),
+			Talker:     req.Talker,
+			TimeRange:  req.TimeRange,
+			PromptUsed: promptBase,
+			MsgCount:   msgCount,
+			Status:     "failed",
+			Error:      errMsg,
+			RetryCount: retryCount,
+			RetryOf:    req.RetryOf,
+			CreatedAt:  time.Now(),
+		})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": errMsg})
 		return
 	}
 
+	go appendSummaryHistory(SummaryHistoryItem{
+		ID:         newHistoryID(),
+		Talker:     req.Talker,
+		TimeRange:  req.TimeRange,
+		PromptUsed: promptBase,
+		Summary:    summary,
+		MsgCount:   msgCount,
+		Status:     "success",
+		RetryCount: retryCount,
+		RetryOf:    req.RetryOf,
+		CreatedAt:  time.Now(),
+	})
+
 	transport.SendSuccess(c, summary)
+}
+
+// CancelAISummarize 中止正在进行的 AI 总结
+func (a *API) CancelAISummarize(c *gin.Context) {
+	a.mu.Lock()
+	cancel := a.summarizeCancel
+	a.summarizeCancel = nil
+	a.mu.Unlock()
+
+	if cancel != nil {
+		cancel()
+		transport.SendSuccess(c, "已中止")
+	} else {
+		transport.SendSuccess(c, "无正在进行的总结")
+	}
 }
 
 // AISimulate 模拟对方回复
@@ -163,30 +283,44 @@ func (a *API) AISimulate(c *gin.Context) {
 		return
 	}
 
-	// 提取对方的名字和聊天记录
-	var history strings.Builder
+	// 提取对方的名字
 	var targetName string
-
-	// 如果消息太多，取最近的 150 条作为上下文
 	if len(msgs) > 150 {
 		msgs = msgs[len(msgs)-150:]
 	}
-
 	for _, m := range msgs {
-		if m.Sender == req.Talker {
+		if m.Sender == req.Talker && m.SenderName != "" {
 			targetName = m.SenderName
-		}
-		if m.Type == 1 {
-			role := "用户"
-			if m.Sender == req.Talker {
-				role = targetName
-			}
-			history.WriteString(fmt.Sprintf("[%s]: %s\n", role, m.Content))
+			break
 		}
 	}
-
 	if targetName == "" {
 		targetName = "对方"
+	}
+
+	// 将消息中的 sender 替换为 role 标签后合并
+	type block struct {
+		role  string
+		parts []string
+	}
+	var blocks []block
+	for _, m := range msgs {
+		if m.Type != 1 {
+			continue
+		}
+		role := "用户"
+		if m.Sender == req.Talker {
+			role = targetName
+		}
+		if len(blocks) > 0 && blocks[len(blocks)-1].role == role {
+			blocks[len(blocks)-1].parts = append(blocks[len(blocks)-1].parts, m.Content)
+		} else {
+			blocks = append(blocks, block{role: role, parts: []string{m.Content}})
+		}
+	}
+	var history strings.Builder
+	for _, b := range blocks {
+		history.WriteString(fmt.Sprintf("[%s]: %s\n", b.role, strings.Join(b.parts, " ")))
 	}
 
 	// 精细化 Prompt - 使用可配置提示词
@@ -285,14 +419,7 @@ func (a *API) sampleMessagesByMonth(start, end time.Time, talker string) map[str
 			continue
 		}
 
-		var sb strings.Builder
-		for _, m := range msgs {
-			if m.Type == 1 {
-				sb.WriteString(fmt.Sprintf("%s: %s\n", m.SenderName, m.Content))
-			}
-		}
-
-		text := sb.String()
+		text, _ := buildChatText(msgs, a.voiceLookup())
 		if text != "" {
 			key := monthStart.Format("2006-01")
 			monthlyTexts[key] = text
@@ -436,15 +563,8 @@ func (a *API) AISummary(c *gin.Context) {
 		msgs = msgs[:500]
 	}
 
-	var sb strings.Builder
-	for _, m := range msgs {
-		if m.Type == 1 {
-			sb.WriteString(fmt.Sprintf("[%s] %s: %s\n",
-				m.Time.Format("01-02 15:04"), m.SenderName, m.Content))
-		}
-	}
-
-	prompt := GetAIPrompt("summary") + sb.String()
+	chatText2, _ := buildChatText(msgs, a.voiceLookup())
+	prompt := GetAIPrompt("summary") + chatText2
 
 	result, err := a.AI.Chat([]ai.Message{
 		{Role: "user", Content: prompt},
@@ -502,15 +622,8 @@ func (a *API) AIExtractTodos(c *gin.Context) {
 		return
 	}
 
-	var sb strings.Builder
-	for _, m := range msgs {
-		if m.Type == 1 {
-			sb.WriteString(fmt.Sprintf("[%s] %s: %s\n",
-				m.Time.Format("2006-01-02 15:04"), m.SenderName, m.Content))
-		}
-	}
-
-	prompt := GetAIPrompt("extract_todos") + sb.String()
+	chatText3, _ := buildChatText(msgs, a.voiceLookup())
+	prompt := GetAIPrompt("extract_todos") + chatText3
 
 	result, err := a.AI.Chat([]ai.Message{
 		{Role: "user", Content: prompt},
@@ -567,13 +680,7 @@ func (a *API) AIExtractInfo(c *gin.Context) {
 		return
 	}
 
-	var sb strings.Builder
-	for _, m := range msgs {
-		if m.Type == 1 {
-			sb.WriteString(fmt.Sprintf("[%s] %s: %s\n",
-				m.Time.Format("2006-01-02 15:04"), m.SenderName, m.Content))
-		}
-	}
+	chatText4, _ := buildChatText(msgs, a.voiceLookup())
 
 	typesHint := "address（地址）、time（时间约定）、amount（金额）、phone（电话号码）"
 	if len(req.Types) > 0 {
@@ -581,7 +688,7 @@ func (a *API) AIExtractInfo(c *gin.Context) {
 	}
 
 	promptTpl := GetAIPrompt("extract_info")
-	prompt := strings.Replace(promptTpl, "{{types_hint}}", typesHint, 1) + sb.String()
+	prompt := strings.Replace(promptTpl, "{{types_hint}}", typesHint, 1) + chatText4
 
 	result, err := a.AI.Chat([]ai.Message{
 		{Role: "user", Content: prompt},

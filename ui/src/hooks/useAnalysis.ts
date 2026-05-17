@@ -16,6 +16,20 @@ export function useAnalysis(talker: string) {
     retry: 1,
   });
 
+  const weekdayQuery = useQuery({
+    queryKey: ["analysis", "weekday", talker],
+    queryFn: () => analysisApi.getWeekday(talker),
+    enabled: !!talker,
+    retry: 1,
+  });
+
+  const monthlyQuery = useQuery({
+    queryKey: ["analysis", "monthly", talker],
+    queryFn: () => analysisApi.getMonthly(talker),
+    enabled: !!talker,
+    retry: 1,
+  });
+
   const typeQuery = useQuery({
     queryKey: ["analysis", "types", talker],
     queryFn: () => analysisApi.getTypeDistribution(talker),
@@ -37,24 +51,41 @@ export function useAnalysis(talker: string) {
     retry: 1,
   });
 
-  // 只要最重要的几个查询在加载，就显示全局 loading
-  const isInitialLoading = (hourlyQuery.isLoading && hourlyQuery.isFetching) || 
+  const callsQuery = useQuery({
+    queryKey: ["analysis", "calls", talker],
+    queryFn: () => analysisApi.getCallStats(talker),
+    enabled: !!talker,
+    retry: 1,
+  });
+
+  const yearlyMonthlyQuery = useQuery({
+    queryKey: ["analysis", "yearly_monthly", talker],
+    queryFn: () => analysisApi.getYearlyMonthly(talker),
+    enabled: !!talker,
+    retry: 1,
+  });
+
+  const top10MonthlyAvgQuery = useQuery({
+    queryKey: ["analysis", "top10_monthly_avg"],
+    queryFn: () => analysisApi.getTopContactsMonthlyAvg(10),
+    enabled: !!talker,
+    retry: 1,
+  });
+
+  const isInitialLoading = (hourlyQuery.isLoading && hourlyQuery.isFetching) ||
                            (dailyQuery.isLoading && dailyQuery.isFetching);
 
-    return {
-
-      hourly: hourlyQuery,
-
-      daily: dailyQuery,
-
-      types: typeQuery,
-
-      members: memberQuery,
-
-      repeat: repeatQuery,
-
-      isLoading: isInitialLoading,
-
-    };
-
-  }
+  return {
+    hourly: hourlyQuery,
+    daily: dailyQuery,
+    weekday: weekdayQuery,
+    monthly: monthlyQuery,
+    types: typeQuery,
+    members: memberQuery,
+    repeat: repeatQuery,
+    calls: callsQuery,
+    yearlyMonthly: yearlyMonthlyQuery,
+    top10MonthlyAvg: top10MonthlyAvgQuery,
+    isLoading: isInitialLoading,
+  };
+}

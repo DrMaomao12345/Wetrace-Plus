@@ -14,8 +14,8 @@ import (
 	"github.com/afumu/wetrace/store/types"
 )
 
-// getAnnualOverview 获取年度概览统计
-func (r *Repository) getAnnualOverview(ctx context.Context, start, end time.Time) (model.AnnualOverview, error) {
+// getAnnualOverview 获取年度概览统计（跨多时区段）
+func (r *Repository) getAnnualOverview(ctx context.Context, segs []reportSegment) (model.AnnualOverview, error) {
 	var overview model.AnnualOverview
 	var totalMsgs, sentMsgs, recvMsgs int
 	contactSet := make(map[string]bool)
@@ -23,16 +23,17 @@ func (r *Repository) getAnnualOverview(ctx context.Context, start, end time.Time
 	daySet := make(map[string]bool)
 	var firstDate, lastDate string
 
-	for _, shard := range r.router.GetShards() {
-		db, err := r.pool.GetConnection(shard.FilePath)
-		if err != nil {
-			continue
-		}
-
-		if r.isTableExist(db, "MSG") {
-			r.overviewV3(ctx, db, start, end, &totalMsgs, &sentMsgs, &recvMsgs, contactSet, chatroomSet, daySet, &firstDate, &lastDate)
-		} else {
-			r.overviewV4(ctx, db, start, end, &totalMsgs, &sentMsgs, &recvMsgs, contactSet, chatroomSet, daySet, &firstDate, &lastDate)
+	for _, seg := range segs {
+		for _, shard := range r.router.GetShards() {
+			db, err := r.pool.GetConnection(shard.FilePath)
+			if err != nil {
+				continue
+			}
+			if r.isTableExist(db, "MSG") {
+				r.overviewV3(ctx, db, seg.start, seg.end, &totalMsgs, &sentMsgs, &recvMsgs, contactSet, chatroomSet, daySet, &firstDate, &lastDate, seg.tzMod)
+			} else {
+				r.overviewV4(ctx, db, seg.start, seg.end, &totalMsgs, &sentMsgs, &recvMsgs, contactSet, chatroomSet, daySet, &firstDate, &lastDate, seg.tzMod)
+			}
 		}
 	}
 
@@ -43,7 +44,6 @@ func (r *Repository) getAnnualOverview(ctx context.Context, start, end time.Time
 	overview.FirstMessageDate = firstDate
 	overview.LastMessageDate = lastDate
 
-	// 统计联系人和群聊
 	activeContacts := 0
 	activeChatrooms := 0
 	for id := range contactSet {
@@ -56,7 +56,6 @@ func (r *Repository) getAnnualOverview(ctx context.Context, start, end time.Time
 	overview.ActiveContacts = activeContacts
 	overview.ActiveChatrooms = activeChatrooms
 
-	// 总联系人和群聊数从 session 获取
 	sessions, _ := r.GetSessions(ctx, types.SessionQuery{Limit: 10000})
 	totalContacts := 0
 	totalChatrooms := 0
@@ -76,7 +75,7 @@ func (r *Repository) getAnnualOverview(ctx context.Context, start, end time.Time
 func (r *Repository) overviewV3(ctx context.Context, db *sql.DB, start, end time.Time,
 	totalMsgs, sentMsgs, recvMsgs *int,
 	contactSet, chatroomSet, daySet map[string]bool,
-	firstDate, lastDate *string) {
+	firstDate, lastDate *string, tzMod string) {
 
 	query := `SELECT COUNT(*),
 		SUM(CASE WHEN COALESCE(IsSender, 0) = 1 THEN 1 ELSE 0 END),
@@ -95,7 +94,6 @@ func (r *Repository) overviewV3(ctx context.Context, db *sql.DB, start, end time
 		}
 	}
 
-	// 活跃联系人
 	rows, err := db.QueryContext(ctx, "SELECT DISTINCT StrTalker FROM MSG WHERE CreateTime >= ? AND CreateTime <= ?", start.Unix()*1000, end.Unix()*1000)
 	if err == nil {
 		for rows.Next() {
@@ -106,9 +104,8 @@ func (r *Repository) overviewV3(ctx context.Context, db *sql.DB, start, end time
 		rows.Close()
 	}
 
-	// 活跃天数和首末日期
 	rows, err = db.QueryContext(ctx,
-		"SELECT DISTINCT strftime('%Y-%m-%d', CreateTime/1000, 'unixepoch', 'localtime') as d FROM MSG WHERE CreateTime >= ? AND CreateTime <= ? ORDER BY d",
+		"SELECT DISTINCT strftime('%Y-%m-%d', CreateTime/1000, 'unixepoch', "+tzMod+") as d FROM MSG WHERE CreateTime >= ? AND CreateTime <= ? ORDER BY d",
 		start.Unix()*1000, end.Unix()*1000)
 	if err == nil {
 		for rows.Next() {
@@ -129,7 +126,7 @@ func (r *Repository) overviewV3(ctx context.Context, db *sql.DB, start, end time
 func (r *Repository) overviewV4(ctx context.Context, db *sql.DB, start, end time.Time,
 	totalMsgs, sentMsgs, recvMsgs *int,
 	contactSet, chatroomSet, daySet map[string]bool,
-	firstDate, lastDate *string) {
+	firstDate, lastDate *string, tzMod string) {
 
 	myWxid := r.getCurrentUserWxid(ctx)
 	talkerMD5Map := r.getTalkerMD5Map(ctx)
@@ -150,8 +147,6 @@ func (r *Repository) overviewV4(ctx context.Context, db *sql.DB, start, end time
 			if t, ok := talkerMD5Map[md5Hash]; ok {
 				talker = t
 			} else {
-				// talkerMD5Map 查不到时，通过 distinct real_sender_id 数量判断是否为群聊
-				// 群聊有多个不同发送者（real_sender_id > 0 的去重数 >= 2）
 				var distinctSenders int
 				cntQuery := fmt.Sprintf("SELECT COUNT(DISTINCT real_sender_id) FROM %s WHERE real_sender_id > 0", tableName)
 				if db.QueryRowContext(ctx, cntQuery).Scan(&distinctSenders) == nil && distinctSenders >= 2 {
@@ -160,50 +155,40 @@ func (r *Repository) overviewV4(ctx context.Context, db *sql.DB, start, end time
 			}
 		}
 
-		// 统计消息数: 增强版判定
 		var total, sent, recv sql.NullInt64
 		var query string
 		if talker != "unknown" && !strings.HasSuffix(talker, "@chatroom") {
-			// 私聊：利用排除对方的逻辑，最准确
 			query = fmt.Sprintf(`
-				SELECT 
-					COUNT(*),
+				SELECT COUNT(*),
 					SUM(CASE WHEN (m.status = 2 OR m.real_sender_id = 0 OR n.user_name != ?) THEN 1 ELSE 0 END),
 					SUM(CASE WHEN (m.status != 2 AND m.real_sender_id != 0 AND n.user_name = ?) THEN 1 ELSE 0 END)
-				FROM %s m 
-				LEFT JOIN Name2Id n ON m.real_sender_id = n.rowid 
-				WHERE m.create_time >= ? AND m.create_time <= ? AND m.local_type != 10000`, tableName)
+				FROM %s m LEFT JOIN Name2Id n ON m.real_sender_id = n.rowid
+				WHERE m.create_time >= ? AND m.create_time <= ? AND (m.local_type & 4294967295) != 10000`, tableName)
 			err = db.QueryRowContext(ctx, query, talker, talker, start.Unix(), end.Unix()).Scan(&total, &sent, &recv)
 		} else {
-			// 群聊或未知：只能靠 myWxid 匹配
 			query = fmt.Sprintf(`
-				SELECT 
-					COUNT(*),
+				SELECT COUNT(*),
 					SUM(CASE WHEN (n.user_name = ? OR m.status = 2 OR m.real_sender_id = 0) THEN 1 ELSE 0 END),
 					SUM(CASE WHEN (n.user_name != ? AND m.status != 2 AND m.real_sender_id != 0) THEN 1 ELSE 0 END)
-				FROM %s m 
-				LEFT JOIN Name2Id n ON m.real_sender_id = n.rowid 
-				WHERE m.create_time >= ? AND m.create_time <= ? AND m.local_type != 10000`, tableName)
+				FROM %s m LEFT JOIN Name2Id n ON m.real_sender_id = n.rowid
+				WHERE m.create_time >= ? AND m.create_time <= ? AND (m.local_type & 4294967295) != 10000`, tableName)
 			err = db.QueryRowContext(ctx, query, myWxid, myWxid, start.Unix(), end.Unix()).Scan(&total, &sent, &recv)
 		}
 
-		if err == nil {
-			if total.Valid && total.Int64 > 0 {
-				*totalMsgs += int(total.Int64)
-				if sent.Valid {
-					*sentMsgs += int(sent.Int64)
-				}
-				if recv.Valid {
-					*recvMsgs += int(recv.Int64)
-				}
-				contactSet[talker] = true
+		if err == nil && total.Valid && total.Int64 > 0 {
+			*totalMsgs += int(total.Int64)
+			if sent.Valid {
+				*sentMsgs += int(sent.Int64)
 			}
+			if recv.Valid {
+				*recvMsgs += int(recv.Int64)
+			}
+			contactSet[talker] = true
 		}
 
-		// 活跃天数
 		daysQuery := fmt.Sprintf(
-			"SELECT DISTINCT strftime('%%Y-%%m-%%d', create_time, 'unixepoch', 'localtime') as d FROM %s WHERE create_time >= ? AND create_time <= ? ORDER BY d",
-			tableName)
+			"SELECT DISTINCT strftime('%%Y-%%m-%%d', create_time, 'unixepoch', %s) as d FROM %s WHERE create_time >= ? AND create_time <= ? ORDER BY d",
+			tzMod, tableName)
 		rows, err := db.QueryContext(ctx, daysQuery, start.Unix(), end.Unix())
 		if err == nil {
 			for rows.Next() {
@@ -222,9 +207,9 @@ func (r *Repository) overviewV4(ctx context.Context, db *sql.DB, start, end time
 	}
 }
 
-// getAnnualTopContacts 获取年度亲密度排行
-func (r *Repository) getAnnualTopContacts(ctx context.Context, start, end time.Time, limit int) ([]*model.PersonalTopContact, error) {
-	sessions, err := r.GetSessions(ctx, types.SessionQuery{Limit: 1000})
+// getAnnualTopContacts 亲密度排行（不依赖时区分段，用整年范围，包含群聊）
+func (r *Repository) getAnnualTopContacts(ctx context.Context, start, end time.Time, limit int, excludeSet map[string]bool) ([]*model.PersonalTopContact, error) {
+	sessions, err := r.GetSessions(ctx, types.SessionQuery{Limit: 5000})
 	if err != nil {
 		return nil, err
 	}
@@ -238,7 +223,7 @@ func (r *Repository) getAnnualTopContacts(ctx context.Context, start, end time.T
 
 	for _, session := range sessions {
 		talker := session.UserName
-		if strings.HasSuffix(talker, "@chatroom") {
+		if excludeSet[talker] {
 			continue
 		}
 
@@ -254,17 +239,29 @@ func (r *Repository) getAnnualTopContacts(ctx context.Context, start, end time.T
 			tableName := "Msg_" + hex.EncodeToString(hash[:])
 
 			if r.isTableExist(db, tableName) {
-				// 增强版判定：私聊中排除对方即是我
-				query := fmt.Sprintf(`
-					SELECT 
-						CASE WHEN (m.status = 2 OR m.real_sender_id = 0 OR n.user_name != ?) THEN 1 ELSE 0 END as is_self, 
-						COUNT(*), 
-						MAX(m.create_time) 
-					FROM %s m
-					LEFT JOIN Name2Id n ON m.real_sender_id = n.rowid
-					WHERE m.create_time >= ? AND m.create_time <= ? AND m.local_type != 10000 
-					GROUP BY is_self`, tableName)
-				rows, err := db.QueryContext(ctx, query, talker, start.Unix(), end.Unix())
+				// 群聊：real_sender_id=0 或 status=2 表示自己发的；
+				// 私聊：额外用 n.user_name != talker 判断（talker 就是对方的 wxid）
+				isGroup := strings.HasSuffix(talker, "@chatroom")
+				var query string
+				var queryArgs []interface{}
+				if isGroup {
+					query = fmt.Sprintf(`
+						SELECT CASE WHEN (m.status = 2 OR m.real_sender_id = 0) THEN 1 ELSE 0 END as is_self,
+							COUNT(*), MAX(m.create_time)
+						FROM %s m
+						WHERE m.create_time >= ? AND m.create_time <= ? AND (m.local_type & 4294967295) != 10000
+						GROUP BY is_self`, tableName)
+					queryArgs = []interface{}{start.Unix(), end.Unix()}
+				} else {
+					query = fmt.Sprintf(`
+						SELECT CASE WHEN (m.status = 2 OR m.real_sender_id = 0 OR n.user_name != ?) THEN 1 ELSE 0 END as is_self,
+							COUNT(*), MAX(m.create_time)
+						FROM %s m LEFT JOIN Name2Id n ON m.real_sender_id = n.rowid
+						WHERE m.create_time >= ? AND m.create_time <= ? AND (m.local_type & 4294967295) != 10000
+						GROUP BY is_self`, tableName)
+					queryArgs = []interface{}{talker, start.Unix(), end.Unix()}
+				}
+				rows, err := db.QueryContext(ctx, query, queryArgs...)
 				if err == nil {
 					for rows.Next() {
 						var isSelf, count int
@@ -341,6 +338,7 @@ func (r *Repository) getAnnualTopContacts(ctx context.Context, start, end time.T
 			Talker:       t,
 			Name:         name,
 			Avatar:       avatar,
+			IsGroup:      strings.HasSuffix(t, "@chatroom"),
 			MessageCount: s.sent + s.recv,
 			SentCount:    s.sent,
 			RecvCount:    s.recv,
@@ -358,37 +356,19 @@ func (r *Repository) getAnnualTopContacts(ctx context.Context, start, end time.T
 	return result, nil
 }
 
-// getAnnualMonthlyTrend 获取年度月度趋势
-func (r *Repository) getAnnualMonthlyTrend(ctx context.Context, start, end time.Time) []*model.MonthlyStat {
+// getAnnualMonthlyTrend 获取年度月度趋势（跨多时区段）
+func (r *Repository) getAnnualMonthlyTrend(ctx context.Context, segs []reportSegment) []*model.MonthlyStat {
 	monthlyStats := make(map[int]int)
 
-	for _, shard := range r.router.GetShards() {
-		db, err := r.pool.GetConnection(shard.FilePath)
-		if err != nil {
-			continue
-		}
-
-		if r.isTableExist(db, "MSG") {
-			query := "SELECT CAST(strftime('%m', CreateTime/1000, 'unixepoch', 'localtime') AS INTEGER) as month, COUNT(*) as count FROM MSG WHERE CreateTime >= ? AND CreateTime <= ? GROUP BY month"
-			rows, err := db.QueryContext(ctx, query, start.Unix()*1000, end.Unix()*1000)
-			if err == nil {
-				for rows.Next() {
-					var m, c int
-					rows.Scan(&m, &c)
-					monthlyStats[m] += c
-				}
-				rows.Close()
-			}
-		} else {
-			tables, err := db.QueryContext(ctx, "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'Msg_%%'")
+	for _, seg := range segs {
+		for _, shard := range r.router.GetShards() {
+			db, err := r.pool.GetConnection(shard.FilePath)
 			if err != nil {
 				continue
 			}
-			for tables.Next() {
-				var tableName string
-				tables.Scan(&tableName)
-				query := fmt.Sprintf("SELECT CAST(strftime('%%m', create_time, 'unixepoch', 'localtime') AS INTEGER) as month, COUNT(*) as count FROM %s WHERE create_time >= ? AND create_time <= ? GROUP BY month", tableName)
-				rows, err := db.QueryContext(ctx, query, start.Unix(), end.Unix())
+			if r.isTableExist(db, "MSG") {
+				query := "SELECT CAST(strftime('%m', CreateTime/1000, 'unixepoch', " + seg.tzMod + ") AS INTEGER) as month, COUNT(*) as count FROM MSG WHERE CreateTime >= ? AND CreateTime <= ? GROUP BY month"
+				rows, err := db.QueryContext(ctx, query, seg.start.Unix()*1000, seg.end.Unix()*1000)
 				if err == nil {
 					for rows.Next() {
 						var m, c int
@@ -397,8 +377,27 @@ func (r *Repository) getAnnualMonthlyTrend(ctx context.Context, start, end time.
 					}
 					rows.Close()
 				}
+			} else {
+				tables, err := db.QueryContext(ctx, "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'Msg_%%'")
+				if err != nil {
+					continue
+				}
+				for tables.Next() {
+					var tableName string
+					tables.Scan(&tableName)
+					query := fmt.Sprintf("SELECT CAST(strftime('%%m', create_time, 'unixepoch', %s) AS INTEGER) as month, COUNT(*) as count FROM %s WHERE create_time >= ? AND create_time <= ? GROUP BY month", seg.tzMod, tableName)
+					rows, err := db.QueryContext(ctx, query, seg.start.Unix(), seg.end.Unix())
+					if err == nil {
+						for rows.Next() {
+							var m, c int
+							rows.Scan(&m, &c)
+							monthlyStats[m] += c
+						}
+						rows.Close()
+					}
+				}
+				tables.Close()
 			}
-			tables.Close()
 		}
 	}
 
@@ -409,29 +408,30 @@ func (r *Repository) getAnnualMonthlyTrend(ctx context.Context, start, end time.
 	return result
 }
 
-// getAnnualWeekdayDist 获取年度星期分布
-func (r *Repository) getAnnualWeekdayDist(ctx context.Context, start, end time.Time) []*model.WeekdayStat {
+// getAnnualWeekdayDist 获取年度星期分布（跨多时区段）
+func (r *Repository) getAnnualWeekdayDist(ctx context.Context, segs []reportSegment) []*model.WeekdayStat {
 	weekdayStats := make(map[int]int)
 
-	for _, shard := range r.router.GetShards() {
-		db, err := r.pool.GetConnection(shard.FilePath)
-		if err != nil {
-			continue
-		}
-
-		if r.isTableExist(db, "MSG") {
-			query := "SELECT CASE WHEN CAST(strftime('%w', CreateTime/1000, 'unixepoch', 'localtime') AS INTEGER) = 0 THEN 7 ELSE CAST(strftime('%w', CreateTime/1000, 'unixepoch', 'localtime') AS INTEGER) END as weekday, COUNT(*) as count FROM MSG WHERE CreateTime >= ? AND CreateTime <= ? GROUP BY weekday"
-			rows, err := db.QueryContext(ctx, query, start.Unix()*1000, end.Unix()*1000)
-			if err == nil {
-				for rows.Next() {
-					var w, c int
-					rows.Scan(&w, &c)
-					weekdayStats[w] += c
-				}
-				rows.Close()
+	for _, seg := range segs {
+		for _, shard := range r.router.GetShards() {
+			db, err := r.pool.GetConnection(shard.FilePath)
+			if err != nil {
+				continue
 			}
-		} else {
-			r.weekdayV4Shards(ctx, db, start, end, weekdayStats)
+			if r.isTableExist(db, "MSG") {
+				query := "SELECT CASE WHEN CAST(strftime('%w', CreateTime/1000, 'unixepoch', " + seg.tzMod + ") AS INTEGER) = 0 THEN 7 ELSE CAST(strftime('%w', CreateTime/1000, 'unixepoch', " + seg.tzMod + ") AS INTEGER) END as weekday, COUNT(*) as count FROM MSG WHERE CreateTime >= ? AND CreateTime <= ? GROUP BY weekday"
+				rows, err := db.QueryContext(ctx, query, seg.start.Unix()*1000, seg.end.Unix()*1000)
+				if err == nil {
+					for rows.Next() {
+						var w, c int
+						rows.Scan(&w, &c)
+						weekdayStats[w] += c
+					}
+					rows.Close()
+				}
+			} else {
+				r.weekdayV4Shards(ctx, db, seg.start, seg.end, weekdayStats, seg.tzMod)
+			}
 		}
 	}
 
@@ -442,7 +442,7 @@ func (r *Repository) getAnnualWeekdayDist(ctx context.Context, start, end time.T
 	return result
 }
 
-func (r *Repository) weekdayV4Shards(ctx context.Context, db *sql.DB, start, end time.Time, weekdayStats map[int]int) {
+func (r *Repository) weekdayV4Shards(ctx context.Context, db *sql.DB, start, end time.Time, weekdayStats map[int]int, tzMod string) {
 	tables, err := db.QueryContext(ctx, "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'Msg_%%'")
 	if err != nil {
 		return
@@ -452,7 +452,7 @@ func (r *Repository) weekdayV4Shards(ctx context.Context, db *sql.DB, start, end
 	for tables.Next() {
 		var tableName string
 		tables.Scan(&tableName)
-		query := fmt.Sprintf("SELECT CASE WHEN CAST(strftime('%%w', create_time, 'unixepoch', 'localtime') AS INTEGER) = 0 THEN 7 ELSE CAST(strftime('%%w', create_time, 'unixepoch', 'localtime') AS INTEGER) END as weekday, COUNT(*) as count FROM %s WHERE create_time >= ? AND create_time <= ? GROUP BY weekday", tableName)
+		query := fmt.Sprintf("SELECT CASE WHEN CAST(strftime('%%w', create_time, 'unixepoch', %s) AS INTEGER) = 0 THEN 7 ELSE CAST(strftime('%%w', create_time, 'unixepoch', %s) AS INTEGER) END as weekday, COUNT(*) as count FROM %s WHERE create_time >= ? AND create_time <= ? GROUP BY weekday", tzMod, tzMod, tableName)
 		rows, err := db.QueryContext(ctx, query, start.Unix(), end.Unix())
 		if err == nil {
 			for rows.Next() {
@@ -465,29 +465,30 @@ func (r *Repository) weekdayV4Shards(ctx context.Context, db *sql.DB, start, end
 	}
 }
 
-// getAnnualHourlyDist 获取年度小时分布
-func (r *Repository) getAnnualHourlyDist(ctx context.Context, start, end time.Time) []*model.HourlyStat {
+// getAnnualHourlyDist 获取年度小时分布（跨多时区段）
+func (r *Repository) getAnnualHourlyDist(ctx context.Context, segs []reportSegment) []*model.HourlyStat {
 	hourlyStats := make(map[int]int)
 
-	for _, shard := range r.router.GetShards() {
-		db, err := r.pool.GetConnection(shard.FilePath)
-		if err != nil {
-			continue
-		}
-
-		if r.isTableExist(db, "MSG") {
-			query := "SELECT CAST(strftime('%H', CreateTime/1000, 'unixepoch', 'localtime') AS INTEGER) as hour, COUNT(*) as count FROM MSG WHERE CreateTime >= ? AND CreateTime <= ? GROUP BY hour"
-			rows, err := db.QueryContext(ctx, query, start.Unix()*1000, end.Unix()*1000)
-			if err == nil {
-				for rows.Next() {
-					var h, c int
-					rows.Scan(&h, &c)
-					hourlyStats[h] += c
-				}
-				rows.Close()
+	for _, seg := range segs {
+		for _, shard := range r.router.GetShards() {
+			db, err := r.pool.GetConnection(shard.FilePath)
+			if err != nil {
+				continue
 			}
-		} else {
-			r.hourlyV4Shards(ctx, db, start, end, hourlyStats)
+			if r.isTableExist(db, "MSG") {
+				query := "SELECT CAST(strftime('%H', CreateTime/1000, 'unixepoch', " + seg.tzMod + ") AS INTEGER) as hour, COUNT(*) as count FROM MSG WHERE CreateTime >= ? AND CreateTime <= ? GROUP BY hour"
+				rows, err := db.QueryContext(ctx, query, seg.start.Unix()*1000, seg.end.Unix()*1000)
+				if err == nil {
+					for rows.Next() {
+						var h, c int
+						rows.Scan(&h, &c)
+						hourlyStats[h] += c
+					}
+					rows.Close()
+				}
+			} else {
+				r.hourlyV4Shards(ctx, db, seg.start, seg.end, hourlyStats, seg.tzMod)
+			}
 		}
 	}
 
@@ -498,7 +499,7 @@ func (r *Repository) getAnnualHourlyDist(ctx context.Context, start, end time.Ti
 	return result
 }
 
-func (r *Repository) hourlyV4Shards(ctx context.Context, db *sql.DB, start, end time.Time, hourlyStats map[int]int) {
+func (r *Repository) hourlyV4Shards(ctx context.Context, db *sql.DB, start, end time.Time, hourlyStats map[int]int, tzMod string) {
 	tables, err := db.QueryContext(ctx, "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'Msg_%%'")
 	if err != nil {
 		return
@@ -508,7 +509,7 @@ func (r *Repository) hourlyV4Shards(ctx context.Context, db *sql.DB, start, end 
 	for tables.Next() {
 		var tableName string
 		tables.Scan(&tableName)
-		query := fmt.Sprintf("SELECT CAST(strftime('%%H', create_time, 'unixepoch', 'localtime') AS INTEGER) as hour, COUNT(*) as count FROM %s WHERE create_time >= ? AND create_time <= ? GROUP BY hour", tableName)
+		query := fmt.Sprintf("SELECT CAST(strftime('%%H', create_time, 'unixepoch', %s) AS INTEGER) as hour, COUNT(*) as count FROM %s WHERE create_time >= ? AND create_time <= ? GROUP BY hour", tzMod, tableName)
 		rows, err := db.QueryContext(ctx, query, start.Unix(), end.Unix())
 		if err == nil {
 			for rows.Next() {
@@ -521,7 +522,7 @@ func (r *Repository) hourlyV4Shards(ctx context.Context, db *sql.DB, start, end 
 	}
 }
 
-// getAnnualMessageTypes 获取年度消息类型分布
+// getAnnualMessageTypes 获取年度消息类型分布（不依赖时区）
 func (r *Repository) getAnnualMessageTypes(ctx context.Context, start, end time.Time) map[string]int {
 	typeStats := make(map[int]int)
 
@@ -530,7 +531,6 @@ func (r *Repository) getAnnualMessageTypes(ctx context.Context, start, end time.
 		if err != nil {
 			continue
 		}
-
 		if r.isTableExist(db, "MSG") {
 			query := "SELECT Type, COUNT(*) FROM MSG WHERE CreateTime >= ? AND CreateTime <= ? GROUP BY Type"
 			rows, err := db.QueryContext(ctx, query, start.Unix()*1000, end.Unix()*1000)
@@ -547,11 +547,9 @@ func (r *Repository) getAnnualMessageTypes(ctx context.Context, start, end time.
 		}
 	}
 
-	// 转换为可读名称
 	result := make(map[string]int)
 	for t, c := range typeStats {
-		name := messageTypeName(t)
-		result[name] += c
+		result[messageTypeName(t)] += c
 	}
 	return result
 }
@@ -579,7 +577,6 @@ func (r *Repository) messageTypesV4Shards(ctx context.Context, db *sql.DB, start
 	}
 }
 
-// messageTypeName 将消息类型数字转换为可读名称
 func messageTypeName(t int) string {
 	switch t {
 	case 1:
@@ -607,31 +604,31 @@ func messageTypeName(t int) string {
 	}
 }
 
-// getAnnualHighlights 获取年度亮点数据
-func (r *Repository) getAnnualHighlights(ctx context.Context, start, end time.Time) model.AnnualHighlights {
+// getAnnualHighlights 获取年度亮点数据（跨多时区段）
+func (r *Repository) getAnnualHighlights(ctx context.Context, segs []reportSegment) model.AnnualHighlights {
 	highlights := model.AnnualHighlights{}
 	dailyCounts := make(map[string]int)
 	var lateNightCount int
-	var earliestMinute, latestMinute int
-	earliestMinute = 24 * 60 // 初始化为最大值
-	latestMinute = -1
+	// dummy unused
+	earliestMinute := 24 * 60
+	latestMinute := -1
 
-	for _, shard := range r.router.GetShards() {
-		db, err := r.pool.GetConnection(shard.FilePath)
-		if err != nil {
-			continue
-		}
-
-		if r.isTableExist(db, "MSG") {
-			r.highlightsV3(ctx, db, start, end, dailyCounts, &lateNightCount, &earliestMinute, &latestMinute)
-		} else {
-			r.highlightsV4(ctx, db, start, end, dailyCounts, &lateNightCount, &earliestMinute, &latestMinute)
+	for _, seg := range segs {
+		for _, shard := range r.router.GetShards() {
+			db, err := r.pool.GetConnection(shard.FilePath)
+			if err != nil {
+				continue
+			}
+			if r.isTableExist(db, "MSG") {
+				r.highlightsV3(ctx, db, seg.start, seg.end, dailyCounts, &lateNightCount, &earliestMinute, &latestMinute, seg.tzMod)
+			} else {
+				r.highlightsV4(ctx, db, seg.start, seg.end, dailyCounts, &lateNightCount, &earliestMinute, &latestMinute, seg.tzMod)
+			}
 		}
 	}
 
-	// 找出最忙和最闲的一天
 	var busiestDay, quietestDay model.DayCount
-	quietestDay.Count = int(^uint(0) >> 1) // MaxInt
+	quietestDay.Count = int(^uint(0) >> 1)
 
 	for date, count := range dailyCounts {
 		if count > busiestDay.Count {
@@ -650,21 +647,206 @@ func (r *Repository) getAnnualHighlights(ctx context.Context, start, end time.Ti
 	highlights.LateNightCount = lateNightCount
 	highlights.LongestStreak = calcLongestStreak(dailyCounts)
 
-	if earliestMinute < 24*60 {
-		highlights.EarliestMessageTime = fmt.Sprintf("%02d:%02d", earliestMinute/60, earliestMinute%60)
+	// 新规则：以 07:00 为日界
+	// 最早：先在 06:30–07:30 找发送前 ≥4h 无其他消息的消息；无则取 07:00 后第一条
+	// 最晚：先在 06:30–07:30 找发送后 ≥4h 无其他消息的消息；无则取 07:00 前最后一条
+	earlyMin, lateMin := r.computeEarliestLatestNew(ctx, segs)
+	if earlyMin >= 0 {
+		highlights.EarliestMessageTime = fmt.Sprintf("%02d:%02d", earlyMin/60, earlyMin%60)
 	}
-	if latestMinute >= 0 {
-		highlights.LatestMessageTime = fmt.Sprintf("%02d:%02d", latestMinute/60, latestMinute%60)
+	if lateMin >= 0 {
+		highlights.LatestMessageTime = fmt.Sprintf("%02d:%02d", lateMin/60, lateMin%60)
 	}
 
 	return highlights
 }
 
-func (r *Repository) highlightsV3(ctx context.Context, db *sql.DB, start, end time.Time,
-	dailyCounts map[string]int, lateNightCount *int, earliestMinute, latestMinute *int) {
+// computeEarliestLatestNew 用新的 07:00 日界规则计算年度最早/最晚消息的时刻（分钟数 0-1439）。
+// 返回 -1 表示无数据。
+func (r *Repository) computeEarliestLatestNew(ctx context.Context, segs []reportSegment) (earlyMinOfDay, lateMinOfDay int) {
+	type ts struct {
+		unix int64
+		loc  *time.Location
+	}
+	var times []ts
 
-	// 每日消息数
-	query := "SELECT strftime('%Y-%m-%d', CreateTime/1000, 'unixepoch', 'localtime') as d, COUNT(*) as c FROM MSG WHERE CreateTime >= ? AND CreateTime <= ? GROUP BY d"
+	for _, seg := range segs {
+		for _, shard := range r.router.GetShards() {
+			db, err := r.pool.GetConnection(shard.FilePath)
+			if err != nil {
+				continue
+			}
+			if r.isTableExist(db, "MSG") {
+				rows, err := db.QueryContext(ctx,
+					"SELECT CreateTime/1000 FROM MSG WHERE CreateTime >= ? AND CreateTime <= ?",
+					seg.start.Unix()*1000, seg.end.Unix()*1000)
+				if err == nil {
+					for rows.Next() {
+						var t int64
+						if rows.Scan(&t) == nil {
+							times = append(times, ts{unix: t, loc: seg.loc})
+						}
+					}
+					rows.Close()
+				}
+			} else {
+				tableRows, err := db.QueryContext(ctx, "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'Msg_%%'")
+				if err != nil {
+					continue
+				}
+				var tableNames []string
+				for tableRows.Next() {
+					var n string
+					if tableRows.Scan(&n) == nil {
+						tableNames = append(tableNames, n)
+					}
+				}
+				tableRows.Close()
+				for _, tn := range tableNames {
+					q := fmt.Sprintf("SELECT create_time FROM %s WHERE create_time >= ? AND create_time <= ?", tn)
+					rows, err := db.QueryContext(ctx, q, seg.start.Unix(), seg.end.Unix())
+					if err != nil {
+						continue
+					}
+					for rows.Next() {
+						var t int64
+						if rows.Scan(&t) == nil {
+							times = append(times, ts{unix: t, loc: seg.loc})
+						}
+					}
+					rows.Close()
+				}
+			}
+		}
+	}
+
+	if len(times) == 0 {
+		return -1, -1
+	}
+
+	sort.Slice(times, func(i, j int) bool { return times[i].unix < times[j].unix })
+
+	// 把 unix 时间归到 07:00-day key（YYYY-MM-DD 字符串）。
+	// 凌晨 0-7 点的消息归到「前一天」的 07:00-day。
+	dayKey := func(t time.Time) string {
+		if t.Hour() < 7 {
+			t = t.AddDate(0, 0, -1)
+		}
+		return t.Format("2006-01-02")
+	}
+
+	const fourHours = int64(4 * 3600)
+
+	type cand struct {
+		minOfDay int
+		dayKey   string
+	}
+	var morning []cand
+	var night []cand
+	var anyAfter7 []cand
+	var allMsgs []cand
+
+	for i, t := range times {
+		ttt := time.Unix(t.unix, 0).In(t.loc)
+		minOfDay := ttt.Hour()*60 + ttt.Minute()
+		dk := dayKey(ttt)
+		allMsgs = append(allMsgs, cand{minOfDay, dk})
+		if minOfDay >= 420 {
+			anyAfter7 = append(anyAfter7, cand{minOfDay, dk})
+		}
+		if minOfDay >= 390 && minOfDay <= 450 {
+			priorOK := i == 0 || (t.unix-times[i-1].unix) >= fourHours
+			nextOK := i == len(times)-1 || (times[i+1].unix-t.unix) >= fourHours
+			if priorOK {
+				morning = append(morning, cand{minOfDay, dk})
+			}
+			if nextOK {
+				night = append(night, cand{minOfDay, dk})
+			}
+		}
+	}
+
+	// 找最早：优先用 morning 候选，否则 fallback 用 anyAfter7
+	earlyPool := morning
+	if len(earlyPool) == 0 {
+		earlyPool = anyAfter7
+	}
+	// 找最晚：优先用 night 候选，否则 fallback 用 allMsgs
+	latePool := night
+	if len(latePool) == 0 {
+		latePool = allMsgs
+	}
+
+	if len(earlyPool) == 0 || len(latePool) == 0 {
+		return -1, -1
+	}
+
+	// 在 earlyPool/latePool 笛卡尔积中找一对：dayKey 不同，且最早的 minOfDay 最小、最晚的 shifted 最大
+	// 简化：先各自找最优，如果同一天则尝试找次优组合
+	type best struct {
+		minOfDay int
+		shifted  int
+		dayKey   string
+		ok       bool
+	}
+
+	// 找最早 (按 minOfDay 升序排序)
+	sortedEarly := make([]cand, len(earlyPool))
+	copy(sortedEarly, earlyPool)
+	sort.Slice(sortedEarly, func(i, j int) bool { return sortedEarly[i].minOfDay < sortedEarly[j].minOfDay })
+	// 找最晚 (按 shifted 降序排序)
+	sortedLate := make([]cand, len(latePool))
+	copy(sortedLate, latePool)
+	sort.Slice(sortedLate, func(i, j int) bool {
+		si := (sortedLate[i].minOfDay - 420 + 1440) % 1440
+		sj := (sortedLate[j].minOfDay - 420 + 1440) % 1440
+		return si > sj
+	})
+
+	// 收集 latePool 的所有 dayKey 集合（用于判断"早晨候选所属日"是否在晚上候选范围）
+	lateDays := make(map[string]bool)
+	for _, c := range sortedLate {
+		lateDays[c.dayKey] = true
+	}
+	// 早晨候选选最早的，前提是有不同日的晚候选
+	var bestEarly, bestLate best
+	for _, e := range sortedEarly {
+		// 需要找到一个 latePool 元素，dayKey != e.dayKey
+		for _, l := range sortedLate {
+			if l.dayKey != e.dayKey {
+				bestEarly = best{minOfDay: e.minOfDay, dayKey: e.dayKey, ok: true}
+				bestLate = best{shifted: (l.minOfDay - 420 + 1440) % 1440, dayKey: l.dayKey, ok: true}
+				goto Done
+			}
+		}
+	}
+	// fallback：如果整个数据集都在同一天，那就允许同一天
+	{
+		e := sortedEarly[0]
+		l := sortedLate[0]
+		bestEarly = best{minOfDay: e.minOfDay, dayKey: e.dayKey, ok: true}
+		bestLate = best{shifted: (l.minOfDay - 420 + 1440) % 1440, dayKey: l.dayKey, ok: true}
+	}
+Done:
+	_ = lateDays
+
+	if !bestEarly.ok {
+		earlyMinOfDay = -1
+	} else {
+		earlyMinOfDay = bestEarly.minOfDay
+	}
+	if !bestLate.ok {
+		lateMinOfDay = -1
+	} else {
+		lateMinOfDay = (bestLate.shifted + 420) % 1440
+	}
+	return
+}
+
+func (r *Repository) highlightsV3(ctx context.Context, db *sql.DB, start, end time.Time,
+	dailyCounts map[string]int, lateNightCount *int, earliestMinute, latestMinute *int, tzMod string) {
+
+	query := "SELECT strftime('%Y-%m-%d', CreateTime/1000, 'unixepoch', " + tzMod + ") as d, COUNT(*) as c FROM MSG WHERE CreateTime >= ? AND CreateTime <= ? GROUP BY d"
 	rows, err := db.QueryContext(ctx, query, start.Unix()*1000, end.Unix()*1000)
 	if err == nil {
 		for rows.Next() {
@@ -676,19 +858,17 @@ func (r *Repository) highlightsV3(ctx context.Context, db *sql.DB, start, end ti
 		rows.Close()
 	}
 
-	// 深夜消息数 (0-5点)
 	var lnc int
 	err = db.QueryRowContext(ctx,
-		"SELECT COUNT(*) FROM MSG WHERE CreateTime >= ? AND CreateTime <= ? AND CAST(strftime('%H', CreateTime/1000, 'unixepoch', 'localtime') AS INTEGER) < 5",
+		"SELECT COUNT(*) FROM MSG WHERE CreateTime >= ? AND CreateTime <= ? AND (CAST(strftime('%H', CreateTime/1000, 'unixepoch', "+tzMod+") AS INTEGER) >= 23 OR CAST(strftime('%H', CreateTime/1000, 'unixepoch', "+tzMod+") AS INTEGER) < 5)",
 		start.Unix()*1000, end.Unix()*1000).Scan(&lnc)
 	if err == nil {
 		*lateNightCount += lnc
 	}
 
-	// 最早和最晚消息时间
 	var minHour, minMin sql.NullInt64
 	err = db.QueryRowContext(ctx,
-		"SELECT CAST(strftime('%H', CreateTime/1000, 'unixepoch', 'localtime') AS INTEGER), CAST(strftime('%M', CreateTime/1000, 'unixepoch', 'localtime') AS INTEGER) FROM MSG WHERE CreateTime >= ? AND CreateTime <= ? ORDER BY strftime('%H%M', CreateTime/1000, 'unixepoch', 'localtime') ASC LIMIT 1",
+		"SELECT CAST(strftime('%H', CreateTime/1000, 'unixepoch', "+tzMod+") AS INTEGER), CAST(strftime('%M', CreateTime/1000, 'unixepoch', "+tzMod+") AS INTEGER) FROM MSG WHERE CreateTime >= ? AND CreateTime <= ? ORDER BY strftime('%H%M', CreateTime/1000, 'unixepoch', "+tzMod+") ASC LIMIT 1",
 		start.Unix()*1000, end.Unix()*1000).Scan(&minHour, &minMin)
 	if err == nil && minHour.Valid {
 		m := int(minHour.Int64)*60 + int(minMin.Int64)
@@ -699,7 +879,7 @@ func (r *Repository) highlightsV3(ctx context.Context, db *sql.DB, start, end ti
 
 	var maxHour, maxMin sql.NullInt64
 	err = db.QueryRowContext(ctx,
-		"SELECT CAST(strftime('%H', CreateTime/1000, 'unixepoch', 'localtime') AS INTEGER), CAST(strftime('%M', CreateTime/1000, 'unixepoch', 'localtime') AS INTEGER) FROM MSG WHERE CreateTime >= ? AND CreateTime <= ? ORDER BY strftime('%H%M', CreateTime/1000, 'unixepoch', 'localtime') DESC LIMIT 1",
+		"SELECT CAST(strftime('%H', CreateTime/1000, 'unixepoch', "+tzMod+") AS INTEGER), CAST(strftime('%M', CreateTime/1000, 'unixepoch', "+tzMod+") AS INTEGER) FROM MSG WHERE CreateTime >= ? AND CreateTime <= ? ORDER BY strftime('%H%M', CreateTime/1000, 'unixepoch', "+tzMod+") DESC LIMIT 1",
 		start.Unix()*1000, end.Unix()*1000).Scan(&maxHour, &maxMin)
 	if err == nil && maxHour.Valid {
 		m := int(maxHour.Int64)*60 + int(maxMin.Int64)
@@ -710,7 +890,7 @@ func (r *Repository) highlightsV3(ctx context.Context, db *sql.DB, start, end ti
 }
 
 func (r *Repository) highlightsV4(ctx context.Context, db *sql.DB, start, end time.Time,
-	dailyCounts map[string]int, lateNightCount *int, earliestMinute, latestMinute *int) {
+	dailyCounts map[string]int, lateNightCount *int, earliestMinute, latestMinute *int, tzMod string) {
 
 	tables, err := db.QueryContext(ctx, "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'Msg_%%'")
 	if err != nil {
@@ -722,8 +902,7 @@ func (r *Repository) highlightsV4(ctx context.Context, db *sql.DB, start, end ti
 		var tableName string
 		tables.Scan(&tableName)
 
-		// 每日消息数
-		query := fmt.Sprintf("SELECT strftime('%%Y-%%m-%%d', create_time, 'unixepoch', 'localtime') as d, COUNT(*) as c FROM %s WHERE create_time >= ? AND create_time <= ? GROUP BY d", tableName)
+		query := fmt.Sprintf("SELECT strftime('%%Y-%%m-%%d', create_time, 'unixepoch', %s) as d, COUNT(*) as c FROM %s WHERE create_time >= ? AND create_time <= ? GROUP BY d", tzMod, tableName)
 		rows, err := db.QueryContext(ctx, query, start.Unix(), end.Unix())
 		if err == nil {
 			for rows.Next() {
@@ -735,19 +914,17 @@ func (r *Repository) highlightsV4(ctx context.Context, db *sql.DB, start, end ti
 			rows.Close()
 		}
 
-		// 深夜消息数
 		var lnc int
 		err = db.QueryRowContext(ctx,
-			fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE create_time >= ? AND create_time <= ? AND CAST(strftime('%%H', create_time, 'unixepoch', 'localtime') AS INTEGER) < 5", tableName),
+			fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE create_time >= ? AND create_time <= ? AND (CAST(strftime('%%H', create_time, 'unixepoch', %s) AS INTEGER) >= 23 OR CAST(strftime('%%H', create_time, 'unixepoch', %s) AS INTEGER) < 5)", tableName, tzMod, tzMod),
 			start.Unix(), end.Unix()).Scan(&lnc)
 		if err == nil {
 			*lateNightCount += lnc
 		}
 
-		// 最早消息时间
 		var minH, minM sql.NullInt64
 		err = db.QueryRowContext(ctx,
-			fmt.Sprintf("SELECT CAST(strftime('%%H', create_time, 'unixepoch', 'localtime') AS INTEGER), CAST(strftime('%%M', create_time, 'unixepoch', 'localtime') AS INTEGER) FROM %s WHERE create_time >= ? AND create_time <= ? ORDER BY strftime('%%H%%M', create_time, 'unixepoch', 'localtime') ASC LIMIT 1", tableName),
+			fmt.Sprintf("SELECT CAST(strftime('%%H', create_time, 'unixepoch', %s) AS INTEGER), CAST(strftime('%%M', create_time, 'unixepoch', %s) AS INTEGER) FROM %s WHERE create_time >= ? AND create_time <= ? ORDER BY strftime('%%H%%M', create_time, 'unixepoch', %s) ASC LIMIT 1", tzMod, tzMod, tableName, tzMod),
 			start.Unix(), end.Unix()).Scan(&minH, &minM)
 		if err == nil && minH.Valid {
 			m := int(minH.Int64)*60 + int(minM.Int64)
@@ -756,10 +933,9 @@ func (r *Repository) highlightsV4(ctx context.Context, db *sql.DB, start, end ti
 			}
 		}
 
-		// 最晚消息时间
 		var maxH, maxM sql.NullInt64
 		err = db.QueryRowContext(ctx,
-			fmt.Sprintf("SELECT CAST(strftime('%%H', create_time, 'unixepoch', 'localtime') AS INTEGER), CAST(strftime('%%M', create_time, 'unixepoch', 'localtime') AS INTEGER) FROM %s WHERE create_time >= ? AND create_time <= ? ORDER BY strftime('%%H%%M', create_time, 'unixepoch', 'localtime') DESC LIMIT 1", tableName),
+			fmt.Sprintf("SELECT CAST(strftime('%%H', create_time, 'unixepoch', %s) AS INTEGER), CAST(strftime('%%M', create_time, 'unixepoch', %s) AS INTEGER) FROM %s WHERE create_time >= ? AND create_time <= ? ORDER BY strftime('%%H%%M', create_time, 'unixepoch', %s) DESC LIMIT 1", tzMod, tzMod, tableName, tzMod),
 			start.Unix(), end.Unix()).Scan(&maxH, &maxM)
 		if err == nil && maxH.Valid {
 			m := int(maxH.Int64)*60 + int(maxM.Int64)
@@ -770,7 +946,6 @@ func (r *Repository) highlightsV4(ctx context.Context, db *sql.DB, start, end ti
 	}
 }
 
-// calcLongestStreak 计算最长连续活跃天数
 func calcLongestStreak(dailyCounts map[string]int) int {
 	if len(dailyCounts) == 0 {
 		return 0

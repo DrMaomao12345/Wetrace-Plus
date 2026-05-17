@@ -6,9 +6,11 @@ export interface MonitorConfig {
   type: "keyword" | "ai"
   prompt: string
   keywords: string[]
-  platform: "webhook" | "feishu"
+  platform: "webhook" | "feishu" | "telegram"
   webhook_url: string
   feishu_url: string
+  telegram_bot_token?: string
+  telegram_chat_id?: string
   enabled: boolean
   session_ids: string[]
   interval_minutes: number
@@ -22,12 +24,22 @@ export interface MonitorConfigCreate {
   type: "keyword" | "ai"
   prompt?: string
   keywords?: string[]
-  platform: "webhook" | "feishu"
+  platform: "webhook" | "feishu" | "telegram"
   webhook_url?: string
   feishu_url?: string
+  telegram_bot_token?: string
+  telegram_chat_id?: string
   enabled: boolean
   session_ids?: string[]
   interval_minutes?: number
+}
+
+export interface TelegramConfig {
+  bot_token: string
+  chat_id: string
+  enabled: boolean
+  bot_chat_enabled?: boolean
+  authorized_chat_ids?: string[]
 }
 
 export interface FeishuConfig {
@@ -66,8 +78,8 @@ export const monitorApi = {
   deleteConfig: (id: number) =>
     request.delete("/api/v1/monitor/configs/" + id),
 
-  testPush: (data: { url: string; secret?: string }) =>
-    request.post<{ status: string; response_code: number }>("/api/v1/monitor/test", data),
+  testPush: (data: { url?: string; secret?: string; platform?: string; telegram_bot_token?: string; telegram_chat_id?: string }) =>
+    request.post<{ status: string; response_code?: number; message?: string }>("/api/v1/monitor/test", data),
 
   // Feishu config
   getFeishuConfig: () =>
@@ -81,4 +93,14 @@ export const monitorApi = {
 
   testFeishuBitable: () =>
     request.post<{ status: string; message: string }>("/api/v1/feishu/test_bitable"),
+
+  // Telegram config
+  getTelegramConfig: () =>
+    request.get<TelegramConfig>("/api/v1/telegram/config"),
+
+  updateTelegramConfig: (data: TelegramConfig) =>
+    request.put("/api/v1/telegram/config", data),
+
+  testTelegram: () =>
+    request.post<{ status: string; message: string }>("/api/v1/telegram/test"),
 }

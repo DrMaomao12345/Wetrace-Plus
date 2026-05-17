@@ -13,6 +13,7 @@ export interface AIConfig {
   model: string;
   base_url: string;
   api_key_masked: string;
+  provider_keys_masked: Record<string, string>;
 }
 
 export interface AIConfigUpdate {
@@ -86,6 +87,9 @@ export interface TTSConfigUpdate {
   voice?: string;
   speed?: number;
   format?: string;
+  local_mode?: boolean;
+  local_binary?: string;
+  local_model?: string;
 }
 
 export interface AIPromptsResponse {
@@ -143,6 +147,21 @@ export const systemApi = {
   // TTS Config
   getTTSConfig: () => request.get<TTSConfig>("/api/v1/system/tts_config"),
   updateTTSConfig: (data: TTSConfigUpdate) => request.post("/api/v1/system/tts_config", data),
+
+  // Data directory
+  getDataDir: () => request.get<{ path: string }>("/api/v1/system/data_dir"),
+  openDataDir: () => request.post<{ path: string }>("/api/v1/system/data_dir/open"),
+
+  // 有效聊天记录起始时间（全局，影响往年同期对比的下界）
+  getEffectiveChatStart: () => request.get<{ year: number }>("/api/v1/system/effective_chat_start"),
+  updateEffectiveChatStart: (year: number) => request.post<{ year: number }>("/api/v1/system/effective_chat_start", { year }),
+
+  // 默认时区（全局，影响联系人侧分析查询）
+  getDefaultTimezone: () => request.get<{ offset: number; has_key: boolean }>("/api/v1/system/default_timezone"),
+  updateDefaultTimezone: (offset: number) => request.post<{ offset: number }>("/api/v1/system/default_timezone", { offset }),
+
+  // 当前消息 DB 文件的指纹（path+size+mtime 的 md5），用于客户端缓存校验
+  getDataVersion: () => request.get<{ version: string }>("/api/v1/system/data_version"),
   testTTSConfigUrl: (text?: string, voice?: string, speed?: number): string => {
     const baseURL = getApiBaseUrl();
     const params = new URLSearchParams();

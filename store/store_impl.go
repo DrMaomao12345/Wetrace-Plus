@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/afumu/wetrace/internal/model"
 	"github.com/afumu/wetrace/store/bind"
@@ -77,6 +78,10 @@ func (s *DefaultStore) GetMessages(ctx context.Context, query types.MessageQuery
 	return s.repo.GetMessages(ctx, query)
 }
 
+func (s *DefaultStore) GetTextMessagesGlobal(ctx context.Context, start, end time.Time, limit int) ([]string, error) {
+	return s.repo.GetTextMessagesGlobal(ctx, start, end, limit)
+}
+
 func (s *DefaultStore) SearchGlobalMessages(ctx context.Context, query types.MessageQuery) ([]*model.Message, error) {
 	return s.repo.SearchGlobalMessages(ctx, query)
 }
@@ -117,8 +122,20 @@ func (s *DefaultStore) GetMonthlyActivity(ctx context.Context, sessionID string)
 	return s.repo.GetMonthlyActivity(ctx, sessionID)
 }
 
+func (s *DefaultStore) GetYearlyMonthlyActivity(ctx context.Context, sessionID string) ([]*model.YearMonthStat, error) {
+	return s.repo.GetYearlyMonthlyActivity(ctx, sessionID)
+}
+
+func (s *DefaultStore) GetTopContactsHistoricalMonthlyAvg(ctx context.Context, limit int) ([]*model.MonthlyStat, error) {
+	return s.repo.GetTopContactsHistoricalMonthlyAvg(ctx, limit)
+}
+
 func (s *DefaultStore) GetMessageTypeDistribution(ctx context.Context, sessionID string) ([]*model.MessageTypeStat, error) {
 	return s.repo.GetMessageTypeDistribution(ctx, sessionID)
+}
+
+func (s *DefaultStore) GetCallStats(ctx context.Context, sessionID string) (*model.CallStats, error) {
+	return s.repo.GetCallStats(ctx, sessionID)
 }
 
 func (s *DefaultStore) GetMemberActivity(ctx context.Context, sessionID string) ([]*model.MemberActivity, error) {
@@ -145,8 +162,32 @@ func (s *DefaultStore) GetMessageContext(ctx context.Context, talker string, seq
 	return s.repo.GetMessageContext(ctx, talker, seq, before, after)
 }
 
-func (s *DefaultStore) GetAnnualReport(ctx context.Context, year int) (*model.AnnualReport, error) {
-	return s.repo.GetAnnualReport(ctx, year)
+func (s *DefaultStore) GetAnnualReport(ctx context.Context, year int, defaultTzOffset, pastStartYear int, segments []types.TZSegment, excludeTalkers []string) (*model.AnnualReport, error) {
+	return s.repo.GetAnnualReport(ctx, year, defaultTzOffset, pastStartYear, segments, excludeTalkers)
+}
+
+func (s *DefaultStore) GetAnnualWordCounts(ctx context.Context, year int, defaultTzOffset int, segments []types.TZSegment, excludeTalkers []string) (*model.WordCountStat, error) {
+	return s.repo.GetAnnualWordCounts(ctx, year, defaultTzOffset, segments, excludeTalkers)
+}
+
+func (s *DefaultStore) GetAnnualReportWithProgress(ctx context.Context, year int, defaultTzOffset, pastStartYear int, segments []types.TZSegment, excludeTalkers []string, progressFn types.ProgressCallback) (*model.AnnualReport, error) {
+	return s.repo.GetAnnualReportWithProgress(ctx, year, defaultTzOffset, pastStartYear, segments, excludeTalkers, progressFn)
+}
+
+func (s *DefaultStore) ComputeMonthlyAvgInRange(ctx context.Context, fromYear, toYear, tzOffsetSeconds int) []*model.MonthlyStat {
+	return s.repo.ComputeMonthlyAvgInRange(ctx, fromYear, toYear, tzOffsetSeconds)
+}
+
+func (s *DefaultStore) ComputePastOverviewAvg(ctx context.Context, year, pastStartYear, defaultTzOffset int) *model.AnnualOverview {
+	return s.repo.ComputePastOverviewAvg(ctx, year, pastStartYear, defaultTzOffset)
+}
+
+func (s *DefaultStore) SetDefaultTzModifier(mod string) {
+	s.repo.SetDefaultTzModifier(mod)
+}
+
+func (s *DefaultStore) GetDataVersion() string {
+	return s.repo.GetDataVersion()
 }
 
 func (s *DefaultStore) Watch(group string, callback func(event fsnotify.Event) error) error {

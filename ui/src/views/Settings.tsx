@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from "react"
+import { cn } from "@/lib/utils"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { systemApi, sessionApi } from "@/api"
 import { toast } from "sonner"
@@ -26,7 +27,63 @@ import {
   Search,
   X,
   Mic,
+  FolderOpen,
+  CalendarRange,
 } from "lucide-react"
+
+/* ============================================================
+ * AI Provider Presets
+ * ============================================================ */
+const AI_PRESETS = [
+  {
+    name: "OpenAI",
+    provider: "openai",
+    base_url: "https://api.openai.com/v1",
+    model: "gpt-4o",
+  },
+  {
+    name: "DeepSeek",
+    provider: "deepseek",
+    base_url: "https://api.deepseek.com/v1",
+    model: "deepseek-chat",
+  },
+  {
+    name: "Gemini",
+    provider: "google",
+    base_url: "https://generativelanguage.googleapis.com/v1beta/openai",
+    model: "gemini-2.0-flash",
+  },
+  {
+    name: "Claude",
+    provider: "anthropic",
+    base_url: "https://api.anthropic.com/v1",
+    model: "claude-sonnet-4-6",
+  },
+  {
+    name: "Ollama",
+    provider: "ollama",
+    base_url: "http://localhost:11434/v1",
+    model: "llama3",
+  },
+  {
+    name: "月之暗面",
+    provider: "moonshot",
+    base_url: "https://api.moonshot.cn/v1",
+    model: "moonshot-v1-8k",
+  },
+  {
+    name: "通义千问",
+    provider: "qwen",
+    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    model: "qwen-turbo",
+  },
+  {
+    name: "智谱",
+    provider: "zhipu",
+    base_url: "https://open.bigmodel.cn/api/paas/v4",
+    model: "glm-4-flash",
+  },
+]
 
 /* ============================================================
  * AI Config Section
@@ -108,21 +165,45 @@ function AIConfigSection() {
 
         {form.enabled && (
           <>
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium leading-none">提供商</label>
-              <Input
-                value={form.provider || ""}
-                onChange={(e) => setForm((f) => ({ ...f, provider: e.target.value }))}
-                placeholder="openai / deepseek / custom"
-                className="h-9"
-              />
+            {/* Provider presets */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium leading-none">快速选择服务商</label>
+              <div className="flex flex-wrap gap-1.5">
+                {AI_PRESETS.map((p) => {
+                  const active = form.provider === p.provider && form.base_url === p.base_url
+                  const hasSavedKey = !!config?.provider_keys_masked?.[p.provider]
+                  return (
+                    <button
+                      key={p.name}
+                      type="button"
+                      onClick={() => setForm((f) => ({ ...f, provider: p.provider, base_url: p.base_url, model: p.model, api_key: "" }))}
+                      className={cn(
+                        "px-2.5 py-1 rounded-md text-xs border transition-colors relative",
+                        active
+                          ? "bg-primary text-primary-foreground border-primary"
+                          : "bg-background text-muted-foreground border-border hover:border-primary hover:text-primary"
+                      )}
+                    >
+                      {p.name}
+                      {hasSavedKey && (
+                        <span className={cn(
+                          "absolute -top-1 -right-1 w-2 h-2 rounded-full",
+                          active ? "bg-white" : "bg-green-500"
+                        )} title="已保存 Key" />
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+              <p className="text-xs text-muted-foreground">绿色圆点表示该服务商已保存 Key，每个服务商 Key 独立保存</p>
             </div>
+
             <div className="space-y-1.5">
               <label className="text-sm font-medium leading-none">模型名称</label>
               <Input
                 value={form.model || ""}
                 onChange={(e) => setForm((f) => ({ ...f, model: e.target.value }))}
-                placeholder="gpt-4o / deepseek-chat"
+                placeholder="gpt-4o / deepseek-chat / gemini-2.0-flash"
                 className="h-9"
               />
             </div>
@@ -141,7 +222,11 @@ function AIConfigSection() {
                 type="password"
                 value={form.api_key || ""}
                 onChange={(e) => setForm((f) => ({ ...f, api_key: e.target.value }))}
-                placeholder={config?.api_key_masked || "输入 API Key"}
+                placeholder={
+                  config?.provider_keys_masked?.[form.provider || ""]
+                    ? `已保存（${config.provider_keys_masked[form.provider!]}），留空不修改`
+                    : "输入该服务商的 API Key"
+                }
                 className="h-9"
               />
             </div>
@@ -835,6 +920,9 @@ function TTSConfigSection() {
     base_url: "",
     api_key: "",
     model: "whisper-1",
+    local_mode: false,
+    local_binary: "",
+    local_model: "",
   })
 
   const { data: config, isLoading } = useQuery({
@@ -850,6 +938,9 @@ function TTSConfigSection() {
         base_url: config.base_url || "",
         api_key: "",
         model: config.model || "whisper-1",
+        local_mode: (config as any).local_mode || false,
+        local_binary: (config as any).local_binary || "",
+        local_model: (config as any).local_model || "",
       })
     }
   }, [config])
@@ -892,46 +983,84 @@ function TTSConfigSection() {
 
         {form.enabled && (
           <>
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium leading-none">提供商</label>
-              <Input
-                value={form.provider || ""}
-                onChange={(e) => setForm((f) => ({ ...f, provider: e.target.value }))}
-                placeholder="openai"
-                className="h-9"
+            {/* 模式切换 */}
+            <div className="flex items-center justify-between">
+              <div>
+                <label className="text-sm font-medium leading-none">本地模型模式</label>
+                <p className="text-xs text-muted-foreground mt-0.5">使用本地 whisper.cpp 识别，无需联网，识别后自动关闭模型</p>
+              </div>
+              <Switch
+                checked={form.local_mode || false}
+                onCheckedChange={(v) => setForm((f) => ({ ...f, local_mode: v }))}
               />
             </div>
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium leading-none">模型名称</label>
-              <Input
-                value={form.model || ""}
-                onChange={(e) => setForm((f) => ({ ...f, model: e.target.value }))}
-                placeholder="whisper-1"
-                className="h-9"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium leading-none">API 地址</label>
-              <Input
-                value={form.base_url || ""}
-                onChange={(e) => setForm((f) => ({ ...f, base_url: e.target.value }))}
-                placeholder="https://api.openai.com/v1"
-                className="h-9"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium leading-none">API Key</label>
-              <Input
-                type="password"
-                value={form.api_key || ""}
-                onChange={(e) => setForm((f) => ({ ...f, api_key: e.target.value }))}
-                placeholder={config?.api_key_masked || "输入 API Key"}
-                className="h-9"
-              />
-            </div>
-            <p className="text-xs text-muted-foreground">
-              配置后，语音消息旁会出现"转文字"按钮，点击即可将语音转为文字。支持 OpenAI Whisper 兼容接口。
-            </p>
+
+            {form.local_mode ? (
+              /* 本地模式：配置 whisper.cpp 路径 */
+              <div className="space-y-3 border rounded-md p-3 bg-muted/30">
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium leading-none">whisper.cpp 可执行文件路径</label>
+                  <Input
+                    value={form.local_binary || ""}
+                    onChange={(e) => setForm((f) => ({ ...f, local_binary: e.target.value }))}
+                    placeholder="C:\whisper\whisper-cli.exe"
+                    className="h-9 font-mono text-xs"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium leading-none">模型文件路径（.bin）</label>
+                  <Input
+                    value={form.local_model || ""}
+                    onChange={(e) => setForm((f) => ({ ...f, local_model: e.target.value }))}
+                    placeholder="C:\whisper\models\ggml-base.bin"
+                    className="h-9 font-mono text-xs"
+                  />
+                </div>
+                <div className="rounded-md bg-muted p-3 text-xs text-muted-foreground space-y-1">
+                  <p className="font-medium text-foreground">使用说明</p>
+                  <p>1. 前往 <span className="font-mono">github.com/ggerganov/whisper.cpp/releases</span> 下载预编译二进制（Windows 选 <span className="font-mono">whisper-cli.exe</span>）</p>
+                  <p>2. 前往 <span className="font-mono">huggingface.co/ggerganov/whisper.cpp</span> 下载模型文件（推荐 <span className="font-mono">ggml-base.bin</span>，中文建议用 <span className="font-mono">ggml-medium.bin</span>）</p>
+                  <p>3. 填入两者的完整路径后保存即可</p>
+                  <p>4. 每次识别时自动启动模型进程，识别完立即退出，不占内存</p>
+                  <p>5. 识别结果永久保存，再次打开聊天时自动显示</p>
+                </div>
+              </div>
+            ) : (
+              /* API 模式：调用远程 Whisper 接口 */
+              <>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium leading-none">模型名称</label>
+                  <Input
+                    value={form.model || ""}
+                    onChange={(e) => setForm((f) => ({ ...f, model: e.target.value }))}
+                    placeholder="whisper-1"
+                    className="h-9"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium leading-none">API 地址</label>
+                  <Input
+                    value={form.base_url || ""}
+                    onChange={(e) => setForm((f) => ({ ...f, base_url: e.target.value }))}
+                    placeholder="https://api.openai.com/v1"
+                    className="h-9"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium leading-none">API Key</label>
+                  <Input
+                    type="password"
+                    value={form.api_key || ""}
+                    onChange={(e) => setForm((f) => ({ ...f, api_key: e.target.value }))}
+                    placeholder={config?.api_key_masked || "输入 API Key"}
+                    className="h-9"
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  支持 OpenAI Whisper 兼容接口。识别结果永久保存，再次打开聊天时自动显示。
+                </p>
+              </>
+            )}
           </>
         )}
 
@@ -951,6 +1080,219 @@ function TTSConfigSection() {
 }
 
 /* ============================================================
+ * Data Directory Section
+ * ============================================================ */
+const TZ_OPTIONS_SETTINGS: { label: string; offset: number }[] = [
+  { label: "UTC-12", offset: -720 }, { label: "UTC-11", offset: -660 }, { label: "UTC-10", offset: -600 },
+  { label: "UTC-9", offset: -540 }, { label: "UTC-8", offset: -480 }, { label: "UTC-7", offset: -420 },
+  { label: "UTC-6", offset: -360 }, { label: "UTC-5", offset: -300 }, { label: "UTC-4", offset: -240 },
+  { label: "UTC-3", offset: -180 }, { label: "UTC-2", offset: -120 }, { label: "UTC-1", offset: -60 },
+  { label: "UTC", offset: 0 }, { label: "UTC+1", offset: 60 }, { label: "UTC+2", offset: 120 },
+  { label: "UTC+3", offset: 180 }, { label: "UTC+4", offset: 240 }, { label: "UTC+5", offset: 300 },
+  { label: "UTC+5:30 (印度)", offset: 330 }, { label: "UTC+6", offset: 360 }, { label: "UTC+7", offset: 420 },
+  { label: "UTC+8 (北京/上海)", offset: 480 }, { label: "UTC+9 (东京/首尔)", offset: 540 },
+  { label: "UTC+10", offset: 600 }, { label: "UTC+11", offset: 660 }, { label: "UTC+12", offset: 720 },
+  { label: "UTC+13", offset: 780 }, { label: "UTC+14", offset: 840 },
+]
+
+function DefaultTimezoneSection() {
+  const queryClient = useQueryClient()
+  const [offset, setOffset] = useState<number | null>(null)
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["default-timezone"],
+    queryFn: () => systemApi.getDefaultTimezone(),
+  })
+
+  useEffect(() => {
+    if (data && offset === null) {
+      // 服务端没保存过 → 用浏览器本地时区作为默认显示
+      const guess = data.has_key ? data.offset : -new Date().getTimezoneOffset()
+      setOffset(guess)
+    }
+  }, [data])
+
+  const mutation = useMutation({
+    mutationFn: (off: number) => systemApi.updateDefaultTimezone(off),
+    onSuccess: () => {
+      toast.success("已保存，联系人侧分析数据会按新时区计算")
+      queryClient.invalidateQueries({ queryKey: ["default-timezone"] })
+      // 让所有联系人侧分析查询重新拉取
+      queryClient.invalidateQueries({ queryKey: ["analysis"] })
+    },
+    onError: (e: Error) => toast.error("保存失败: " + e.message),
+  })
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <CalendarRange className="w-4 h-4 text-primary" />
+          默认时区
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-xs text-muted-foreground">
+          联系人统计中的「24 小时活跃分布 / 星期分布 / 月度趋势 / 每日趋势」按此时区聚合数据。
+          年度报告有自己独立的时区分段配置，不受此项影响。
+        </p>
+        <div className="flex items-center gap-2">
+          <label className="text-sm w-20 shrink-0">时区</label>
+          <select
+            value={offset ?? -new Date().getTimezoneOffset()}
+            onChange={(e) => setOffset(Number(e.target.value))}
+            className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+            disabled={isLoading}
+          >
+            {TZ_OPTIONS_SETTINGS.map((tz) => (
+              <option key={tz.offset} value={tz.offset}>{tz.label}</option>
+            ))}
+          </select>
+          <Button
+            size="sm"
+            onClick={() => offset !== null && mutation.mutate(offset)}
+            disabled={mutation.isPending || offset === null}
+          >
+            {mutation.isPending && <Loader2 className="w-4 h-4 animate-spin mr-1" />}
+            保存
+          </Button>
+        </div>
+        {data?.has_key && (
+          <p className="text-xs text-muted-foreground">
+            当前生效：<span className="font-bold text-foreground">UTC{data.offset >= 0 ? "+" : ""}{Math.floor(data.offset / 60)}{data.offset % 60 ? `:${Math.abs(data.offset % 60).toString().padStart(2, "0")}` : ""}</span>
+          </p>
+        )}
+        {!data?.has_key && (
+          <p className="text-xs text-muted-foreground">
+            未配置，目前使用服务器本地时区
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function EffectiveChatStartSection() {
+  const queryClient = useQueryClient()
+  const [yearInput, setYearInput] = useState<string>("")
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["effective-chat-start"],
+    queryFn: () => systemApi.getEffectiveChatStart(),
+  })
+
+  useEffect(() => {
+    if (data?.year && !yearInput) setYearInput(String(data.year))
+  }, [data])
+
+  const mutation = useMutation({
+    mutationFn: (year: number) => systemApi.updateEffectiveChatStart(year),
+    onSuccess: () => {
+      toast.success("已保存，年度报告平均值会自动重算")
+      queryClient.invalidateQueries({ queryKey: ["effective-chat-start"] })
+      // 不去 invalidate 整份报告（昂贵），只让 baseline 缓存失效，自动局部刷新
+      queryClient.invalidateQueries({ queryKey: ["report-baseline"] })
+      queryClient.invalidateQueries({ queryKey: ["past-monthly-avg"] })
+    },
+    onError: (e: Error) => toast.error("保存失败: " + e.message),
+  })
+
+  const handleSave = () => {
+    const y = parseInt(yearInput)
+    if (!y || y < 2000 || y > 2100) {
+      toast.error("请输入 2000-2100 之间的年份")
+      return
+    }
+    mutation.mutate(y)
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <CalendarRange className="w-4 h-4 text-primary" />
+          有效聊天记录起始时间
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-xs text-muted-foreground">
+          年度报告中「往年同期对比」「往年月均参考线」等计算的起始年份。
+          早于此年份的数据可能不完整或缺失，将被排除在对比统计外。
+        </p>
+        <div className="flex items-center gap-2">
+          <label className="text-sm w-20 shrink-0">起始年份</label>
+          <Input
+            type="number"
+            value={yearInput}
+            onChange={(e) => setYearInput(e.target.value)}
+            placeholder={isLoading ? "加载中..." : "2023"}
+            className="h-9 w-32"
+            min={2000}
+            max={2100}
+          />
+          <Button size="sm" onClick={handleSave} disabled={mutation.isPending || !yearInput}>
+            {mutation.isPending && <Loader2 className="w-4 h-4 animate-spin mr-1" />}
+            保存
+          </Button>
+        </div>
+        {data?.year && (
+          <p className="text-xs text-muted-foreground">
+            当前生效：<span className="font-bold text-foreground">{data.year}</span> 年起
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function DataDirSection() {
+  const { data, isLoading } = useQuery({
+    queryKey: ["data-dir"],
+    queryFn: () => systemApi.getDataDir(),
+  })
+
+  const openMutation = useMutation({
+    mutationFn: () => systemApi.openDataDir(),
+    onError: () => toast.error("无法打开文件夹"),
+  })
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <FolderOpen className="w-4 h-4 text-primary" />
+          本地数据目录
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-xs text-muted-foreground">
+          应用数据库、缓存、导出文件均保存在此目录。
+        </p>
+        <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2">
+          {isLoading ? (
+            <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+          ) : (
+            <span className="font-mono text-xs break-all flex-1 select-all">
+              {data?.path ?? "—"}
+            </span>
+          )}
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          className="gap-1.5"
+          onClick={() => openMutation.mutate()}
+          disabled={openMutation.isPending || isLoading}
+        >
+          <FolderOpen className="w-4 h-4" />
+          在文件管理器中打开
+        </Button>
+      </CardContent>
+    </Card>
+  )
+}
+
+/* ============================================================
  * Main Settings View
  * ============================================================ */
 export default function SettingsView() {
@@ -962,6 +1304,9 @@ export default function SettingsView() {
           <p className="text-sm text-muted-foreground mt-1">管理应用配置</p>
         </div>
 
+        <DataDirSection />
+        <DefaultTimezoneSection />
+        <EffectiveChatStartSection />
         <AIConfigSection />
         <TTSConfigSection />
         <SyncConfigSection />

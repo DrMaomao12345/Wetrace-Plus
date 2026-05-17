@@ -2,8 +2,12 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -184,6 +188,11 @@ func maskAPIKey(key string) string {
 	return key[:4] + "****" + key[len(key)-4:]
 }
 
+// aiProviderViperKey 返回某服务商 Key 在 viper 中的配置键名
+func aiProviderViperKey(provider string) string {
+	return "AI_KEY_" + strings.ToUpper(strings.NewReplacer("-", "_", ".", "_").Replace(provider))
+}
+
 // GetAIConfig 获取 AI 配置
 func (a *API) GetAIConfig(c *gin.Context) {
 	a.mu.Lock()
@@ -194,12 +203,23 @@ func (a *API) GetAIConfig(c *gin.Context) {
 		masked = maskAPIKey(a.Conf.AIAPIKey)
 	}
 
+	// 返回所有已保存服务商的脱敏 Key
+	knownProviders := []string{"openai", "deepseek", "google", "anthropic", "ollama", "moonshot", "qwen", "zhipu"}
+	providerKeysMasked := make(map[string]string)
+	for _, p := range knownProviders {
+		k := viper.GetString(aiProviderViperKey(p))
+		if k != "" {
+			providerKeysMasked[p] = maskAPIKey(k)
+		}
+	}
+
 	transport.SendSuccess(c, gin.H{
-		"enabled":        a.Conf.AIEnabled,
-		"provider":       a.Conf.AIProvider,
-		"model":          a.Conf.AIModel,
-		"base_url":       a.Conf.AIBaseURL,
-		"api_key_masked": masked,
+		"enabled":              a.Conf.AIEnabled,
+		"provider":             a.Conf.AIProvider,
+		"model":                a.Conf.AIModel,
+		"base_url":             a.Conf.AIBaseURL,
+		"api_key_masked":       masked,
+		"provider_keys_masked": providerKeysMasked,
 	})
 }
 
@@ -217,15 +237,28 @@ func (a *API) UpdateAIConfig(c *gin.Context) {
 		return
 	}
 
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	// 若前端传了新 Key，保存到该服务商专属配置项
+	if req.APIKey != "" && req.Provider != "" {
+		viper.Set(aiProviderViperKey(req.Provider), req.APIKey)
+	}
+
+	// 未传 Key 时从该服务商专属配置项加载，再回退到全局旧 Key
+	if req.APIKey == "" {
+		req.APIKey = viper.GetString(aiProviderViperKey(req.Provider))
+	}
+	if req.APIKey == "" {
+		req.APIKey = a.Conf.AIAPIKey
+	}
+
 	if req.Enabled {
 		if req.Model == "" || req.BaseURL == "" || req.APIKey == "" {
 			transport.BadRequest(c, "启用 AI 时必须提供 model、base_url 和 api_key")
 			return
 		}
 	}
-
-	a.mu.Lock()
-	defer a.mu.Unlock()
 
 	// 持久化到 viper
 	viper.Set("AI_ENABLED", req.Enabled)
@@ -559,17 +592,23 @@ func (a *API) GetTTSConfig(c *gin.Context) {
 		"base_url":       viper.GetString("TTS_BASE_URL"),
 		"api_key_masked": masked,
 		"model":          viper.GetString("TTS_MODEL"),
+		"local_mode":     viper.GetBool("TTS_LOCAL_MODE"),
+		"local_binary":   viper.GetString("TTS_LOCAL_BINARY"),
+		"local_model":    viper.GetString("TTS_LOCAL_MODEL"),
 	})
 }
 
 // UpdateTTSConfig 更新语音转文字配置
 func (a *API) UpdateTTSConfig(c *gin.Context) {
 	var req struct {
-		Enabled  bool   `json:"enabled"`
-		Provider string `json:"provider"`
-		BaseURL  string `json:"base_url"`
-		APIKey   string `json:"api_key"`
-		Model    string `json:"model"`
+		Enabled      bool   `json:"enabled"`
+		Provider     string `json:"provider"`
+		BaseURL      string `json:"base_url"`
+		APIKey       string `json:"api_key"`
+		Model        string `json:"model"`
+		LocalMode    bool   `json:"local_mode"`
+		LocalBinary  string `json:"local_binary"`
+		LocalModel   string `json:"local_model"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		transport.BadRequest(c, "参数错误")
@@ -586,6 +625,9 @@ func (a *API) UpdateTTSConfig(c *gin.Context) {
 		viper.Set("TTS_API_KEY", req.APIKey)
 	}
 	viper.Set("TTS_MODEL", req.Model)
+	viper.Set("TTS_LOCAL_MODE", req.LocalMode)
+	viper.Set("TTS_LOCAL_BINARY", req.LocalBinary)
+	viper.Set("TTS_LOCAL_MODEL", req.LocalModel)
 
 	if err := viper.WriteConfig(); err != nil {
 		transport.InternalServerError(c, "保存配置失败: "+err.Error())
@@ -594,16 +636,146 @@ func (a *API) UpdateTTSConfig(c *gin.Context) {
 
 	// 重建 TTS 客户端
 	if req.Enabled {
-		apiKey := req.APIKey
-		if apiKey == "" {
-			apiKey = viper.GetString("TTS_API_KEY")
-		}
-		if apiKey != "" && req.BaseURL != "" {
-			a.TTS = tts.NewClient(apiKey, req.BaseURL, req.Model)
+		if req.LocalMode {
+			if req.LocalBinary != "" && req.LocalModel != "" {
+				a.TTS = tts.NewLocalClient(req.LocalBinary, req.LocalModel)
+			}
+		} else {
+			apiKey := req.APIKey
+			if apiKey == "" {
+				apiKey = viper.GetString("TTS_API_KEY")
+			}
+			if apiKey != "" && req.BaseURL != "" {
+				a.TTS = tts.NewClient(apiKey, req.BaseURL, req.Model)
+			}
 		}
 	} else {
 		a.TTS = nil
 	}
 
 	transport.SendSuccess(c, gin.H{"status": "ok"})
+}
+
+// GetDataDir 返回数据目录的绝对路径
+func (a *API) GetDataDir(c *gin.Context) {
+	abs, err := filepath.Abs(a.Conf.DataDir)
+	if err != nil {
+		abs = a.Conf.DataDir
+	}
+	transport.SendSuccess(c, gin.H{"path": abs})
+}
+
+// OpenDataDir 在系统文件管理器中打开数据目录
+func (a *API) OpenDataDir(c *gin.Context) {
+	abs, err := filepath.Abs(a.Conf.DataDir)
+	if err != nil {
+		abs = a.Conf.DataDir
+	}
+	if err := os.MkdirAll(abs, 0755); err != nil {
+		transport.InternalServerError(c, "目录不存在: "+err.Error())
+		return
+	}
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		cmd = exec.Command("explorer", abs)
+	case "darwin":
+		cmd = exec.Command("open", abs)
+	default:
+		cmd = exec.Command("xdg-open", abs)
+	}
+	_ = cmd.Start()
+	transport.SendSuccess(c, gin.H{"path": abs})
+}
+
+// GetEffectiveChatStart 获取「有效聊天记录起始时间」(用于年度报告往年同期对比的下界年份)
+func (a *API) GetEffectiveChatStart(c *gin.Context) {
+	year := viper.GetInt("EFFECTIVE_CHAT_START_YEAR")
+	if year == 0 {
+		year = 2023
+	}
+	transport.SendSuccess(c, gin.H{"year": year})
+}
+
+// UpdateEffectiveChatStart 更新「有效聊天记录起始时间」
+func (a *API) UpdateEffectiveChatStart(c *gin.Context) {
+	var req struct {
+		Year int `json:"year"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		transport.BadRequest(c, "请求体格式错误")
+		return
+	}
+	if req.Year < 2000 || req.Year > 2100 {
+		transport.BadRequest(c, "年份必须在 2000-2100 之间")
+		return
+	}
+	viper.Set("EFFECTIVE_CHAT_START_YEAR", req.Year)
+	if err := viper.WriteConfig(); err != nil {
+		transport.InternalServerError(c, "保存配置失败: "+err.Error())
+		return
+	}
+	transport.SendSuccess(c, gin.H{"year": req.Year})
+}
+
+// effectiveChatStartYear 内部读取（默认 2023）
+func effectiveChatStartYear() int {
+	y := viper.GetInt("EFFECTIVE_CHAT_START_YEAR")
+	if y < 2000 || y > 2100 {
+		return 2023
+	}
+	return y
+}
+
+// GetDefaultTimezone 获取「默认时区偏移分钟」（影响联系人侧的小时/星期/月度等查询）
+func (a *API) GetDefaultTimezone(c *gin.Context) {
+	off, hasKey := defaultTzOffsetMinutes()
+	transport.SendSuccess(c, gin.H{"offset": off, "has_key": hasKey})
+}
+
+// UpdateDefaultTimezone 更新默认时区
+func (a *API) UpdateDefaultTimezone(c *gin.Context) {
+	var req struct {
+		Offset int `json:"offset"` // 分钟，东正西负，UTC+8 → 480
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		transport.BadRequest(c, "请求体格式错误")
+		return
+	}
+	if req.Offset < -720 || req.Offset > 840 {
+		transport.BadRequest(c, "offset 必须在 -720 ~ 840 之间（分钟）")
+		return
+	}
+	viper.Set("DEFAULT_TZ_OFFSET_MINUTES", req.Offset)
+	viper.Set("DEFAULT_TZ_OFFSET_SET", true)
+	if err := viper.WriteConfig(); err != nil {
+		transport.InternalServerError(c, "保存配置失败: "+err.Error())
+		return
+	}
+	// 同步到 Repository
+	a.Store.SetDefaultTzModifier(buildTzModifier(req.Offset))
+	transport.SendSuccess(c, gin.H{"offset": req.Offset})
+}
+
+// defaultTzOffsetMinutes 内部读取（未设置返回 false 让前端用浏览器时区填充）
+func defaultTzOffsetMinutes() (int, bool) {
+	if !viper.IsSet("DEFAULT_TZ_OFFSET_SET") || !viper.GetBool("DEFAULT_TZ_OFFSET_SET") {
+		return 0, false
+	}
+	return viper.GetInt("DEFAULT_TZ_OFFSET_MINUTES"), true
+}
+
+// buildTzModifier 把分钟偏移转换为 SQLite strftime 修饰符字符串
+func buildTzModifier(offsetMinutes int) string {
+	if offsetMinutes == 0 {
+		return "'utc'"
+	}
+	return fmt.Sprintf("'%+d seconds'", offsetMinutes*60)
+}
+
+// GetDataVersion 返回当前消息数据的指纹（DB 文件 path+size+mtime 的 md5）
+// 前端用它判断本地缓存的报告是否还有效
+func (a *API) GetDataVersion(c *gin.Context) {
+	v := a.Store.GetDataVersion()
+	transport.SendSuccess(c, gin.H{"version": v})
 }

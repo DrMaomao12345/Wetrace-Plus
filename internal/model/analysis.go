@@ -37,11 +37,31 @@ type RepeatStat struct {
 	MemberName string `json:"memberName"` // 最近一次发起的成员
 }
 
+// YearMonthStat 按年月分组的统计
+type YearMonthStat struct {
+	Year  int `json:"year"`
+	Month int `json:"month"`
+	Count int `json:"count"`
+}
+
+// CallStats 通话统计
+type CallStats struct {
+	TotalCalls      int `json:"total_calls"`
+	CompletedCalls  int `json:"completed_calls"`
+	MissedCalls     int `json:"missed_calls"`
+	VoiceCalls      int `json:"voice_calls"`
+	VideoCalls      int `json:"video_calls"`
+	TotalDuration   int `json:"total_duration"`
+	LongestDuration int `json:"longest_duration"`
+	AvgDuration     int `json:"avg_duration"`
+}
+
 // PersonalTopContact 个人分析：亲密度排行榜项
 type PersonalTopContact struct {
 	Talker       string `json:"talker"`       // 联系人ID
 	Name         string `json:"name"`         // 联系人姓名
 	Avatar       string `json:"avatar"`       // 头像
+	IsGroup      bool   `json:"isGroup"`      // 是否为群聊
 	MessageCount int    `json:"messageCount"` // 总消息数
 	SentCount    int    `json:"sentCount"`    // 我发送的消息数
 	RecvCount    int    `json:"recvCount"`    // 对方发送的消息数
@@ -100,16 +120,45 @@ type DashboardTimeline struct {
 	DurationDays    int   `json:"duration_days"`
 }
 
+// WordCountStat 字数统计（按消息内容字符数）
+type WordCountStat struct {
+	TotalChars int                       `json:"total_chars"`
+	SentChars  int                       `json:"sent_chars"`
+	RecvChars  int                       `json:"recv_chars"`
+	Contacts   []*ContactWordCountStat   `json:"contacts"` // 按 talker 分组
+}
+
+// ContactWordCountStat 单个联系人/群聊的字数
+type ContactWordCountStat struct {
+	Talker     string `json:"talker"`
+	SentChars  int    `json:"sentChars"`
+	RecvChars  int    `json:"recvChars"`
+	TotalChars int    `json:"totalChars"`
+}
+
+// OverviewDeltas 概览数据相对往年同期的百分比差（如 12.5 = +12.5%；nil 表示无往年数据可对比）
+type OverviewDeltas struct {
+	TotalMessages    *float64 `json:"total_messages"`
+	SentMessages     *float64 `json:"sent_messages"`
+	ReceivedMessages *float64 `json:"received_messages"`
+	ActiveContacts   *float64 `json:"active_contacts"`
+	ActiveChatrooms  *float64 `json:"active_chatrooms"`
+	ActiveDays       *float64 `json:"active_days"`
+}
+
 // AnnualReport 年度报告
 type AnnualReport struct {
-	Year         int                   `json:"year"`
-	Overview     AnnualOverview        `json:"overview"`
-	TopContacts  []*PersonalTopContact `json:"top_contacts"`
-	MonthlyTrend []*MonthlyStat        `json:"monthly_trend"`
-	WeekdayDist  []*WeekdayStat        `json:"weekday_distribution"`
-	HourlyDist   []*HourlyStat         `json:"hourly_distribution"`
-	MessageTypes map[string]int        `json:"message_types"`
-	Highlights   AnnualHighlights      `json:"highlights"`
+	Year                int                   `json:"year"`
+	DataVersion         string                `json:"data_version,omitempty"` // 数据指纹，用于客户端缓存校验
+	Overview            AnnualOverview        `json:"overview"`
+	OverviewDeltas      *OverviewDeltas       `json:"overview_deltas,omitempty"`
+	TopContacts         []*PersonalTopContact `json:"top_contacts"`
+	MonthlyTrend        []*MonthlyStat        `json:"monthly_trend"`
+	PastYearsMonthlyAvg []*MonthlyStat        `json:"past_years_monthly_avg"` // 往年月度消息趋势的平均
+	WeekdayDist         []*WeekdayStat        `json:"weekday_distribution"`
+	HourlyDist          []*HourlyStat         `json:"hourly_distribution"`
+	MessageTypes        map[string]int        `json:"message_types"`
+	Highlights          AnnualHighlights      `json:"highlights"`
 }
 
 // AnnualOverview 年度概览

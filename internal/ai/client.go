@@ -45,12 +45,16 @@ func NewClient(apiKey, baseURL, model string) *Client {
 		BaseURL: baseURL,
 		Model:   model,
 		HTTP: &http.Client{
-			Timeout: 60 * time.Second,
+			Timeout: 0, // 不设全局超时，由 context 控制取消
 		},
 	}
 }
 
 func (c *Client) Chat(messages []Message) (string, error) {
+	return c.ChatWithContext(context.Background(), messages)
+}
+
+func (c *Client) ChatWithContext(ctx context.Context, messages []Message) (string, error) {
 	reqBody := ChatCompletionRequest{
 		Model:    c.Model,
 		Messages: messages,
@@ -60,7 +64,7 @@ func (c *Client) Chat(messages []Message) (string, error) {
 		return "", err
 	}
 
-	req, err := http.NewRequest("POST", fmt.Sprintf("%s/chat/completions", c.BaseURL), bytes.NewBuffer(bodyBytes))
+	req, err := http.NewRequestWithContext(ctx, "POST", fmt.Sprintf("%s/chat/completions", c.BaseURL), bytes.NewBuffer(bodyBytes))
 	if err != nil {
 		return "", err
 	}

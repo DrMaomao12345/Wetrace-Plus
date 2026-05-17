@@ -3,18 +3,19 @@ import { MessageList } from "@/components/chat/MessageList"
 import { useAppStore } from "@/stores/app"
 import { cn } from "@/lib/utils"
 import { useChat } from "@/hooks/useChat"
-import { RefreshCw, ArrowLeft, Smile, PlusCircle, Mic, Download, Sparkles, ImageIcon, Images, BrainCircuit, MessageSquareQuote, MoreHorizontal } from "lucide-react"
+import { RefreshCw, ArrowLeft, Smile, PlusCircle, Mic, Download, Sparkles, ImageIcon, Images, BrainCircuit, MessageSquareQuote, MoreHorizontal, Type } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { systemApi, mediaApi } from "@/api"
 import { toast } from "sonner"
 import { aiApi } from "@/api/ai"
 import { createPortal } from "react-dom"
-import { useState, useMemo, useRef, useCallback } from "react"
+import { useState, useMemo, useRef, useCallback, useEffect } from "react"
 import { useSessions } from "@/hooks/useSession"
 import { useMessages } from "@/hooks/useChatLog"
 import { AnalysisPanel } from "@/components/analysis/AnalysisPanel"
 import { ExportModal } from "@/components/chat/ExportModal"
 import { AISummaryModal } from "@/components/ai/AISummaryModal"
+import { SUMMARY_RETRY_KEY } from "@/views/AISummaryHistory"
 import { AISimulateChat } from "@/components/ai/AISimulateChat"
 import { SessionGalleryModal } from "@/components/chat/SessionGalleryModal"
 
@@ -28,12 +29,21 @@ export default function Chat() {
   // AI States
   const [showAISummary, setShowAISummary] = useState(false)
   const [aiSummary, setAiSummary] = useState("")
+  const [aiSummaryError, setAiSummaryError] = useState("")
+  const [lastSummaryHistoryId] = useState("")
   const [isSummarizing, setIsSummarizing] = useState(false)
+  const [summaryInitialPrompt, setSummaryInitialPrompt] = useState("")
+  const [summaryInitialTimeRange, setSummaryInitialTimeRange] = useState("")
   const [showAISimulate, setShowAISimulate] = useState(false)
   const [showSessionGallery, setShowSessionGallery] = useState(false)
   const [showMoreMenu, setShowMoreMenu] = useState(false)
   const moreButtonRef = useRef<HTMLButtonElement>(null)
   const [menuPos, setMenuPos] = useState({ top: 0, right: 0 })
+
+  // Batch voice transcription
+  const [isBatchTranscribing, setIsBatchTranscribing] = useState(false)
+  const [batchProgress, setBatchProgress] = useState<{ done: number; total: number } | null>(null)
+  const batchPollRef = useRef<number | null>(null)
 
   const openMoreMenu = useCallback(() => {
     if (moreButtonRef.current) {
@@ -50,23 +60,94 @@ export default function Chat() {
     return activeTalker?.endsWith('@chatroom')
   }, [activeTalker])
 
-  const handleAISummarize = async (timeRange?: string) => {
-    if (!activeTalker) return
-    setShowAISummary(true)
-    setIsSummarizing(true)
+  // 从历史页「前往重试」跳转过来时，自动打开弹窗并触发总结
+  useEffect(() => {
+    const raw = sessionStorage.getItem(SUMMARY_RETRY_KEY)
+    if (!raw) return
+    sessionStorage.removeItem(SUMMARY_RETRY_KEY)
     try {
-      const res = await aiApi.summarize({ 
+      const { talker, time_range, prompt, retry_of } = JSON.parse(raw)
+      if (talker) {
+        setActiveTalker(talker)
+        setSummaryInitialPrompt(prompt || "")
+        setSummaryInitialTimeRange(time_range || "")
+        setShowAISummary(true)
+        // 延迟一帧等 activeTalker 更新后再触发
+        setTimeout(() => {
+          handleAISummarize(time_range || undefined, prompt || undefined, retry_of || undefined)
+        }, 100)
+      }
+    } catch {}
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const handleAISummarize = async (timeRange?: string, customPrompt?: string, retryOf?: string) => {
+    if (!activeTalker) return
+    setIsSummarizing(true)
+    setAiSummaryError("")
+    setAiSummary("")
+    try {
+      const res = await aiApi.summarize({
         talker: activeTalker,
-        time_range: timeRange
+        time_range: timeRange,
+        custom_prompt: customPrompt,
+        retry_of: retryOf,
       })
       setAiSummary(res)
-    } catch (err) {
-      console.error("AI Summarize failed:", err)
-      setAiSummary("AI 总结失败，请检查后端 AI 配置是否正确。")
+    } catch (err: any) {
+      const msg = err?.message || "AI 总结失败，请检查后端 AI 配置是否正确。"
+      setAiSummaryError(msg)
+      // lastSummaryHistoryId 由后端写入历史后前端无法直接获取 ID，
+      // 这里用时间戳近似标记（history 页可精确查看）
     } finally {
       setIsSummarizing(false)
     }
   }
+
+  const stopBatchPoll = () => {
+    if (batchPollRef.current !== null) {
+      clearInterval(batchPollRef.current)
+      batchPollRef.current = null
+    }
+  }
+
+  const handleBatchTranscribe = async () => {
+    if (!activeTalker || isBatchTranscribing) return
+    setShowMoreMenu(false)
+    try {
+      await mediaApi.transcribeSession(activeTalker)
+      setIsBatchTranscribing(true)
+      setBatchProgress({ done: 0, total: 0 })
+      toast.info("批量转文字任务已启动，请稍候...")
+
+      batchPollRef.current = window.setInterval(async () => {
+        try {
+          const status = await mediaApi.transcribeSessionStatus()
+          setBatchProgress({ done: status.done, total: status.total })
+          if (!status.running) {
+            stopBatchPoll()
+            setIsBatchTranscribing(false)
+            setBatchProgress(null)
+            if (status.errors > 0) {
+              toast.warning(`转文字完成：${status.done - status.errors} 成功，${status.errors} 失败`)
+            } else {
+              toast.success(`转文字完成！共处理 ${status.done} 条语音消息`)
+            }
+          }
+        } catch {
+          stopBatchPoll()
+          setIsBatchTranscribing(false)
+          setBatchProgress(null)
+          toast.error("获取转文字状态失败")
+        }
+      }, 2000)
+    } catch (err: any) {
+      toast.error("启动转文字失败: " + (err?.message || "未知错误"))
+    }
+  }
+
+  // Clean up poll timer on unmount
+  useEffect(() => () => stopBatchPoll(), [])
 
   const handleSessionCache = async () => {
     if (!activeTalker) return
@@ -184,7 +265,7 @@ export default function Chat() {
                   variant="ghost"
                   size="sm"
                   className="gap-2 text-primary hover:bg-primary/10"
-                  onClick={() => handleAISummarize()}
+                  onClick={() => setShowAISummary(true)}
                   title="AI 总结最近对话"
                 >
                   <BrainCircuit className="w-4 h-4" />
@@ -201,6 +282,14 @@ export default function Chat() {
                   <Download className="w-4 h-4" />
                   <span className="text-xs">导出</span>
                 </Button>
+
+                {/* Batch transcribe progress badge */}
+                {isBatchTranscribing && batchProgress && (
+                  <span className="text-xs text-muted-foreground flex items-center gap-1">
+                    <RefreshCw className="w-3 h-3 animate-spin" />
+                    {batchProgress.done}/{batchProgress.total}
+                  </span>
+                )}
 
                 {/* More dropdown */}
                 <Button
@@ -296,6 +385,16 @@ export default function Chat() {
                           <Mic className="w-4 h-4" />
                           导出语音
                         </button>
+                        <button
+                          className="w-full px-3 py-2 text-sm text-left hover:bg-muted/50 transition-colors flex items-center gap-2 disabled:opacity-50"
+                          onClick={handleBatchTranscribe}
+                          disabled={isBatchTranscribing}
+                        >
+                          <Type className="w-4 h-4" />
+                          {isBatchTranscribing && batchProgress
+                            ? `转文字 ${batchProgress.done}/${batchProgress.total}`
+                            : "一键转文字"}
+                        </button>
 
                         <div className="border-t my-1" />
                         {/* 其他 */}
@@ -377,9 +476,13 @@ export default function Chat() {
 
       <AISummaryModal
         isOpen={showAISummary}
-        onClose={() => setShowAISummary(false)}
+        onClose={() => { setShowAISummary(false); setAiSummaryError(""); setAiSummary(""); setSummaryInitialPrompt(""); setSummaryInitialTimeRange("") }}
         summary={aiSummary}
         isLoading={isSummarizing}
+        error={aiSummaryError}
+        lastHistoryId={lastSummaryHistoryId}
+        initialPrompt={summaryInitialPrompt}
+        initialTimeRange={summaryInitialTimeRange}
         onSummarize={handleAISummarize}
       />
 

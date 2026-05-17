@@ -9,6 +9,7 @@ import AnnualReport from '@/views/AnnualReport'
 import Sentiment from '@/views/Sentiment'
 import WordCloud from '@/views/WordCloud'
 import AITools from '@/views/AITools'
+import AISummaryHistory from '@/views/AISummaryHistory'
 import Contacts from '@/views/Contacts'
 import Gallery from '@/views/Gallery'
 import Settings from '@/views/Settings'
@@ -93,6 +94,7 @@ function App() {
           <Route path="sentiment" element={<Sentiment />} />
           <Route path="wordcloud" element={<WordCloud />} />
           <Route path="ai-tools" element={<AITools />} />
+          <Route path="ai-summary-history" element={<AISummaryHistory />} />
           <Route path="contacts" element={<Contacts />} />
           <Route path="gallery" element={<Gallery />} />
           <Route path="settings" element={<Settings />} />

@@ -212,6 +212,21 @@ func (c *Checker) sendAlert(cfg MonitorConfig, msg *model.Message, matchInfo str
 	switch cfg.Platform {
 	case "feishu":
 		c.sendFeishuAlert(cfg, webhookMsg, ruleName)
+	case "telegram":
+		token := cfg.TelegramBotToken
+		chatID := cfg.TelegramChatID
+		if token == "" || chatID == "" {
+			globalCfg := c.monitor.GetTelegramConfig()
+			if globalCfg.Enabled {
+				token = globalCfg.BotToken
+				chatID = globalCfg.ChatID
+			}
+		}
+		if token != "" && chatID != "" {
+			if err := SendTelegramAlert(token, chatID, webhookMsg, ruleName); err != nil {
+				log.Error().Err(err).Msg("Telegram 告警发送失败")
+			}
+		}
 	case "webhook":
 		if cfg.WebhookURL != "" {
 			c.sendWebhookAlert(cfg, webhookMsg, ruleName)

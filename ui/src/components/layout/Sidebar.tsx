@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils"
 import {
   MessageSquare, RefreshCw, Moon, Sun, Monitor, Search, Key,
   ImageIcon, BarChart3, Sparkles, Users, Settings, Shield,
-  ChevronDown, CalendarDays, Heart, Cloud, BrainCircuit, PlayCircle, Clock,
+  ChevronDown, CalendarDays, Heart, Cloud, BrainCircuit, PlayCircle, Clock, History,
 } from "lucide-react"
 import { useNavigate, useLocation } from "react-router-dom"
 import { useState, useEffect } from "react"
@@ -53,6 +53,7 @@ export function Sidebar() {
         { key: 'report', icon: CalendarDays, label: '年度报告', path: '/report' },
         { key: 'sentiment', icon: Heart, label: '情感分析', path: '/sentiment' },
         { key: 'wordcloud', icon: Cloud, label: '词云', path: '/wordcloud' },
+        { key: 'replay', icon: PlayCircle, label: '对话回放', path: '/replay' },
       ],
     },
     {
@@ -61,7 +62,7 @@ export function Sidebar() {
       label: 'AI工具',
       children: [
         { key: 'ai-tools', icon: BrainCircuit, label: 'AI工具箱', path: '/ai-tools' },
-        { key: 'replay', icon: PlayCircle, label: '对话回放', path: '/replay' },
+        { key: 'ai-summary-history', icon: History, label: '总结历史', path: '/ai-summary-history' },
       ],
     },
     { key: 'search', icon: Search, label: '搜索', path: '/search' },
@@ -231,7 +232,7 @@ export function Sidebar() {
           onClick={() => handleNavClick('chat', '/chat')}
         >
           <MessageSquare className="w-5 h-5" />
-          <span className="font-semibold text-sm">WeTrace</span>
+          <span className="font-semibold text-sm">WeTrace Pro</span>
         </div>
       </div>
 
@@ -245,6 +246,8 @@ export function Sidebar() {
       {/* Bottom section: settings + utility buttons */}
       <div className="mt-auto px-2 flex flex-col gap-0.5 pt-2 border-t border-border mx-2">
         {renderNavItem(settingsItem)}
+
+        <div className="text-[10px] text-muted-foreground/40 text-center py-1 select-none">v1.5.2</div>
 
         <div className="flex items-center gap-1 mt-1 px-1">
           <button

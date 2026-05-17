@@ -10,21 +10,23 @@ import (
 
 // MonitorConfig 统一监控配置（关键词匹配 + AI匹配）
 type MonitorConfig struct {
-	ID              int64    `json:"id"`
-	Name            string   `json:"name"`
-	Type            string   `json:"type"`             // "keyword" | "ai"
-	Prompt          string   `json:"prompt"`            // AI提示词（type=ai时使用）
-	Keywords        []string `json:"keywords"`          // 关键词列表（type=keyword时使用）
-	Platform        string   `json:"platform"`          // "webhook" | "feishu"
-	WebhookURL      string   `json:"webhook_url"`       // 通用Webhook URL
-	FeishuURL       string   `json:"feishu_url"`        // 飞书机器人Webhook URL
-	Secret          string   `json:"secret"`            // 签名密钥（可选）
-	Enabled         bool     `json:"enabled"`
-	SessionIDs      []string `json:"session_ids"`       // 监控哪些会话（空=全部）
-	IntervalMinutes int      `json:"interval_minutes"`  // 监控间隔（分钟）
-	LastCheckTime   int64    `json:"last_check_time"`   // 上次检查时间
-	CreatedAt       int64    `json:"created_at"`
-	UpdatedAt       int64    `json:"updated_at"`
+	ID               int64    `json:"id"`
+	Name             string   `json:"name"`
+	Type             string   `json:"type"`              // "keyword" | "ai"
+	Prompt           string   `json:"prompt"`             // AI提示词（type=ai时使用）
+	Keywords         []string `json:"keywords"`           // 关键词列表（type=keyword时使用）
+	Platform         string   `json:"platform"`           // "webhook" | "feishu" | "telegram"
+	WebhookURL       string   `json:"webhook_url"`        // 通用Webhook URL
+	FeishuURL        string   `json:"feishu_url"`         // 飞书机器人Webhook URL
+	Secret           string   `json:"secret"`             // 签名密钥（可选）
+	TelegramBotToken string   `json:"telegram_bot_token"` // Telegram Bot Token
+	TelegramChatID   string   `json:"telegram_chat_id"`   // Telegram Chat ID
+	Enabled          bool     `json:"enabled"`
+	SessionIDs       []string `json:"session_ids"`        // 监控哪些会话（空=全部）
+	IntervalMinutes  int      `json:"interval_minutes"`   // 监控间隔（分钟）
+	LastCheckTime    int64    `json:"last_check_time"`    // 上次检查时间
+	CreatedAt        int64    `json:"created_at"`
+	UpdatedAt        int64    `json:"updated_at"`
 }
 
 // FeishuConfig 飞书平台全局配置
@@ -40,11 +42,21 @@ type FeishuConfig struct {
 	PushType  string `json:"push_type"` // "bot" | "bitable" | "both"
 }
 
+// TelegramConfig Telegram 平台全局配置
+type TelegramConfig struct {
+	BotToken            string   `json:"bot_token"`
+	ChatID              string   `json:"chat_id"`
+	Enabled             bool     `json:"enabled"`              // 是否启用监控告警推送
+	BotChatEnabled      bool     `json:"bot_chat_enabled"`     // 是否启用 Bot 交互查询
+	AuthorizedChatIDs   []string `json:"authorized_chat_ids"`  // 允许查询的 chat_id 白名单
+}
+
 // storeData 持久化数据结构
 type storeData struct {
-	Configs      []MonitorConfig `json:"configs"`
-	FeishuConfig FeishuConfig    `json:"feishu_config"`
-	NextID       int64           `json:"next_id"`
+	Configs        []MonitorConfig `json:"configs"`
+	FeishuConfig   FeishuConfig    `json:"feishu_config"`
+	TelegramConfig TelegramConfig  `json:"telegram_config"`
+	NextID         int64           `json:"next_id"`
 }
 
 // Store 监控配置存储
@@ -168,6 +180,21 @@ func (s *Store) GetEnabledConfigs() []MonitorConfig {
 		}
 	}
 	return result
+}
+
+// GetTelegramConfig 获取 Telegram 全局配置
+func (s *Store) GetTelegramConfig() TelegramConfig {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.data.TelegramConfig
+}
+
+// UpdateTelegramConfig 更新 Telegram 全局配置
+func (s *Store) UpdateTelegramConfig(cfg TelegramConfig) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.data.TelegramConfig = cfg
+	return s.save()
 }
 
 // UpdateLastCheckTime 更新指定配置的上次检查时间

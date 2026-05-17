@@ -13,14 +13,26 @@ import (
 	"github.com/afumu/wetrace/internal/ai"
 	"github.com/afumu/wetrace/internal/backup"
 	"github.com/afumu/wetrace/internal/monitor"
+	"github.com/afumu/wetrace/internal/telegram"
 	intsync "github.com/afumu/wetrace/internal/sync"
+	"github.com/afumu/wetrace/internal/transcripts"
 	"github.com/afumu/wetrace/internal/tts"
+	"github.com/afumu/wetrace/pkg/wordcloud"
 	"github.com/afumu/wetrace/store"
 	"github.com/afumu/wetrace/store/types"
 	"github.com/afumu/wetrace/web/export"
 	"github.com/afumu/wetrace/web/media"
 	"github.com/spf13/viper"
 )
+
+// BatchTranscribeJob tracks progress of a batch voice-to-text job.
+type BatchTranscribeJob struct {
+	Talker  string
+	Total   int
+	Done    int
+	Errors  int
+	Running bool
+}
 
 // API 封装了 API 处理器所需的所有依赖。
 type API struct {
@@ -34,8 +46,14 @@ type API struct {
 	BackupScheduler *backup.Scheduler
 	Monitor         *monitor.Store
 	MonitorChecker  *monitor.Checker
-	TTS             *tts.Client
-	mu              sync.Mutex
+	TgBot           *telegram.Bot
+	tgBotMu         sync.Mutex
+	TTS             tts.Transcriber
+	Transcripts     *transcripts.Store
+	mu                 sync.Mutex
+	summarizeCancel    context.CancelFunc
+	currentSummaryJob  *SummaryHistoryItem
+	batchJob           *BatchTranscribeJob
 }
 
 type Config struct {
@@ -78,6 +96,20 @@ func NewAPI(s store.Store, m *media.Service, conf *Config, staticFS fs.FS) *API 
 
 	// Initialize AI prompts JSON file path
 	initPromptsFilePath(conf.DataDir)
+	initSummaryHistoryFilePath(conf.DataDir)
+
+	// 初始化分词器（支持用户词典 data/wordcloud_dict.txt）
+	wordcloud.Init(conf.DataDir)
+
+	// 启动时把全局默认时区配置同步到 Store（影响联系人侧分析查询）
+	if off, ok := defaultTzOffsetMinutes(); ok {
+		s.SetDefaultTzModifier(buildTzModifier(off))
+	}
+
+	// 初始化语音转文字缓存
+	if ts, err := transcripts.NewStore(conf.DataDir); err == nil {
+		a.Transcripts = ts
+	}
 
 	// Initialize sync scheduler
 	syncFunc := func() error {
@@ -135,13 +167,24 @@ func NewAPI(s store.Store, m *media.Service, conf *Config, staticFS fs.FS) *API 
 		a.MonitorChecker.Start()
 	}
 
+	// 启动 Telegram Bot worker（如果配置了 bot_chat_enabled）
+	a.ApplyTelegramBotConfig()
+
 	// Initialize TTS client from viper config
 	if viper.GetBool("TTS_ENABLED") {
-		ttsKey := viper.GetString("TTS_API_KEY")
-		ttsURL := viper.GetString("TTS_BASE_URL")
-		ttsModel := viper.GetString("TTS_MODEL")
-		if ttsKey != "" && ttsURL != "" {
-			a.TTS = tts.NewClient(ttsKey, ttsURL, ttsModel)
+		if viper.GetBool("TTS_LOCAL_MODE") {
+			binPath := viper.GetString("TTS_LOCAL_BINARY")
+			modelPath := viper.GetString("TTS_LOCAL_MODEL")
+			if binPath != "" && modelPath != "" {
+				a.TTS = tts.NewLocalClient(binPath, modelPath)
+			}
+		} else {
+			ttsKey := viper.GetString("TTS_API_KEY")
+			ttsURL := viper.GetString("TTS_BASE_URL")
+			ttsModel := viper.GetString("TTS_MODEL")
+			if ttsKey != "" && ttsURL != "" {
+				a.TTS = tts.NewClient(ttsKey, ttsURL, ttsModel)
+			}
 		}
 	}
 
@@ -223,4 +266,30 @@ func (a *API) createBackupFunc(exportSvc *export.Service) backup.BackupFunc {
 
 		return backupDir, count, nil
 	}
+}
+
+// ApplyTelegramBotConfig 根据当前 TelegramConfig 启停 Bot worker
+// 应在 API 初始化完成时调一次，以及每次用户更新配置后调一次
+func (a *API) ApplyTelegramBotConfig() {
+	a.tgBotMu.Lock()
+	defer a.tgBotMu.Unlock()
+	// 先停掉已有的
+	if a.TgBot != nil {
+		a.TgBot.Stop()
+		a.TgBot = nil
+	}
+	if a.Monitor == nil {
+		return
+	}
+	cfg := a.Monitor.GetTelegramConfig()
+	if !cfg.BotChatEnabled || cfg.BotToken == "" {
+		return
+	}
+	bot := telegram.New(telegram.Config{
+		BotToken:          cfg.BotToken,
+		AuthorizedChatIDs: cfg.AuthorizedChatIDs,
+		Store:             a.Store,
+	})
+	bot.Start(context.Background())
+	a.TgBot = bot
 }

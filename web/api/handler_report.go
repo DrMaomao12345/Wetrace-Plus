@@ -1,34 +1,263 @@
 package api
 
 import (
+	"encoding/json"
+	"net/http"
 	"strconv"
 	"time"
 
+	"github.com/afumu/wetrace/store/types"
 	"github.com/afumu/wetrace/web/transport"
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog/log"
 )
 
-// GetAnnualReport 获取年度报告
-func (a *API) GetAnnualReport(c *gin.Context) {
-	yearStr := c.Query("year")
-	year := time.Now().Year()
+// TZSegmentRequest 单个时区段（前端传入）
+type TZSegmentRequest struct {
+	StartDate string `json:"start_date"` // "2024-02-01"
+	EndDate   string `json:"end_date"`   // "2024-02-19"
+	TZOffset  int    `json:"tz_offset"`  // 分钟，东正西负（UTC+8 → 480）
+}
 
-	if yearStr != "" {
-		y, err := strconv.Atoi(yearStr)
-		if err != nil || y < 2000 || y > 2100 {
-			transport.BadRequest(c, "无效的年份参数")
+// AnnualReportRequest 年度报告请求体
+type AnnualReportRequest struct {
+	Year            int                `json:"year"`
+	TZSegments      []TZSegmentRequest `json:"tz_segments"`
+	DefaultTZ       *int               `json:"default_tz_offset"`
+	ExcludeTalkers  []string           `json:"exclude_talkers"`
+}
+
+// GetAnnualReport 获取年度报告（支持 GET 和 POST，POST 时可传多时区段）
+func (a *API) GetAnnualReport(c *gin.Context) {
+	var req AnnualReportRequest
+
+	if c.Request.Method == http.MethodPost {
+		if err := c.ShouldBindJSON(&req); err != nil {
+			transport.BadRequest(c, "请求体格式错误: "+err.Error())
 			return
 		}
-		year = y
+	} else {
+		// GET 兼容：?year=2024&tz_offset=480
+		req.Year = time.Now().Year()
+		if ys := c.Query("year"); ys != "" {
+			if y, err := strconv.Atoi(ys); err == nil && y >= 2000 && y <= 2100 {
+				req.Year = y
+			}
+		}
+		if tzs := c.Query("tz_offset"); tzs != "" {
+			if off, err := strconv.Atoi(tzs); err == nil {
+				req.DefaultTZ = &off
+			}
+		}
 	}
 
-	report, err := a.Store.GetAnnualReport(c.Request.Context(), year)
+	if req.Year < 2000 || req.Year > 2100 {
+		req.Year = time.Now().Year()
+	}
+
+	// 默认时区偏移（秒）
+	defaultTzOffset := 0
+	if req.DefaultTZ != nil {
+		defaultTzOffset = *req.DefaultTZ * 60
+	}
+
+	// 将前端 segments 转换为 store 层的类型（偏移分钟 → 秒）
+	var storeSegs []types.TZSegment
+	for _, s := range req.TZSegments {
+		start, err1 := time.Parse("2006-01-02", s.StartDate)
+		end, err2 := time.Parse("2006-01-02", s.EndDate)
+		if err1 != nil || err2 != nil {
+			continue
+		}
+		storeSegs = append(storeSegs, types.TZSegment{
+			Start:    start.UTC(),
+			End:      end.Add(24*time.Hour - time.Nanosecond).UTC(),
+			TZOffset: s.TZOffset * 60,
+		})
+	}
+
+	pastStartYear := effectiveChatStartYear()
+	report, err := a.Store.GetAnnualReport(c.Request.Context(), req.Year, defaultTzOffset, pastStartYear, storeSegs, req.ExcludeTalkers)
 	if err != nil {
-		log.Error().Err(err).Int("year", year).Msg("获取年度报告失败")
+		log.Error().Err(err).Int("year", req.Year).Msg("获取年度报告失败")
 		transport.InternalServerError(c, "获取年度报告失败")
 		return
 	}
 
 	transport.SendSuccess(c, report)
+}
+
+// GetPastYearsMonthlyAvg 计算指定年份范围内每年月度趋势的平均。
+// 默认 from = 「有效聊天记录起始时间」全局设置；不传 to 则取当前年-1
+// GET /api/v1/report/past_monthly_avg?from=2023&to=2025&tz_offset=480
+func (a *API) GetPastYearsMonthlyAvg(c *gin.Context) {
+	from, _ := strconv.Atoi(c.Query("from"))
+	to, _ := strconv.Atoi(c.Query("to"))
+	if from < 2000 || from > 2100 {
+		from = effectiveChatStartYear()
+	}
+	if to < 2000 || to > 2100 {
+		to = time.Now().Year() - 1
+	}
+	tzOffsetMin, _ := strconv.Atoi(c.Query("tz_offset"))
+	tzOffsetSec := tzOffsetMin * 60
+
+	avg := a.Store.ComputeMonthlyAvgInRange(c.Request.Context(), from, to, tzOffsetSec)
+	transport.SendSuccess(c, avg)
+}
+
+// GetReportBaseline 一次返回当前生效的「往年月均」+「往年同期 overview 平均」
+// 前端在「有效聊天记录起始时间」改变后，调用此端点局部刷新参考线和百分比，无需重建整份报告
+// GET /api/v1/report/baseline?year=2026&tz_offset=480
+func (a *API) GetReportBaseline(c *gin.Context) {
+	year, err := strconv.Atoi(c.Query("year"))
+	if err != nil || year < 2000 || year > 2100 {
+		transport.BadRequest(c, "year 必须是有效年份")
+		return
+	}
+	tzOffsetMin, _ := strconv.Atoi(c.Query("tz_offset"))
+	tzOffsetSec := tzOffsetMin * 60
+	pastStartYear := effectiveChatStartYear()
+
+	monthlyAvg := a.Store.ComputeMonthlyAvgInRange(c.Request.Context(), pastStartYear, year-1, tzOffsetSec)
+	overviewAvg := a.Store.ComputePastOverviewAvg(c.Request.Context(), year, pastStartYear, tzOffsetSec)
+
+	transport.SendSuccess(c, gin.H{
+		"past_start_year":         pastStartYear,
+		"past_end_year":           year - 1,
+		"past_years_monthly_avg":  monthlyAvg,
+		"past_overview_avg":       overviewAvg,
+	})
+}
+
+// StreamAnnualReport 流式生成年度报告
+// POST /api/v1/report/annual/stream — 与 /api/v1/report/annual 同样的 body
+// 返回 NDJSON 流：每行一个 JSON 事件 {type, step, current, total, data}
+func (a *API) StreamAnnualReport(c *gin.Context) {
+	var req AnnualReportRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		transport.BadRequest(c, "请求体格式错误: "+err.Error())
+		return
+	}
+	if req.Year < 2000 || req.Year > 2100 {
+		req.Year = time.Now().Year()
+	}
+
+	defaultTzOffset := 0
+	if req.DefaultTZ != nil {
+		defaultTzOffset = *req.DefaultTZ * 60
+	}
+
+	var storeSegs []types.TZSegment
+	for _, s := range req.TZSegments {
+		start, err1 := time.Parse("2006-01-02", s.StartDate)
+		end, err2 := time.Parse("2006-01-02", s.EndDate)
+		if err1 != nil || err2 != nil {
+			continue
+		}
+		storeSegs = append(storeSegs, types.TZSegment{
+			Start:    start.UTC(),
+			End:      end.Add(24*time.Hour - time.Nanosecond).UTC(),
+			TZOffset: s.TZOffset * 60,
+		})
+	}
+	pastStartYear := effectiveChatStartYear()
+
+	// NDJSON 流式响应头
+	c.Writer.Header().Set("Content-Type", "application/x-ndjson")
+	c.Writer.Header().Set("Cache-Control", "no-cache")
+	c.Writer.Header().Set("X-Accel-Buffering", "no") // disable nginx buffering
+	c.Writer.WriteHeader(http.StatusOK)
+
+	flusher, _ := c.Writer.(http.Flusher)
+
+	emit := func(evt map[string]interface{}) {
+		b, err := json.Marshal(evt)
+		if err != nil {
+			return
+		}
+		_, _ = c.Writer.Write(b)
+		_, _ = c.Writer.Write([]byte("\n"))
+		if flusher != nil {
+			flusher.Flush()
+		}
+	}
+
+	// start 事件
+	emit(map[string]interface{}{
+		"type":  "start",
+		"year":  req.Year,
+		"total": 8,
+	})
+
+	progressFn := func(step string, current, total int, data interface{}) {
+		emit(map[string]interface{}{
+			"type":    "section",
+			"step":    step,
+			"current": current,
+			"total":   total,
+			"data":    data,
+		})
+	}
+
+	report, err := a.Store.GetAnnualReportWithProgress(
+		c.Request.Context(),
+		req.Year, defaultTzOffset, pastStartYear,
+		storeSegs, req.ExcludeTalkers,
+		progressFn,
+	)
+	if err != nil {
+		emit(map[string]interface{}{
+			"type":  "error",
+			"error": err.Error(),
+		})
+		return
+	}
+
+	emit(map[string]interface{}{
+		"type":   "done",
+		"report": report,
+	})
+}
+
+// GetAnnualWordCounts 字数统计（点击概览/排行可切换显示字数）
+// POST /api/v1/report/word_count，body 同 /api/v1/report/annual
+func (a *API) GetAnnualWordCounts(c *gin.Context) {
+	var req AnnualReportRequest
+	if c.Request.Method == http.MethodPost {
+		if err := c.ShouldBindJSON(&req); err != nil {
+			transport.BadRequest(c, "请求体格式错误: "+err.Error())
+			return
+		}
+	}
+	if req.Year < 2000 || req.Year > 2100 {
+		req.Year = time.Now().Year()
+	}
+
+	defaultTzOffset := 0
+	if req.DefaultTZ != nil {
+		defaultTzOffset = *req.DefaultTZ * 60
+	}
+
+	var storeSegs []types.TZSegment
+	for _, s := range req.TZSegments {
+		start, err1 := time.Parse("2006-01-02", s.StartDate)
+		end, err2 := time.Parse("2006-01-02", s.EndDate)
+		if err1 != nil || err2 != nil {
+			continue
+		}
+		storeSegs = append(storeSegs, types.TZSegment{
+			Start:    start.UTC(),
+			End:      end.Add(24*time.Hour - time.Nanosecond).UTC(),
+			TZOffset: s.TZOffset * 60,
+		})
+	}
+
+	stat, err := a.Store.GetAnnualWordCounts(c.Request.Context(), req.Year, defaultTzOffset, storeSegs, req.ExcludeTalkers)
+	if err != nil {
+		log.Error().Err(err).Msg("获取字数统计失败")
+		transport.InternalServerError(c, "获取字数统计失败")
+		return
+	}
+	transport.SendSuccess(c, stat)
 }

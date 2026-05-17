@@ -3,6 +3,7 @@ package api
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"crypto/md5"
 	"fmt"
 	"net/http"
@@ -384,22 +385,44 @@ func md5Sum(data []byte) [16]byte {
 	return md5.Sum(data)
 }
 
-// TranscribeVoice 语音转文字
-func (a *API) TranscribeVoice(c *gin.Context) {
-	if a.TTS == nil {
-		transport.BadRequest(c, "语音转文字功能未启用，请先在设置中配置")
+// GetVoiceTranscript 查询已缓存的语音转文字结果
+func (a *API) GetVoiceTranscript(c *gin.Context) {
+	id := c.Query("id")
+	if id == "" {
+		transport.BadRequest(c, "id 不能为空")
 		return
 	}
+	if a.Transcripts == nil {
+		transport.SendSuccess(c, gin.H{"text": nil, "cached": false})
+		return
+	}
+	if text, ok := a.Transcripts.Get(id); ok {
+		transport.SendSuccess(c, gin.H{"text": text, "cached": true})
+		return
+	}
+	transport.SendSuccess(c, gin.H{"text": nil, "cached": false})
+}
 
+// TranscribeVoice 语音转文字（先查缓存，命中直接返回；未命中则识别并永久保存）
+func (a *API) TranscribeVoice(c *gin.Context) {
 	var req struct {
 		ID string `json:"id"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := c.ShouldBindJSON(&req); err != nil || req.ID == "" {
 		transport.BadRequest(c, "参数错误")
 		return
 	}
-	if req.ID == "" {
-		transport.BadRequest(c, "语音ID不能为空")
+
+	// 先查缓存
+	if a.Transcripts != nil {
+		if cached, ok := a.Transcripts.Get(req.ID); ok {
+			transport.SendSuccess(c, gin.H{"text": cached, "cached": true})
+			return
+		}
+	}
+
+	if a.TTS == nil {
+		transport.BadRequest(c, "语音转文字功能未启用，请先在设置中配置")
 		return
 	}
 
@@ -410,14 +433,14 @@ func (a *API) TranscribeVoice(c *gin.Context) {
 		return
 	}
 
-	// 使用媒体服务准备语音内容
+	// 准备语音内容
 	prepared := a.Media.Prepare(mediaInfo, false)
 	if prepared.Error != nil || len(prepared.Content) == 0 {
 		transport.InternalServerError(c, "无法读取语音文件")
 		return
 	}
 
-	// 调用 Whisper API 转文字
+	// 识别
 	text, err := a.TTS.Transcribe(prepared.Content, "voice.mp3")
 	if err != nil {
 		log.Error().Err(err).Str("id", req.ID).Msg("语音转文字失败")
@@ -425,7 +448,159 @@ func (a *API) TranscribeVoice(c *gin.Context) {
 		return
 	}
 
-	transport.SendSuccess(c, gin.H{"text": text})
+	// 永久缓存
+	if a.Transcripts != nil {
+		_ = a.Transcripts.Set(req.ID, text)
+	}
+
+	transport.SendSuccess(c, gin.H{"text": text, "cached": false})
+}
+
+// TranscribeSession 启动后台任务：批量将会话中所有语音消息转文字并缓存
+func (a *API) TranscribeSession(c *gin.Context) {
+	var req struct {
+		Talker string `json:"talker" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || req.Talker == "" {
+		transport.BadRequest(c, "参数错误")
+		return
+	}
+
+	a.mu.Lock()
+	if a.batchJob != nil && a.batchJob.Running {
+		a.mu.Unlock()
+		transport.BadRequest(c, "已有转文字任务在进行中")
+		return
+	}
+	a.batchJob = &BatchTranscribeJob{Talker: req.Talker, Running: true}
+	a.mu.Unlock()
+
+	go func() {
+		ctx := context.Background()
+		msgs, err := a.Store.GetMessages(ctx, types.MessageQuery{
+			Talker: req.Talker,
+			Limit:  100000,
+		})
+		if err != nil {
+			a.mu.Lock()
+			a.batchJob.Running = false
+			a.mu.Unlock()
+			return
+		}
+
+		type voiceItem struct {
+			voiceID string
+			msg     *model.Message
+		}
+		var voices []voiceItem
+		for _, m := range msgs {
+			if m.Type != 34 || m.Contents == nil {
+				continue
+			}
+			v, ok := m.Contents["voice"]
+			if !ok {
+				continue
+			}
+			id := fmt.Sprint(v)
+			if id == "" {
+				continue
+			}
+			voices = append(voices, voiceItem{voiceID: id, msg: m})
+		}
+
+		a.mu.Lock()
+		a.batchJob.Total = len(voices)
+		a.mu.Unlock()
+
+		for _, item := range voices {
+			// Already cached — count as done
+			if a.Transcripts != nil {
+				if _, ok := a.Transcripts.Get(item.voiceID); ok {
+					a.mu.Lock()
+					a.batchJob.Done++
+					a.mu.Unlock()
+					continue
+				}
+			}
+
+			if a.TTS == nil {
+				a.mu.Lock()
+				a.batchJob.Errors++
+				a.batchJob.Done++
+				a.mu.Unlock()
+				continue
+			}
+
+			var mediaInfo *model.Media
+			if item.msg.Contents != nil {
+				if rawData, ok := item.msg.Contents["_raw_data"].([]byte); ok && len(rawData) > 0 {
+					mediaInfo = &model.Media{Type: "voice", Key: item.voiceID, Data: rawData}
+				}
+			}
+			if mediaInfo == nil {
+				var fetchErr error
+				mediaInfo, fetchErr = a.Store.GetMedia(ctx, "voice", item.voiceID)
+				if fetchErr != nil {
+					a.mu.Lock()
+					a.batchJob.Errors++
+					a.batchJob.Done++
+					a.mu.Unlock()
+					continue
+				}
+			}
+
+			prepared := a.Media.Prepare(mediaInfo, false)
+			if prepared.Error != nil || len(prepared.Content) == 0 {
+				a.mu.Lock()
+				a.batchJob.Errors++
+				a.batchJob.Done++
+				a.mu.Unlock()
+				continue
+			}
+
+			text, transcribeErr := a.TTS.Transcribe(prepared.Content, "voice.mp3")
+			if transcribeErr != nil {
+				log.Error().Err(transcribeErr).Str("id", item.voiceID).Msg("批量语音转文字失败")
+				a.mu.Lock()
+				a.batchJob.Errors++
+				a.batchJob.Done++
+				a.mu.Unlock()
+				continue
+			}
+
+			if a.Transcripts != nil {
+				_ = a.Transcripts.Set(item.voiceID, text)
+			}
+
+			a.mu.Lock()
+			a.batchJob.Done++
+			a.mu.Unlock()
+		}
+
+		a.mu.Lock()
+		a.batchJob.Running = false
+		a.mu.Unlock()
+	}()
+
+	transport.SendSuccess(c, gin.H{"message": "转文字任务已启动"})
+}
+
+// GetTranscribeSessionStatus 查询批量转文字任务进度
+func (a *API) GetTranscribeSessionStatus(c *gin.Context) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	if a.batchJob == nil {
+		transport.SendSuccess(c, gin.H{"running": false, "total": 0, "done": 0, "errors": 0, "talker": ""})
+		return
+	}
+	transport.SendSuccess(c, gin.H{
+		"running": a.batchJob.Running,
+		"total":   a.batchJob.Total,
+		"done":    a.batchJob.Done,
+		"errors":  a.batchJob.Errors,
+		"talker":  a.batchJob.Talker,
+	})
 }
 
 // ExportVoicesRequest 语音导出请求体

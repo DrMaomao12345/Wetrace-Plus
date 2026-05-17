@@ -3,6 +3,22 @@ import { request } from "@/lib/request";
 export interface AISummarizeRequest {
   talker: string;
   time_range?: string;
+  custom_prompt?: string;
+  retry_of?: string;
+}
+
+export interface SummaryHistoryItem {
+  id: string;
+  talker: string;
+  time_range: string;
+  prompt_used: string;
+  summary: string;
+  msg_count: number;
+  status: "success" | "failed" | "cancelled" | "running";
+  error: string;
+  retry_count: number;
+  retry_of: string;
+  created_at: string;
 }
 
 export interface AISimulateRequest {
@@ -47,6 +63,12 @@ export interface AIExtractResponse {
 export const aiApi = {
   summarize: (data: AISummarizeRequest) =>
     request.post<string>('/api/v1/ai/summarize', data),
+  cancelSummarize: () =>
+    request.post('/api/v1/ai/summarize/cancel', {}),
+  getSummaryHistory: () =>
+    request.get<SummaryHistoryItem[]>('/api/v1/ai/summary_history'),
+  deleteSummaryHistory: (id: string) =>
+    request.delete(`/api/v1/ai/summary_history/${id}`),
   simulate: (data: AISimulateRequest) =>
     request.post<string>('/api/v1/ai/simulate', data),
   extractTodos: (data: AITodosRequest) =>

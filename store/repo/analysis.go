@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/afumu/wetrace/internal/model"
+	"github.com/afumu/wetrace/pkg/util"
+	"github.com/afumu/wetrace/pkg/util/zstd"
 	"github.com/afumu/wetrace/store/bind"
 	"github.com/afumu/wetrace/store/types"
 	"github.com/rs/zerolog/log"
@@ -101,7 +103,8 @@ func (r *Repository) queryHourlyStatSingleShard(ctx context.Context, target bind
 }
 
 func (r *Repository) queryV4HourlyStat(ctx context.Context, db *sql.DB, tableName string) ([]*model.HourlyStat, error) {
-	query := fmt.Sprintf("SELECT CAST(strftime('%%H', create_time, 'unixepoch', 'localtime') AS INTEGER) as hour, COUNT(*) as count FROM %s WHERE local_type != 10000 GROUP BY hour", tableName)
+	tzMod := r.DefaultTzModifier()
+	query := fmt.Sprintf("SELECT CAST(strftime('%%H', create_time, 'unixepoch', %s) AS INTEGER) as hour, COUNT(*) as count FROM %s WHERE (local_type & 4294967295) != 10000 GROUP BY hour", tzMod, tableName)
 	rows, err := db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
@@ -119,7 +122,8 @@ func (r *Repository) queryV4HourlyStat(ctx context.Context, db *sql.DB, tableNam
 }
 
 func (r *Repository) queryV3HourlyStat(ctx context.Context, db *sql.DB, target bind.RouteResult) ([]*model.HourlyStat, error) {
-	query := "SELECT CAST(strftime('%%H', CreateTime / 1000, 'unixepoch', 'localtime') AS INTEGER) as hour, COUNT(*) as count FROM MSG WHERE Type != 10000"
+	tzMod := r.DefaultTzModifier()
+	query := "SELECT CAST(strftime('%H', CreateTime / 1000, 'unixepoch', " + tzMod + ") AS INTEGER) as hour, COUNT(*) as count FROM MSG WHERE Type != 10000"
 	var args []interface{}
 	if target.TalkerID != 0 {
 		query += " AND TalkerId = ?"
@@ -173,8 +177,9 @@ func (r *Repository) queryDailyStatSingleShard(ctx context.Context, target bind.
 	}
 	hash := md5.Sum([]byte(talker))
 	tableName := "Msg_" + hex.EncodeToString(hash[:])
+	tzMod := r.DefaultTzModifier()
 	if r.isTableExist(db, tableName) {
-		query := fmt.Sprintf("SELECT strftime('%%Y-%%m-%%d', create_time, 'unixepoch', 'localtime') as date, COUNT(*) as count FROM %s WHERE local_type != 10000 GROUP BY date", tableName)
+		query := fmt.Sprintf("SELECT strftime('%%Y-%%m-%%d', create_time, 'unixepoch', %s) as date, COUNT(*) as count FROM %s WHERE (local_type & 4294967295) != 10000 GROUP BY date", tzMod, tableName)
 		rows, err := db.QueryContext(ctx, query)
 		if err != nil {
 			return nil, err
@@ -191,7 +196,7 @@ func (r *Repository) queryDailyStatSingleShard(ctx context.Context, target bind.
 		return stats, nil
 	}
 	// V3 支持
-	query := "SELECT strftime('%Y-%m-%d', CreateTime / 1000, 'unixepoch', 'localtime') as date, COUNT(*) as count FROM MSG WHERE Type != 10000"
+	query := "SELECT strftime('%Y-%m-%d', CreateTime / 1000, 'unixepoch', " + tzMod + ") as date, COUNT(*) as count FROM MSG WHERE Type != 10000"
 	var args []interface{}
 	if target.TalkerID != 0 {
 		query += " AND TalkerId = ?"
@@ -228,12 +233,13 @@ func (r *Repository) GetWeekdayActivity(ctx context.Context, talker string) ([]*
 		hash := md5.Sum([]byte(talker))
 		tableName := "Msg_" + hex.EncodeToString(hash[:])
 
+		tzMod := r.DefaultTzModifier()
 		var query string
 		var args []interface{}
 		if r.isTableExist(db, tableName) {
-			query = fmt.Sprintf("SELECT CASE WHEN CAST(strftime('%%w', create_time, 'unixepoch', 'localtime') AS INTEGER) = 0 THEN 7 ELSE CAST(strftime('%%w', create_time, 'unixepoch', 'localtime') AS INTEGER) END as weekday, COUNT(*) as count FROM %s WHERE local_type != 10000 GROUP BY weekday", tableName)
+			query = fmt.Sprintf("SELECT CASE WHEN CAST(strftime('%%w', create_time, 'unixepoch', %s) AS INTEGER) = 0 THEN 7 ELSE CAST(strftime('%%w', create_time, 'unixepoch', %s) AS INTEGER) END as weekday, COUNT(*) as count FROM %s WHERE (local_type & 4294967295) != 10000 GROUP BY weekday", tzMod, tzMod, tableName)
 		} else {
-			query = "SELECT CASE WHEN CAST(strftime('%w', CreateTime / 1000, 'unixepoch', 'localtime') AS INTEGER) = 0 THEN 7 ELSE CAST(strftime('%w', CreateTime / 1000, 'unixepoch', 'localtime') AS INTEGER) END as weekday, COUNT(*) as count FROM MSG WHERE Type != 10000"
+			query = "SELECT CASE WHEN CAST(strftime('%w', CreateTime / 1000, 'unixepoch', " + tzMod + ") AS INTEGER) = 0 THEN 7 ELSE CAST(strftime('%w', CreateTime / 1000, 'unixepoch', " + tzMod + ") AS INTEGER) END as weekday, COUNT(*) as count FROM MSG WHERE Type != 10000"
 			if target.TalkerID != 0 {
 				query += " AND TalkerId = ?"
 				args = append(args, target.TalkerID)
@@ -273,12 +279,13 @@ func (r *Repository) GetMonthlyActivity(ctx context.Context, talker string) ([]*
 		hash := md5.Sum([]byte(talker))
 		tableName := "Msg_" + hex.EncodeToString(hash[:])
 
+		tzMod := r.DefaultTzModifier()
 		var query string
 		var args []interface{}
 		if r.isTableExist(db, tableName) {
-			query = fmt.Sprintf("SELECT CAST(strftime('%%m', create_time, 'unixepoch', 'localtime') AS INTEGER) as month, COUNT(*) as count FROM %s WHERE local_type != 10000 GROUP BY month", tableName)
+			query = fmt.Sprintf("SELECT CAST(strftime('%%m', create_time, 'unixepoch', %s) AS INTEGER) as month, COUNT(*) as count FROM %s WHERE (local_type & 4294967295) != 10000 GROUP BY month", tzMod, tableName)
 		} else {
-			query = "SELECT CAST(strftime('%m', CreateTime / 1000, 'unixepoch', 'localtime') AS INTEGER) as month, COUNT(*) as count FROM MSG WHERE Type != 10000"
+			query = "SELECT CAST(strftime('%m', CreateTime / 1000, 'unixepoch', " + tzMod + ") AS INTEGER) as month, COUNT(*) as count FROM MSG WHERE Type != 10000"
 			if target.TalkerID != 0 {
 				query += " AND TalkerId = ?"
 				args = append(args, target.TalkerID)
@@ -306,6 +313,146 @@ func (r *Repository) GetMonthlyActivity(ctx context.Context, talker string) ([]*
 	return result, nil
 }
 
+// 已知的消息类型常量。其他类型会被归入"其他"桶。
+var knownMessageTypes = map[int]bool{
+	1: true,    // 文本
+	3: true,    // 图片
+	34: true,   // 语音
+	42: true,   // 名片
+	43: true,   // 视频
+	47: true,   // 表情
+	48: true,   // 位置
+	49: true,   // 链接/文件/小程序等
+	50: true,   // 通话
+}
+
+// 类型「其他」的桶 ID
+const MessageTypeOther = 99
+
+// normalizeMessageType 取 local_type 的真实类型部分（低 32 位），
+// 把不常见的类型归到 99（其他）。
+//
+// V4 的 local_type 实际是 (sub_type << 32) | type 的打包整数，
+// 直接 GROUP BY 会出现 21474836529 / 103079215153 这种奇怪值。
+func normalizeMessageType(t int) int {
+	t = t & 0xFFFFFFFF // 取低 32 位
+	if t == 10000 {
+		return -1 // 系统消息，调用方应跳过
+	}
+	if knownMessageTypes[t] {
+		return t
+	}
+	return MessageTypeOther
+}
+
+// GetYearlyMonthlyActivity 获取指定会话按年-月聚合的消息数。
+// 用于在月度趋势图上叠加"历史年份月均"参考线。
+func (r *Repository) GetYearlyMonthlyActivity(ctx context.Context, talker string) ([]*model.YearMonthStat, error) {
+	targets := r.router.Resolve(time.Unix(0, 0), time.Now(), talker)
+	stats := make(map[[2]int]int) // [year, month] -> count
+	for _, target := range targets {
+		db, err := r.pool.GetConnection(target.FilePath)
+		if err != nil {
+			continue
+		}
+		hash := md5.Sum([]byte(talker))
+		tableName := "Msg_" + hex.EncodeToString(hash[:])
+
+		tzMod := r.DefaultTzModifier()
+		var query string
+		var args []interface{}
+		if r.isTableExist(db, tableName) {
+			query = fmt.Sprintf(`
+				SELECT CAST(strftime('%%Y', create_time, 'unixepoch', %s) AS INTEGER) as y,
+				       CAST(strftime('%%m', create_time, 'unixepoch', %s) AS INTEGER) as m,
+				       COUNT(*) as count
+				FROM %s WHERE (local_type & 4294967295) != 10000 GROUP BY y, m`, tzMod, tzMod, tableName)
+		} else {
+			query = "SELECT CAST(strftime('%Y', CreateTime/1000, 'unixepoch', " + tzMod + ") AS INTEGER) as y, CAST(strftime('%m', CreateTime/1000, 'unixepoch', " + tzMod + ") AS INTEGER) as m, COUNT(*) as count FROM MSG WHERE Type != 10000"
+			if target.TalkerID != 0 {
+				query += " AND TalkerId = ?"
+				args = append(args, target.TalkerID)
+			} else {
+				query += " AND StrTalker = ?"
+				args = append(args, target.Talker)
+			}
+			query += " GROUP BY y, m"
+		}
+		rows, err := db.QueryContext(ctx, query, args...)
+		if err != nil {
+			continue
+		}
+		for rows.Next() {
+			var y, m, c int
+			if rows.Scan(&y, &m, &c) == nil {
+				stats[[2]int{y, m}] += c
+			}
+		}
+		rows.Close()
+	}
+
+	var result []*model.YearMonthStat
+	for k, v := range stats {
+		result = append(result, &model.YearMonthStat{Year: k[0], Month: k[1], Count: v})
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].Year != result[j].Year {
+			return result[i].Year < result[j].Year
+		}
+		return result[i].Month < result[j].Month
+	})
+	return result, nil
+}
+
+// GetTopContactsHistoricalMonthlyAvg 计算亲密度 Top N 联系人在过去年份（不含当年）的每月平均消息量。
+// 返回 12 个月的平均值（单位：条），用于在月度趋势图上叠加参考线。
+func (r *Repository) GetTopContactsHistoricalMonthlyAvg(ctx context.Context, limit int) ([]*model.MonthlyStat, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+	topContacts, err := r.GetPersonalTopContacts(ctx, limit)
+	if err != nil {
+		return nil, err
+	}
+
+	currentYear := time.Now().Year()
+	monthlyAccum := make(map[int]int) // month -> 累加(每个联系人的过去年份月均)
+	contactCount := 0
+
+	for _, tc := range topContacts {
+		ymData, err := r.GetYearlyMonthlyActivity(ctx, tc.Talker)
+		if err != nil {
+			continue
+		}
+		pastYears := make(map[int]bool)
+		pastByMonth := make(map[int]int)
+		for _, ym := range ymData {
+			if ym.Year < currentYear {
+				pastYears[ym.Year] = true
+				pastByMonth[ym.Month] += ym.Count
+			}
+		}
+		if len(pastYears) == 0 {
+			continue
+		}
+		contactCount++
+		for m := 1; m <= 12; m++ {
+			// 该联系人月均 = 过去年份该月总和 / 过去年份数
+			monthlyAccum[m] += pastByMonth[m] / len(pastYears)
+		}
+	}
+
+	result := make([]*model.MonthlyStat, 0, 12)
+	for m := 1; m <= 12; m++ {
+		avg := 0
+		if contactCount > 0 {
+			avg = monthlyAccum[m] / contactCount
+		}
+		result = append(result, &model.MonthlyStat{Month: m, Count: avg})
+	}
+	return result, nil
+}
+
 // GetMessageTypeDistribution 获取指定会话的消息类型分布
 func (r *Repository) GetMessageTypeDistribution(ctx context.Context, talker string) ([]*model.MessageTypeStat, error) {
 	targets := r.router.Resolve(time.Unix(0, 0), time.Now(), talker)
@@ -321,7 +468,8 @@ func (r *Repository) GetMessageTypeDistribution(ctx context.Context, talker stri
 		var query string
 		var args []interface{}
 		if r.isTableExist(db, tableName) {
-			query = fmt.Sprintf("SELECT local_type as type, COUNT(*) as count FROM %s WHERE local_type != 10000 GROUP BY type", tableName)
+			// 使用 (local_type & 0xFFFFFFFF) 排除打包后的系统消息
+			query = fmt.Sprintf("SELECT local_type as type, COUNT(*) as count FROM %s WHERE (local_type & 4294967295) != 10000 GROUP BY type", tableName)
 		} else {
 			query = "SELECT Type as type, COUNT(*) as count FROM MSG WHERE Type != 10000"
 			if target.TalkerID != 0 {
@@ -339,7 +487,11 @@ func (r *Repository) GetMessageTypeDistribution(ctx context.Context, talker stri
 			for rows.Next() {
 				var t, c int
 				rows.Scan(&t, &c)
-				typeStats[t] += c
+				normalized := normalizeMessageType(t)
+				if normalized == -1 {
+					continue
+				}
+				typeStats[normalized] += c
 			}
 			rows.Close()
 		}
@@ -376,7 +528,7 @@ func (r *Repository) GetMemberActivity(ctx context.Context, talker string) ([]*m
 					COUNT(*) as count
 				FROM %s m
 				LEFT JOIN Name2Id n ON m.real_sender_id = n.rowid
-				WHERE m.local_type != 10000
+				WHERE (m.local_type & 4294967295) != 10000
 				GROUP BY sender`, tableName)
 			rows, _ := db.QueryContext(ctx, query, talker)
 			if rows != nil {
@@ -572,7 +724,7 @@ func (r *Repository) GetPersonalTopContacts(ctx context.Context, limit int) ([]*
 						MAX(m.create_time) 
 					FROM %s m
 					LEFT JOIN Name2Id n ON m.real_sender_id = n.rowid
-					WHERE m.local_type != 10000 
+					WHERE (m.local_type & 4294967295) != 10000 
 					GROUP BY is_self`, tableName)
 
 				rows, err := db.QueryContext(ctx, query, talker)
@@ -741,7 +893,7 @@ func (r *Repository) GetDashboardData(ctx context.Context) (*model.DashboardData
 							q := fmt.Sprintf(`
 								SELECT COUNT(*) FROM %s m 
 								LEFT JOIN Name2Id n ON m.real_sender_id = n.rowid 
-								WHERE (n.user_name = ? OR m.status = 2 OR m.real_sender_id = 0) AND m.local_type != 10000`, tableName)
+								WHERE (n.user_name = ? OR m.status = 2 OR m.real_sender_id = 0) AND (m.local_type & 4294967295) != 10000`, tableName)
 							_ = db.QueryRowContext(ctx, q, myWxid).Scan(&sCount)
 						} else {
 							_ = db.QueryRowContext(ctx, fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE (status = 2 OR real_sender_id = 0)", tableName)).Scan(&sCount)
@@ -898,8 +1050,20 @@ func (r *Repository) getTalkerMD5Map(ctx context.Context) map[string]string {
 }
 
 func (r *Repository) searchV3Global(ctx context.Context, db *sql.DB, q types.MessageQuery) ([]*model.Message, error) {
-	query := "SELECT MsgSvrID, Sequence, CreateTime, StrTalker, IsSender, Type, SubType, StrContent, CompressContent, BytesExtra FROM MSG WHERE StrContent LIKE ? ORDER BY CreateTime DESC LIMIT ?"
-	rows, err := db.QueryContext(ctx, query, "%"+q.Keyword+"%", q.Limit)
+	conds := []string{"StrContent LIKE ?"}
+	args := []interface{}{"%" + q.Keyword + "%"}
+	if !q.StartTime.IsZero() {
+		conds = append(conds, "CreateTime >= ?")
+		args = append(args, q.StartTime.Unix())
+	}
+	if !q.EndTime.IsZero() {
+		conds = append(conds, "CreateTime <= ?")
+		args = append(args, q.EndTime.Unix())
+	}
+	args = append(args, q.Limit)
+	query := "SELECT MsgSvrID, Sequence, CreateTime, StrTalker, IsSender, Type, SubType, StrContent, CompressContent, BytesExtra FROM MSG WHERE " +
+		strings.Join(conds, " AND ") + " ORDER BY CreateTime DESC LIMIT ?"
+	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -927,6 +1091,18 @@ func (r *Repository) searchV4Global(ctx context.Context, db *sql.DB, q types.Mes
 	var msgs []*model.Message
 	keywordParam := "%" + q.Keyword + "%"
 
+	// 时间范围过滤
+	timeCond := ""
+	timeArgs := []interface{}{}
+	if !q.StartTime.IsZero() {
+		timeCond += " AND m.create_time >= ?"
+		timeArgs = append(timeArgs, q.StartTime.Unix())
+	}
+	if !q.EndTime.IsZero() {
+		timeCond += " AND m.create_time <= ?"
+		timeArgs = append(timeArgs, q.EndTime.Unix())
+	}
+
 	for tables.Next() {
 		var tableName string
 		tables.Scan(&tableName)
@@ -937,19 +1113,23 @@ func (r *Repository) searchV4Global(ctx context.Context, db *sql.DB, q types.Mes
 			SELECT m.sort_seq, m.server_id, m.local_type, n.user_name, m.create_time, m.message_content, m.packed_info_data, m.status
 			FROM %s m
 			LEFT JOIN Name2Id n ON m.real_sender_id = n.rowid
-			WHERE (m.message_content LIKE ? OR m.compress_content LIKE ?) 
-			ORDER BY m.create_time DESC LIMIT ?`, tableName)
+			WHERE (m.message_content LIKE ? OR m.compress_content LIKE ?)%s
+			ORDER BY m.create_time DESC LIMIT ?`, tableName, timeCond)
 
-		rows, err := db.QueryContext(ctx, query, keywordParam, keywordParam, q.Limit)
+		args := append([]interface{}{keywordParam, keywordParam}, timeArgs...)
+		args = append(args, q.Limit)
+		rows, err := db.QueryContext(ctx, query, args...)
 		if err != nil {
 			// Some tables might not have compress_content column, fallback to message_content only
 			query = fmt.Sprintf(`
 				SELECT m.sort_seq, m.server_id, m.local_type, n.user_name, m.create_time, m.message_content, m.packed_info_data, m.status
 				FROM %s m
 				LEFT JOIN Name2Id n ON m.real_sender_id = n.rowid
-				WHERE m.message_content LIKE ? 
-				ORDER BY m.create_time DESC LIMIT ?`, tableName)
-			rows, err = db.QueryContext(ctx, query, keywordParam, q.Limit)
+				WHERE m.message_content LIKE ?%s
+				ORDER BY m.create_time DESC LIMIT ?`, tableName, timeCond)
+			args2 := append([]interface{}{keywordParam}, timeArgs...)
+			args2 = append(args2, q.Limit)
+			rows, err = db.QueryContext(ctx, query, args2...)
 			if err != nil {
 				continue
 			}
@@ -982,3 +1162,203 @@ func (r *Repository) searchV4Global(ctx context.Context, db *sql.DB, q types.Mes
 	}
 	return msgs, nil
 }
+
+
+// GetTextMessagesGlobal 高效拉取全局文本消息内容（仅 Type=1），
+// 用于词云分析，避免 LIKE 全表扫和 1000 条硬限制。
+func (r *Repository) GetTextMessagesGlobal(ctx context.Context, start, end time.Time, limit int) ([]string, error) {
+	if limit <= 0 {
+		limit = 5000
+	}
+	var texts []string
+	for _, shard := range r.router.GetShards() {
+		if len(texts) >= limit {
+			break
+		}
+		db, err := r.pool.GetConnection(shard.FilePath)
+		if err != nil {
+			continue
+		}
+		if r.isTableExist(db, "MSG") {
+			msgs := r.fetchV3GlobalTexts(ctx, db, start, end, limit-len(texts))
+			texts = append(texts, msgs...)
+		} else {
+			msgs := r.fetchV4GlobalTexts(ctx, db, start, end, limit-len(texts))
+			texts = append(texts, msgs...)
+		}
+	}
+	return texts, nil
+}
+
+func (r *Repository) fetchV3GlobalTexts(ctx context.Context, db *sql.DB, start, end time.Time, limit int) []string {
+	conds := []string{"Type = 1"}
+	args := []interface{}{}
+	if !start.IsZero() {
+		conds = append(conds, "CreateTime >= ?")
+		args = append(args, start.Unix())
+	}
+	if !end.IsZero() {
+		conds = append(conds, "CreateTime <= ?")
+		args = append(args, end.Unix())
+	}
+	args = append(args, limit)
+	query := "SELECT StrContent FROM MSG WHERE " + strings.Join(conds, " AND ") + " ORDER BY CreateTime DESC LIMIT ?"
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var texts []string
+	for rows.Next() {
+		var s sql.NullString
+		if rows.Scan(&s) == nil && s.Valid && s.String != "" {
+			texts = append(texts, s.String)
+		}
+	}
+	return texts
+}
+
+func (r *Repository) fetchV4GlobalTexts(ctx context.Context, db *sql.DB, start, end time.Time, limit int) []string {
+	tables, err := db.QueryContext(ctx, "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'Msg_%%'")
+	if err != nil {
+		return nil
+	}
+	defer tables.Close()
+	var tableNames []string
+	for tables.Next() {
+		var name string
+		if tables.Scan(&name) == nil {
+			tableNames = append(tableNames, name)
+		}
+	}
+	tables.Close()
+
+	timeCond := ""
+	timeArgs := []interface{}{}
+	if !start.IsZero() {
+		timeCond += " AND create_time >= ?"
+		timeArgs = append(timeArgs, start.Unix())
+	}
+	if !end.IsZero() {
+		timeCond += " AND create_time <= ?"
+		timeArgs = append(timeArgs, end.Unix())
+	}
+
+	var texts []string
+	for _, t := range tableNames {
+		if len(texts) >= limit {
+			break
+		}
+		// 直接读 BLOB 列以便处理 zstd 压缩
+		q := fmt.Sprintf("SELECT message_content FROM %s WHERE local_type = 1%s ORDER BY create_time DESC LIMIT ?", t, timeCond)
+		args := append([]interface{}{}, timeArgs...)
+		args = append(args, limit-len(texts))
+		rows, err := db.QueryContext(ctx, q, args...)
+		if err != nil {
+			continue
+		}
+		for rows.Next() {
+			var raw []byte
+			if rows.Scan(&raw) != nil || len(raw) == 0 {
+				continue
+			}
+			content := decodeV4Content(raw)
+			content = stripGroupSenderPrefix(content)
+			if content != "" {
+				texts = append(texts, content)
+			}
+		}
+		rows.Close()
+	}
+	return texts
+}
+
+// decodeV4Content 处理可能被 zstd 压缩的 message_content
+func decodeV4Content(raw []byte) string {
+	if len(raw) >= 4 && raw[0] == 0x28 && raw[1] == 0xb5 && raw[2] == 0x2f && raw[3] == 0xfd {
+		if b, err := zstd.Decompress(raw); err == nil {
+			return string(b)
+		}
+		return ""
+	}
+	return string(raw)
+}
+
+// stripGroupSenderPrefix 移除群聊消息开头的 "wxid_xxx:\n" 或 "name:\n" 前缀
+func stripGroupSenderPrefix(content string) string {
+	if idx := strings.Index(content, ":\n"); idx > 0 && idx < 80 {
+		return content[idx+2:]
+	}
+	return content
+}
+
+// GetCallStats 计算指定会话的通话统计
+func (r *Repository) GetCallStats(ctx context.Context, talker string) (*model.CallStats, error) {
+	stats := &model.CallStats{}
+	targets := r.router.Resolve(time.Unix(0, 0), time.Now(), talker)
+	if len(targets) == 0 {
+		return stats, nil
+	}
+
+	for _, target := range targets {
+		db, err := r.pool.GetConnection(target.FilePath)
+		if err != nil {
+			continue
+		}
+		hash := md5.Sum([]byte(talker))
+		tableName := "Msg_" + hex.EncodeToString(hash[:])
+
+		// 取所有通话消息内容（type=50）
+		var query string
+		var args []interface{}
+		if r.isTableExist(db, tableName) {
+			query = fmt.Sprintf("SELECT message_content FROM %s WHERE (local_type & 4294967295) = 50", tableName)
+		} else {
+			query = "SELECT StrContent FROM MSG WHERE Type = 50"
+			if target.TalkerID != 0 {
+				query += " AND TalkerId = ?"
+				args = append(args, target.TalkerID)
+			} else {
+				query += " AND StrTalker = ?"
+				args = append(args, target.Talker)
+			}
+		}
+
+		rows, err := db.QueryContext(ctx, query, args...)
+		if err != nil {
+			continue
+		}
+		for rows.Next() {
+			var raw []byte
+			if rows.Scan(&raw) != nil || len(raw) == 0 {
+				continue
+			}
+			content := decodeV4Content(raw)
+			content = stripGroupSenderPrefix(content)
+			info := util.ParseVoIP(content)
+
+			stats.TotalCalls++
+			if info.Duration > 0 {
+				stats.CompletedCalls++
+				stats.TotalDuration += info.Duration
+				if info.Duration > stats.LongestDuration {
+					stats.LongestDuration = info.Duration
+				}
+			} else {
+				stats.MissedCalls++
+			}
+			if info.IsVideo {
+				stats.VideoCalls++
+			} else {
+				stats.VoiceCalls++
+			}
+		}
+		rows.Close()
+	}
+
+	if stats.CompletedCalls > 0 {
+		stats.AvgDuration = stats.TotalDuration / stats.CompletedCalls
+	}
+	return stats, nil
+}
+

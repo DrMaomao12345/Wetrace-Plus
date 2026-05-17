@@ -113,28 +113,43 @@ func (a *API) TestMonitorPush(c *gin.Context) {
 	}
 
 	var req struct {
-		URL      string `json:"url"`
-		Secret   string `json:"secret"`
-		Platform string `json:"platform"`
+		URL              string `json:"url"`
+		Secret           string `json:"secret"`
+		Platform         string `json:"platform"`
+		TelegramBotToken string `json:"telegram_bot_token"`
+		TelegramChatID   string `json:"telegram_chat_id"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		transport.BadRequest(c, "参数错误: "+err.Error())
 		return
 	}
 
-	if req.URL == "" {
-		transport.BadRequest(c, "URL不能为空")
-		return
-	}
-
 	switch req.Platform {
 	case "feishu":
+		if req.URL == "" {
+			transport.BadRequest(c, "飞书 Webhook URL 不能为空")
+			return
+		}
 		if err := monitor.TestFeishuBot(req.URL, req.Secret); err != nil {
 			transport.InternalServerError(c, "飞书测试失败: "+err.Error())
 			return
 		}
 		transport.SendSuccess(c, gin.H{"status": "ok", "message": "测试消息已发送"})
+	case "telegram":
+		if req.TelegramBotToken == "" || req.TelegramChatID == "" {
+			transport.BadRequest(c, "Telegram Bot Token 和 Chat ID 不能为空")
+			return
+		}
+		if err := monitor.TestTelegramBot(req.TelegramBotToken, req.TelegramChatID); err != nil {
+			transport.InternalServerError(c, "Telegram 测试失败: "+err.Error())
+			return
+		}
+		transport.SendSuccess(c, gin.H{"status": "ok", "message": "Telegram 测试消息已发送"})
 	default:
+		if req.URL == "" {
+			transport.BadRequest(c, "Webhook URL 不能为空")
+			return
+		}
 		code, err := monitor.TestWebhookURL(req.URL)
 		if err != nil {
 			transport.InternalServerError(c, "Webhook测试失败: "+err.Error())

@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { monitorApi } from "@/api/monitor"
 import { sessionApi } from "@/api"
 import { toast } from "sonner"
-import type { MonitorConfig, MonitorConfigCreate, FeishuConfigUpdate } from "@/api/monitor"
+import type { MonitorConfig, MonitorConfigCreate, FeishuConfigUpdate, TelegramConfig } from "@/api/monitor"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -33,6 +33,8 @@ const emptyForm: EditingConfig = {
   platform: "webhook",
   webhook_url: "",
   feishu_url: "",
+  telegram_bot_token: "",
+  telegram_chat_id: "",
   enabled: true,
   session_ids: [],
   interval_minutes: 5,
@@ -55,6 +57,11 @@ function ConfigFormDialog({
   const [form, setForm] = useState<EditingConfig>(initial)
   const [keywordInput, setKeywordInput] = useState("")
   const [sessionSearch, setSessionSearch] = useState("")
+
+  const { data: telegramConfig } = useQuery({
+    queryKey: ["telegram-config"],
+    queryFn: () => monitorApi.getTelegramConfig(),
+  })
 
   const { data: sessionData } = useQuery({
     queryKey: ["monitor-sessions"],
@@ -209,6 +216,13 @@ function ConfigFormDialog({
             >
               飞书
             </Button>
+            <Button
+              size="sm"
+              variant={form.platform === "telegram" ? "default" : "outline"}
+              onClick={() => setForm((f) => ({ ...f, platform: "telegram" }))}
+            >
+              Telegram
+            </Button>
           </div>
         </div>
 
@@ -235,6 +249,23 @@ function ConfigFormDialog({
               placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/xxx"
               className="h-9"
             />
+          </div>
+        )}
+
+        {/* Telegram */}
+        {form.platform === "telegram" && (
+          <div className="border rounded-md p-3">
+            {telegramConfig?.enabled && telegramConfig.bot_token && telegramConfig.chat_id ? (
+              <div className="flex items-center gap-2 text-sm text-green-600 dark:text-green-400">
+                <CheckCircle className="w-4 h-4 shrink-0" />
+                <span>已配置全局 Telegram，将使用全局配置发送告警</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 text-sm text-amber-600 dark:text-amber-400">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <span>请先在下方「Telegram 平台配置」中完成配置并启用</span>
+              </div>
+            )}
           </div>
         )}
 
@@ -575,6 +606,182 @@ function FeishuConfigSection() {
 }
 
 /* ============================================================
+ * Telegram Config Section
+ * ============================================================ */
+function TelegramConfigSection() {
+  const queryClient = useQueryClient()
+  const [form, setForm] = useState<TelegramConfig>({
+    bot_token: "",
+    chat_id: "",
+    enabled: false,
+    bot_chat_enabled: false,
+    authorized_chat_ids: [],
+  })
+  const [chatIDsText, setChatIDsText] = useState("")
+  const [testStatus, setTestStatus] = useState<"idle" | "testing" | "success" | "error">("idle")
+
+  const { data: config, isLoading } = useQuery({
+    queryKey: ["telegram-config"],
+    queryFn: () => monitorApi.getTelegramConfig(),
+  })
+
+  useEffect(() => {
+    if (config) {
+      setForm({
+        bot_token: config.bot_token || "",
+        chat_id: config.chat_id || "",
+        enabled: config.enabled,
+        bot_chat_enabled: config.bot_chat_enabled || false,
+        authorized_chat_ids: config.authorized_chat_ids || [],
+      })
+      setChatIDsText((config.authorized_chat_ids || []).join("\n"))
+    }
+  }, [config])
+
+  const updateMutation = useMutation({
+    mutationFn: (data: TelegramConfig) => monitorApi.updateTelegramConfig(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["telegram-config"] })
+      toast.success("Telegram 配置已保存")
+    },
+    onError: (err: Error) => toast.error("保存失败: " + err.message),
+  })
+
+  const handleTest = async () => {
+    setTestStatus("testing")
+    try {
+      await monitorApi.testTelegram()
+      setTestStatus("success")
+    } catch {
+      setTestStatus("error")
+    }
+  }
+
+  if (isLoading) {
+    return (
+      <Card>
+        <CardContent className="p-6 flex items-center justify-center">
+          <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+        </CardContent>
+      </Card>
+    )
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <Send className="w-4 h-4 text-primary" />
+          Telegram 平台配置
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex items-center justify-between">
+          <label className="text-sm font-medium leading-none">启用 Telegram 推送</label>
+          <Switch
+            checked={form.enabled}
+            onCheckedChange={(v) => setForm((f) => ({ ...f, enabled: v }))}
+          />
+        </div>
+
+        {form.enabled && (
+          <div className="space-y-3 border rounded-md p-3">
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium leading-none">Bot Token</label>
+              <Input
+                value={form.bot_token}
+                onChange={(e) => setForm((f) => ({ ...f, bot_token: e.target.value }))}
+                placeholder="123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ"
+                className="h-9"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium leading-none">Chat ID</label>
+              <Input
+                value={form.chat_id}
+                onChange={(e) => setForm((f) => ({ ...f, chat_id: e.target.value }))}
+                placeholder="-1001234567890 或 @频道用户名"
+                className="h-9"
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              通过 @BotFather 创建 Bot 获取 Token，Chat ID 可通过 @userinfobot 查询。
+            </p>
+          </div>
+        )}
+
+        {/* Bot 远程查询 */}
+        <div className="border rounded-md p-3 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <label className="text-sm font-medium leading-none">启用 Bot 交互查询</label>
+              <p className="text-xs text-muted-foreground">
+                在 Telegram 给 bot 发命令查询数据（需要先填好 Bot Token）
+              </p>
+            </div>
+            <Switch
+              checked={form.bot_chat_enabled || false}
+              onCheckedChange={(v) => setForm((f) => ({ ...f, bot_chat_enabled: v }))}
+              disabled={!form.bot_token}
+            />
+          </div>
+          {form.bot_chat_enabled && (
+            <>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium leading-none">白名单 Chat ID（每行一个，留空 = 不限制）</label>
+                <textarea
+                  value={chatIDsText}
+                  onChange={(e) => setChatIDsText(e.target.value)}
+                  placeholder={"123456789\n-1009876543210"}
+                  rows={3}
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono"
+                />
+                <p className="text-xs text-muted-foreground">
+                  只响应白名单内 chat 的命令；为空 = 任何人能查（不推荐）。Chat ID 可通过给 @userinfobot 发任何消息获取
+                </p>
+              </div>
+              <div className="text-xs text-muted-foreground bg-muted/50 rounded p-2">
+                可用命令：/help /status /list /stat /words /calls /types
+              </div>
+            </>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2 pt-2">
+          <Button
+            size="sm"
+            onClick={() => {
+              const ids = chatIDsText
+                .split(/[\n,]+/)
+                .map((s) => s.trim())
+                .filter(Boolean)
+              updateMutation.mutate({ ...form, authorized_chat_ids: ids })
+            }}
+            disabled={updateMutation.isPending}
+          >
+            {updateMutation.isPending && <Loader2 className="w-4 h-4 animate-spin mr-1" />}
+            保存配置
+          </Button>
+          {form.enabled && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleTest}
+              disabled={testStatus === "testing"}
+            >
+              {testStatus === "testing" && <Loader2 className="w-4 h-4 animate-spin mr-1" />}
+              {testStatus === "success" && <CheckCircle className="w-4 h-4 text-green-500 mr-1" />}
+              {testStatus === "error" && <XCircle className="w-4 h-4 text-destructive mr-1" />}
+              测试连通性
+            </Button>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+/* ============================================================
  * Config List Item
  * ============================================================ */
 function ConfigListItem({
@@ -611,7 +818,7 @@ function ConfigListItem({
         </div>
         <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
           <span>类型: {cfg.type === "keyword" ? "关键词" : "AI"}</span>
-          <span>平台: {cfg.platform === "feishu" ? "飞书" : "Webhook"}</span>
+          <span>平台: {cfg.platform === "feishu" ? "飞书" : cfg.platform === "telegram" ? "Telegram" : "Webhook"}</span>
           {cfg.type === "keyword" && cfg.keywords?.length > 0 && (
             <span>关键词: {cfg.keywords.slice(0, 3).join(", ")}{cfg.keywords.length > 3 ? "..." : ""}</span>
           )}
@@ -694,14 +901,24 @@ export default function MonitorView() {
   }
 
   const handleTestPush = async (cfg: MonitorConfig) => {
-    const url = cfg.platform === "feishu" ? cfg.feishu_url : cfg.webhook_url
-    if (!url) {
-      toast.warning("推送地址为空，无法测试")
-      return
+    if (cfg.platform === "telegram") {
+      // telegram now uses global config — just call testTelegram directly
+    } else {
+      const url = cfg.platform === "feishu" ? cfg.feishu_url : cfg.webhook_url
+      if (!url) {
+        toast.warning("推送地址为空，无法测试")
+        return
+      }
     }
     setTestingId(cfg.id)
     try {
-      await monitorApi.testPush({ url })
+      if (cfg.platform === "telegram") {
+        await monitorApi.testTelegram()
+      } else if (cfg.platform === "feishu") {
+        await monitorApi.testPush({ url: cfg.feishu_url, platform: "feishu" })
+      } else {
+        await monitorApi.testPush({ url: cfg.webhook_url })
+      }
       setTestResult((r) => ({ ...r, [cfg.id]: "success" }))
     } catch {
       setTestResult((r) => ({ ...r, [cfg.id]: "error" }))
@@ -720,6 +937,8 @@ export default function MonitorView() {
       platform: cfg.platform,
       webhook_url: cfg.webhook_url,
       feishu_url: cfg.feishu_url,
+      telegram_bot_token: cfg.telegram_bot_token || "",
+      telegram_chat_id: cfg.telegram_chat_id || "",
       enabled: cfg.enabled,
     })
   }
@@ -808,6 +1027,9 @@ export default function MonitorView() {
 
         {/* Feishu config */}
         <FeishuConfigSection />
+
+        {/* Telegram config */}
+        <TelegramConfigSection />
       </div>
     </ScrollArea>
   )
