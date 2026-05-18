@@ -91,7 +91,7 @@ func (a *API) GetAnnualReport(c *gin.Context) {
 	}
 
 	pastStartYear := effectiveChatStartYear()
-	report, err := a.Store.GetAnnualReport(c.Request.Context(), req.Year, defaultTzOffset, pastStartYear, storeSegs, req.ExcludeTalkers)
+	report, err := a.Store.GetAnnualReport(c.Request.Context(), req.Year, defaultTzOffset, pastStartYear, storeSegs, a.mergedExcludeTalkers(req.ExcludeTalkers))
 	if err != nil {
 		log.Error().Err(err).Int("year", req.Year).Msg("获取年度报告失败")
 		transport.InternalServerError(c, "获取年度报告失败")
@@ -217,7 +217,7 @@ func (a *API) StreamAnnualReport(c *gin.Context) {
 	report, err := a.Store.GetAnnualReportWithProgress(
 		c.Request.Context(),
 		req.Year, defaultTzOffset, pastStartYear,
-		storeSegs, req.ExcludeTalkers,
+		storeSegs, a.mergedExcludeTalkers(req.ExcludeTalkers),
 		progressFn,
 	)
 	if err != nil {
@@ -267,11 +267,54 @@ func (a *API) GetAnnualWordCounts(c *gin.Context) {
 		})
 	}
 
-	stat, err := a.Store.GetAnnualWordCounts(c.Request.Context(), req.Year, defaultTzOffset, storeSegs, req.ExcludeTalkers)
+	stat, err := a.Store.GetAnnualWordCounts(c.Request.Context(), req.Year, defaultTzOffset, storeSegs, a.mergedExcludeTalkers(req.ExcludeTalkers))
 	if err != nil {
 		log.Error().Err(err).Msg("获取字数统计失败")
 		transport.InternalServerError(c, "获取字数统计失败")
 		return
 	}
 	transport.SendSuccess(c, stat)
+}
+
+// mergedExcludeTalkers 把请求传入的排除名单与服务端持久化的排除配置合并去重，
+// 保证服务端配置的排除名单始终生效（无论调用方是否传 exclude_talkers）。
+func (a *API) mergedExcludeTalkers(reqExclude []string) []string {
+	set := make(map[string]bool)
+	for _, t := range reqExclude {
+		set[t] = true
+	}
+	if a.ExcludeConfig != nil {
+		for _, t := range a.ExcludeConfig.Get() {
+			set[t] = true
+		}
+	}
+	out := make([]string, 0, len(set))
+	for t := range set {
+		out = append(out, t)
+	}
+	return out
+}
+
+// GetExcludeTalkers 返回服务端持久化的排除联系人名单
+func (a *API) GetExcludeTalkers(c *gin.Context) {
+	talkers := []string{}
+	if a.ExcludeConfig != nil {
+		talkers = a.ExcludeConfig.Get()
+	}
+	transport.SendSuccess(c, gin.H{"talkers": talkers})
+}
+
+// UpdateExcludeTalkers 覆盖保存排除联系人名单
+func (a *API) UpdateExcludeTalkers(c *gin.Context) {
+	var req struct {
+		Talkers []string `json:"talkers"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		transport.BadRequest(c, "请求体格式错误")
+		return
+	}
+	if a.ExcludeConfig != nil {
+		a.ExcludeConfig.Set(req.Talkers)
+	}
+	transport.SendSuccess(c, gin.H{"status": "ok"})
 }

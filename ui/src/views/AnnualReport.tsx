@@ -154,8 +154,20 @@ export default function AnnualReportView() {
     )
   }, [sessionsData, excludeSearch])
 
+  // 排除名单：从服务端加载（与移动端共用同一份），失败则用本地缓存
+  useEffect(() => {
+    reportApi
+      .getExcludeTalkers()
+      .then((res) => {
+        if (res && Array.isArray(res.talkers)) setExcludeTalkers(res.talkers)
+      })
+      .catch(() => {})
+  }, [])
+
   const handleSaveConfig = () => {
     saveConfig({ defaultTz, segments, excludeTalkers })
+    // 排除名单同步保存到服务端，移动端 / 其他设备共用
+    reportApi.saveExcludeTalkers(excludeTalkers).catch(() => {})
     setSavedTip(true)
     if (savedTimerRef.current) clearTimeout(savedTimerRef.current)
     savedTimerRef.current = setTimeout(() => setSavedTip(false), 2000)

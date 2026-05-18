@@ -51,6 +51,7 @@ type API struct {
 	TTS             tts.Transcriber
 	Transcripts     *transcripts.Store
 	MobilePairings  *MobilePairingStore
+	ExcludeConfig   *ExcludeConfigStore
 	mu                 sync.Mutex
 	summarizeCancel    context.CancelFunc
 	currentSummaryJob  *SummaryHistoryItem
@@ -101,6 +102,9 @@ func NewAPI(s store.Store, m *media.Service, conf *Config, staticFS fs.FS) *API 
 
 	// 初始化分词器（支持用户词典 data/wordcloud_dict.txt）
 	wordcloud.Init(conf.DataDir)
+
+	// 初始化「排除联系人」配置 store（网页与移动端共用）
+	a.ExcludeConfig = NewExcludeConfigStore(conf.DataDir)
 
 	// 初始化移动端配对记录 store，并迁移旧的单 token
 	a.MobilePairings = NewMobilePairingStore(conf.DataDir)

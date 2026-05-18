@@ -98,6 +98,13 @@ export const reportApi = {
       exclude_talkers: excludeTalkers,
     }),
 
+  // 服务端持久化的「排除联系人」名单（网页与移动端共用）
+  getExcludeTalkers: () =>
+    request.get<{ talkers: string[] }>("/api/v1/report/exclude_talkers"),
+
+  saveExcludeTalkers: (talkers: string[]) =>
+    request.post<{ status: string }>("/api/v1/report/exclude_talkers", { talkers }),
+
   // 局部刷新：拿到当前生效的往年月均 + 往年同期 overview 平均
   getReportBaseline: (year: number, tzOffsetMinutes: number) =>
     request.get<{

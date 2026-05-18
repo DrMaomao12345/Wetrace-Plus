@@ -143,6 +143,8 @@ func (s *Service) setupRoutes() {
 			reportGroup.POST("/annual", s.api.GetAnnualReport)
 			reportGroup.POST("/annual/stream", s.api.StreamAnnualReport)
 			reportGroup.POST("/word_count", s.api.GetAnnualWordCounts)
+			reportGroup.GET("/exclude_talkers", s.api.GetExcludeTalkers)
+			reportGroup.POST("/exclude_talkers", s.api.UpdateExcludeTalkers)
 			reportGroup.GET("/past_monthly_avg", s.api.GetPastYearsMonthlyAvg)
 			reportGroup.GET("/baseline", s.api.GetReportBaseline)
 		}
