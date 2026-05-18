@@ -19,6 +19,7 @@ type SummaryHistoryItem struct {
 	TimeRange  string    `json:"time_range"`
 	PromptUsed string    `json:"prompt_used"`
 	Summary    string    `json:"summary"`
+	Model      string    `json:"model"` // 生成该总结所用的 AI 模型
 	MsgCount   int       `json:"msg_count"`
 	Status     string    `json:"status"`      // "success" | "failed" | "cancelled"
 	Error      string    `json:"error"`
