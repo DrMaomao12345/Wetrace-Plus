@@ -78,3 +78,24 @@ func (a *API) GetSyncHistory(c *gin.Context) {
 	}
 	transport.SendSuccess(c, a.SyncScheduler.GetHistory())
 }
+
+// GetMobileConfig 返回服务器端配置的只读快照（移动端只展示、不修改）。
+func (a *API) GetMobileConfig(c *gin.Context) {
+	cfg := gin.H{}
+	if a.SyncScheduler != nil {
+		st := a.SyncScheduler.GetStatus()
+		cfg["sync_enabled"] = st.Enabled
+		cfg["sync_interval_minutes"] = st.IntervalMin
+		cfg["last_sync_time"] = st.LastSyncTime
+	}
+	if a.AI != nil {
+		cfg["ai_model"] = a.AI.Model
+		cfg["ai_base_url"] = a.AI.BaseURL
+	}
+	if a.BackupScheduler != nil {
+		bs := a.BackupScheduler.GetStatus()
+		cfg["backup_enabled"] = bs.Enabled
+		cfg["backup_interval_hours"] = bs.IntervalHours
+	}
+	transport.SendSuccess(c, cfg)
+}

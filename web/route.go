@@ -80,6 +80,7 @@ func (s *Service) setupRoutes() {
 				mobile.DELETE("/pairings/:id", s.api.DeleteMobilePairing)
 				mobile.PUT("/pairings/:id", s.api.RenameMobilePairing)
 				mobile.GET("/ping", s.api.MobilePing)
+				mobile.GET("/config", s.api.GetMobileConfig)
 			}
 
 			// 有效聊天记录起始时间（年）
