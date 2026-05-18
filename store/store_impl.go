@@ -166,6 +166,10 @@ func (s *DefaultStore) GetAnnualReport(ctx context.Context, year int, defaultTzO
 	return s.repo.GetAnnualReport(ctx, year, defaultTzOffset, pastStartYear, segments, excludeTalkers)
 }
 
+func (s *DefaultStore) GetTalkerAnnualReport(ctx context.Context, year int, talker string, defaultTzOffset int) (*model.AnnualReport, error) {
+	return s.repo.GetTalkerAnnualReport(ctx, year, talker, defaultTzOffset)
+}
+
 func (s *DefaultStore) GetAnnualWordCounts(ctx context.Context, year int, defaultTzOffset int, segments []types.TZSegment, excludeTalkers []string) (*model.WordCountStat, error) {
 	return s.repo.GetAnnualWordCounts(ctx, year, defaultTzOffset, segments, excludeTalkers)
 }

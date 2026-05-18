@@ -25,6 +25,7 @@ type AnnualReportRequest struct {
 	TZSegments      []TZSegmentRequest `json:"tz_segments"`
 	DefaultTZ       *int               `json:"default_tz_offset"`
 	ExcludeTalkers  []string           `json:"exclude_talkers"`
+	Talker          string             `json:"talker"` // 非空时返回该联系人的年度报告
 }
 
 // GetAnnualReport 获取年度报告（支持 GET 和 POST，POST 时可传多时区段）
@@ -49,6 +50,7 @@ func (a *API) GetAnnualReport(c *gin.Context) {
 				req.DefaultTZ = &off
 			}
 		}
+		req.Talker = c.Query("talker")
 	}
 
 	if req.Year < 2000 || req.Year > 2100 {
@@ -59,6 +61,18 @@ func (a *API) GetAnnualReport(c *gin.Context) {
 	defaultTzOffset := 0
 	if req.DefaultTZ != nil {
 		defaultTzOffset = *req.DefaultTZ * 60
+	}
+
+	// 指定了 talker：返回该联系人的年度报告（在内存里聚合该 talker 的消息）
+	if req.Talker != "" {
+		report, err := a.Store.GetTalkerAnnualReport(c.Request.Context(), req.Year, req.Talker, defaultTzOffset)
+		if err != nil {
+			log.Error().Err(err).Int("year", req.Year).Str("talker", req.Talker).Msg("获取联系人年度报告失败")
+			transport.InternalServerError(c, "获取联系人年度报告失败")
+			return
+		}
+		transport.SendSuccess(c, report)
+		return
 	}
 
 	// 将前端 segments 转换为 store 层的类型（偏移分钟 → 秒）

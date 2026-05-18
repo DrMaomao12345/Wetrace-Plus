@@ -46,6 +46,8 @@ type Store interface {
 
 	// 年度报告
 	GetAnnualReport(ctx context.Context, year int, defaultTzOffset, pastStartYear int, segments []types.TZSegment, excludeTalkers []string) (*model.AnnualReport, error)
+	// GetTalkerAnnualReport 单个联系人的年度报告（defaultTzOffset 单位：秒）
+	GetTalkerAnnualReport(ctx context.Context, year int, talker string, defaultTzOffset int) (*model.AnnualReport, error)
 	GetAnnualWordCounts(ctx context.Context, year int, defaultTzOffset int, segments []types.TZSegment, excludeTalkers []string) (*model.WordCountStat, error)
 	GetAnnualReportWithProgress(ctx context.Context, year int, defaultTzOffset, pastStartYear int, segments []types.TZSegment, excludeTalkers []string, progressFn types.ProgressCallback) (*model.AnnualReport, error)
 	ComputeMonthlyAvgInRange(ctx context.Context, fromYear, toYear, tzOffsetSeconds int) []*model.MonthlyStat
