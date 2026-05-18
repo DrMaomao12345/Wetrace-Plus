@@ -128,12 +128,15 @@ type WordCountStat struct {
 	Contacts   []*ContactWordCountStat   `json:"contacts"` // 按 talker 分组
 }
 
-// ContactWordCountStat 单个联系人/群聊的字数
+// ContactWordCountStat 单个联系人/群聊的字数与消息条数
 type ContactWordCountStat struct {
 	Talker     string `json:"talker"`
 	SentChars  int    `json:"sentChars"`
 	RecvChars  int    `json:"recvChars"`
 	TotalChars int    `json:"totalChars"`
+	SentCount  int    `json:"sentCount"`  // 我发送的消息条数（不含系统消息）
+	RecvCount  int    `json:"recvCount"`  // 对方发送的消息条数
+	TotalCount int    `json:"totalCount"` // 总消息条数
 }
 
 // OverviewDeltas 概览数据相对往年同期的百分比差（如 12.5 = +12.5%；nil 表示无往年数据可对比）
