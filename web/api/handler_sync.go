@@ -69,3 +69,12 @@ func (a *API) GetSyncStatus(c *gin.Context) {
 	}
 	transport.SendSuccess(c, a.SyncScheduler.GetStatus())
 }
+
+// GetSyncHistory returns the data-sync history (latest first).
+func (a *API) GetSyncHistory(c *gin.Context) {
+	if a.SyncScheduler == nil {
+		transport.SendSuccess(c, []any{})
+		return
+	}
+	transport.SendSuccess(c, a.SyncScheduler.GetHistory())
+}

@@ -128,7 +128,7 @@ func NewAPI(s store.Store, m *media.Service, conf *Config, staticFS fs.FS) *API 
 		}
 		return s.Reload()
 	}
-	a.SyncScheduler = intsync.NewScheduler(syncFunc)
+	a.SyncScheduler = intsync.NewScheduler(syncFunc, filepath.Join(conf.DataDir, "sync_history.json"))
 
 	// Restore sync config from viper
 	if viper.GetBool("SYNC_ENABLED") {
