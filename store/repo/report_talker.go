@@ -91,13 +91,30 @@ func (r *Repository) GetTalkerAnnualReport(ctx context.Context, year int, talker
 		}
 	}
 
+	// 活跃天数改为「从首条聊天记录起算」—— 把和该联系人全周期的消息都拉
+	// 一遍，按 talker 时区折算成日期再去重。其余概览数仍按当年的算。
+	lifetimeMsgs, _ := r.GetMessages(ctx, types.MessageQuery{
+		Talker:    talker,
+		StartTime: time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC),
+		EndTime:   time.Now().Add(24 * time.Hour),
+		Limit:     10_000_000,
+	})
+	lifetimeDays := make(map[string]bool)
+	for _, m := range lifetimeMsgs {
+		lifetimeDays[m.Time.In(loc).Format("2006-01-02")] = true
+	}
+	activeDaysLifetime := len(lifetimeDays)
+	if activeDaysLifetime == 0 {
+		activeDaysLifetime = len(dailyCounts) // 兜底，避免历史拉取失败时显示 0
+	}
+
 	// 概览
 	report.Overview = model.AnnualOverview{
 		TotalMessages:    total,
 		SentMessages:     sent,
 		ReceivedMessages: recv,
 		ActiveContacts:   1,
-		ActiveDays:       len(dailyCounts),
+		ActiveDays:       activeDaysLifetime,
 		FirstMessageDate: firstDate,
 		LastMessageDate:  lastDate,
 	}

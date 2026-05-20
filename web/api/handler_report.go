@@ -65,12 +65,19 @@ func (a *API) GetAnnualReport(c *gin.Context) {
 
 	// 指定了 talker：返回该联系人的年度报告（在内存里聚合该 talker 的消息）
 	if req.Talker != "" {
+		version := a.Store.GetDataVersion()
+		key := TalkerReportKey(req.Year, req.Talker, defaultTzOffset)
+		if cached := a.ReportCache.Get(version, key); cached != nil {
+			transport.SendSuccess(c, cached)
+			return
+		}
 		report, err := a.Store.GetTalkerAnnualReport(c.Request.Context(), req.Year, req.Talker, defaultTzOffset)
 		if err != nil {
 			log.Error().Err(err).Int("year", req.Year).Str("talker", req.Talker).Msg("获取联系人年度报告失败")
 			transport.InternalServerError(c, "获取联系人年度报告失败")
 			return
 		}
+		a.ReportCache.Put(version, key, report)
 		transport.SendSuccess(c, report)
 		return
 	}
@@ -91,13 +98,24 @@ func (a *API) GetAnnualReport(c *gin.Context) {
 	}
 
 	pastStartYear := effectiveChatStartYear()
-	report, err := a.Store.GetAnnualReport(c.Request.Context(), req.Year, defaultTzOffset, pastStartYear, storeSegs, a.mergedExcludeTalkers(req.ExcludeTalkers))
+	excludeMerged := a.mergedExcludeTalkers(req.ExcludeTalkers)
+
+	// 数据指纹 + 参数键 命中缓存就直接返回，省下整份重算
+	version := a.Store.GetDataVersion()
+	cacheKey := AnnualReportKey(req.Year, defaultTzOffset, pastStartYear, excludeMerged, req.TZSegments)
+	if cached := a.ReportCache.Get(version, cacheKey); cached != nil {
+		transport.SendSuccess(c, cached)
+		return
+	}
+
+	report, err := a.Store.GetAnnualReport(c.Request.Context(), req.Year, defaultTzOffset, pastStartYear, storeSegs, excludeMerged)
 	if err != nil {
 		log.Error().Err(err).Int("year", req.Year).Msg("获取年度报告失败")
 		transport.InternalServerError(c, "获取年度报告失败")
 		return
 	}
 
+	a.ReportCache.Put(version, cacheKey, report)
 	transport.SendSuccess(c, report)
 }
 

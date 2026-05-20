@@ -52,6 +52,7 @@ type API struct {
 	Transcripts     *transcripts.Store
 	MobilePairings  *MobilePairingStore
 	ExcludeConfig   *ExcludeConfigStore
+	ReportCache     *ReportCache
 	mu                 sync.Mutex
 	summarizeCancel    context.CancelFunc
 	currentSummaryJob  *SummaryHistoryItem
@@ -105,6 +106,9 @@ func NewAPI(s store.Store, m *media.Service, conf *Config, staticFS fs.FS) *API 
 
 	// 初始化「排除联系人」配置 store（网页与移动端共用）
 	a.ExcludeConfig = NewExcludeConfigStore(conf.DataDir)
+
+	// 年度报告缓存（按数据指纹 + 参数键缓存）
+	a.ReportCache = NewReportCache()
 
 	// 初始化移动端配对记录 store，并迁移旧的单 token
 	a.MobilePairings = NewMobilePairingStore(conf.DataDir)
@@ -182,6 +186,10 @@ func NewAPI(s store.Store, m *media.Service, conf *Config, staticFS fs.FS) *API 
 
 	// 启动 Telegram Bot worker（如果配置了 bot_chat_enabled）
 	a.ApplyTelegramBotConfig()
+
+	// 启动后台预热：当年 Top5 联系人 + 全局年度报告 缓存一遍，
+	// 下次进入秒开。串行 + 30 秒延迟，避免和首屏请求抢资源 / 导致数据错乱。
+	a.PrewarmTopContacts()
 
 	// Initialize TTS client from viper config
 	if viper.GetBool("TTS_ENABLED") {

@@ -40,9 +40,36 @@ func (r *Repository) getAnnualOverview(ctx context.Context, segs []reportSegment
 	overview.TotalMessages = totalMsgs
 	overview.SentMessages = sentMsgs
 	overview.ReceivedMessages = recvMsgs
-	overview.ActiveDays = len(daySet)
 	overview.FirstMessageDate = firstDate
 	overview.LastMessageDate = lastDate
+
+	// 活跃天数：从「首条消息」到今天里有消息的不同天数。
+	// 之前是按 segs 范围（即一年）算，会让新会话显得只有几天活跃；
+	// 改成跨整段聊天历史统计 —— 用一份不限时间的额外 overview 扫描，
+	// 只取它的 daySet。其余字段（消息总数等）继续按 segs 内的来。
+	lifetimeDays := make(map[string]bool)
+	lifeStart := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+	lifeEnd := time.Now().Add(24 * time.Hour).UTC()
+	lifeTz := ""
+	if len(segs) > 0 {
+		lifeTz = segs[0].tzMod
+	}
+	var lTotal, lSent, lRecv int
+	lContact := make(map[string]bool)
+	lChatroom := make(map[string]bool)
+	var lFirst, lLast string
+	for _, shard := range r.router.GetShards() {
+		db, err := r.pool.GetConnection(shard.FilePath)
+		if err != nil {
+			continue
+		}
+		if r.isTableExist(db, "MSG") {
+			r.overviewV3(ctx, db, lifeStart, lifeEnd, &lTotal, &lSent, &lRecv, lContact, lChatroom, lifetimeDays, &lFirst, &lLast, lifeTz)
+		} else {
+			r.overviewV4(ctx, db, lifeStart, lifeEnd, &lTotal, &lSent, &lRecv, lContact, lChatroom, lifetimeDays, &lFirst, &lLast, lifeTz)
+		}
+	}
+	overview.ActiveDays = len(lifetimeDays)
 
 	activeContacts := 0
 	activeChatrooms := 0
