@@ -119,6 +119,70 @@ func (r *Repository) GetTalkerAnnualReport(ctx context.Context, year int, talker
 		LastMessageDate:  lastDate,
 	}
 
+	// 联系人年度报告也给出「相对往年同期的百分比变化」—— 用刚拉到的全周期
+	// 消息在内存里分桶,逐年算 totalMessages/sent/recv/activeDays,再求往年
+	// 平均,与当年对比。pastStartYear 缺省 2023(与 effectiveChatStartYear 默认一致)。
+	const pastStartYear = 2023
+	type bucket struct {
+		total, sent, recv int
+		days              map[string]bool
+	}
+	pastByYear := make(map[int]*bucket)
+	cutMonth, cutDay := time.December, 31
+	now := time.Now()
+	if year == now.Year() {
+		cutMonth = now.Month()
+		cutDay = now.Day()
+	}
+	for _, m := range lifetimeMsgs {
+		t := m.Time.In(loc)
+		py := t.Year()
+		if py >= year || py < pastStartYear {
+			continue
+		}
+		// 截止到「当年同期」—— 例如当前 5/20,过往各年只算到 5/20
+		if t.Month() > cutMonth || (t.Month() == cutMonth && t.Day() > cutDay) {
+			continue
+		}
+		b, ok := pastByYear[py]
+		if !ok {
+			b = &bucket{days: make(map[string]bool)}
+			pastByYear[py] = b
+		}
+		b.total++
+		if m.IsSelf {
+			b.sent++
+		} else {
+			b.recv++
+		}
+		b.days[t.Format("2006-01-02")] = true
+	}
+	if len(pastByYear) > 0 {
+		var sumT, sumS, sumR, sumD int
+		for _, b := range pastByYear {
+			sumT += b.total
+			sumS += b.sent
+			sumR += b.recv
+			sumD += len(b.days)
+		}
+		n := len(pastByYear)
+		avgT, avgS, avgR, avgD := sumT/n, sumS/n, sumR/n, sumD/n
+		calc := func(cur, past int) *float64 {
+			if past == 0 {
+				return nil
+			}
+			p := (float64(cur) - float64(past)) / float64(past) * 100
+			return &p
+		}
+		report.OverviewDeltas = &model.OverviewDeltas{
+			TotalMessages:    calc(total, avgT),
+			SentMessages:     calc(sent, avgS),
+			ReceivedMessages: calc(recv, avgR),
+			ActiveDays:       calc(activeDaysLifetime, avgD),
+			// ActiveContacts / ActiveChatrooms 对单联系人不适用
+		}
+	}
+
 	// 月度趋势
 	for i := 1; i <= 12; i++ {
 		report.MonthlyTrend = append(report.MonthlyTrend, &model.MonthlyStat{Month: i, Count: monthly[i]})
