@@ -37,6 +37,10 @@ type AccountStore struct {
 	data     accountsFile
 }
 
+// activateMu 串行化账号切换的后台解密 + 重载，
+// 避免连续切换时多个 goroutine 同时 RunTask / Store.Reload 造成数据竞态。
+var activateMu sync.Mutex
+
 // NewAccountStore 创建一个新的 AccountStore，从 dataDir/accounts.json 加载数据。
 func NewAccountStore(dataDir string) *AccountStore {
 	s := &AccountStore{
@@ -65,7 +69,8 @@ func (s *AccountStore) save() error {
 	if err := os.MkdirAll(filepath.Dir(s.filePath), 0755); err != nil {
 		return fmt.Errorf("创建目录失败: %w", err)
 	}
-	return os.WriteFile(s.filePath, data, 0644)
+	// 0600：含微信数据路径（路径里带 wxid 用户名），与 .env 一致收紧权限
+	return os.WriteFile(s.filePath, data, 0600)
 }
 
 // List 返回所有账号列表和当前活跃账号 ID。
@@ -77,8 +82,8 @@ func (s *AccountStore) List() ([]Account, string) {
 	return accs, s.data.ActiveID
 }
 
-// Add 添加一个新账号并返回该账号。
-func (s *AccountStore) Add(path, label string) Account {
+// Add 添加一个新账号并返回该账号。写盘失败时回滚内存并返回错误。
+func (s *AccountStore) Add(path, label string) (Account, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	acc := Account{
@@ -88,12 +93,15 @@ func (s *AccountStore) Add(path, label string) Account {
 		LastUsed: time.Now(),
 	}
 	s.data.Accounts = append(s.data.Accounts, acc)
-	_ = s.save()
-	return acc
+	if err := s.save(); err != nil {
+		s.data.Accounts = s.data.Accounts[:len(s.data.Accounts)-1]
+		return Account{}, err
+	}
+	return acc, nil
 }
 
 // Delete 删除指定 ID 的账号。
-func (s *AccountStore) Delete(id string) {
+func (s *AccountStore) Delete(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	filtered := s.data.Accounts[:0]
@@ -106,7 +114,7 @@ func (s *AccountStore) Delete(id string) {
 	if s.data.ActiveID == id {
 		s.data.ActiveID = ""
 	}
-	_ = s.save()
+	return s.save()
 }
 
 // SetActive 将指定 ID 的账号设为活跃账号，并更新其 LastUsed 时间。
@@ -227,7 +235,15 @@ func (a *API) AddAccount(c *gin.Context) {
 		transport.BadRequest(c, "path 不能为空")
 		return
 	}
-	acc := a.Accounts.Add(body.Path, body.Label)
+	if info, err := os.Stat(body.Path); err != nil || !info.IsDir() {
+		transport.BadRequest(c, "路径不存在或不是目录: "+body.Path)
+		return
+	}
+	acc, err := a.Accounts.Add(body.Path, body.Label)
+	if err != nil {
+		transport.InternalServerError(c, "保存账号失败: "+err.Error())
+		return
+	}
 	transport.SendSuccess(c, acc)
 }
 
@@ -238,7 +254,10 @@ func (a *API) DeleteAccount(c *gin.Context) {
 		transport.BadRequest(c, "缺少账号 ID")
 		return
 	}
-	a.Accounts.Delete(id)
+	if err := a.Accounts.Delete(id); err != nil {
+		transport.InternalServerError(c, "删除账号失败: "+err.Error())
+		return
+	}
 	transport.SendSuccess(c, gin.H{"deleted": true})
 }
 
@@ -275,6 +294,8 @@ func (a *API) ActivateAccount(c *gin.Context) {
 	// 后台执行解密 + 重载
 	dbKey := viper.GetString("WECHAT_DB_KEY")
 	go func() {
+		activateMu.Lock()
+		defer activateMu.Unlock()
 		log.Info().Str("path", acc.Path).Msg("后台解密并重载数据...")
 		if _, _, err := decrypt.RunTask(acc.Path, dbKey); err != nil {
 			log.Error().Err(err).Str("path", acc.Path).Msg("切换账号后解密失败")

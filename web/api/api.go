@@ -114,8 +114,9 @@ func NewAPI(s store.Store, m *media.Service, conf *Config, staticFS fs.FS) *API 
 	if conf.WechatDbSrcPath != "" {
 		accs, _ := a.Accounts.List()
 		if len(accs) == 0 {
-			acc := a.Accounts.Add(conf.WechatDbSrcPath, "")
-			_ = a.Accounts.SetActive(acc.ID)
+			if acc, err := a.Accounts.Add(conf.WechatDbSrcPath, ""); err == nil {
+				_ = a.Accounts.SetActive(acc.ID)
+			}
 		}
 	}
 
