@@ -215,6 +215,16 @@ func (s *Service) setupRoutes() {
 			telegramGroup.PUT("/config", s.api.UpdateTelegramConfig)
 			telegramGroup.POST("/test", s.api.TestTelegramBotGlobal)
 		}
+
+		// 多账号管理路由
+		accounts := v1.Group("/accounts")
+		{
+			accounts.GET("", s.api.ListAccounts)
+			accounts.POST("", s.api.AddAccount)
+			accounts.DELETE("/:id", s.api.DeleteAccount)
+			accounts.POST("/:id/activate", s.api.ActivateAccount)
+			accounts.PUT("/:id/label", s.api.UpdateAccountLabel)
+		}
 	}
 
 	// 健康检查

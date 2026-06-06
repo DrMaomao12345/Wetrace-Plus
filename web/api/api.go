@@ -52,6 +52,7 @@ type API struct {
 	Transcripts     *transcripts.Store
 	MobilePairings  *MobilePairingStore
 	ExcludeConfig   *ExcludeConfigStore
+	Accounts        *AccountStore
 	ReportCache     *ReportCache
 	mu                 sync.Mutex
 	summarizeCancel    context.CancelFunc
@@ -106,6 +107,17 @@ func NewAPI(s store.Store, m *media.Service, conf *Config, staticFS fs.FS) *API 
 
 	// 初始化「排除联系人」配置 store（网页与移动端共用）
 	a.ExcludeConfig = NewExcludeConfigStore(conf.DataDir)
+
+	// 初始化多账号管理 store
+	a.Accounts = NewAccountStore(conf.DataDir)
+	// 如果 WECHAT_DB_SRC_PATH 已配置但尚未在账号列表中，自动注册
+	if conf.WechatDbSrcPath != "" {
+		accs, _ := a.Accounts.List()
+		if len(accs) == 0 {
+			acc := a.Accounts.Add(conf.WechatDbSrcPath, "")
+			_ = a.Accounts.SetActive(acc.ID)
+		}
+	}
 
 	// 年度报告缓存（按数据指纹 + 参数键缓存）
 	a.ReportCache = NewReportCache()
