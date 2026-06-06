@@ -19,6 +19,9 @@ import (
 //go:embed ui/dist
 var uiDist embed.FS
 
+//go:embed CHANGELOG.md
+var changelogMD string
+
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
@@ -91,20 +94,21 @@ func main() {
 
 	// --- 初始化 Web 服务 ---
 	webConf := web.Config{
-		ListenAddr:      listenAddr,
-		DataDir:         workDir,
-		ImageKey:        imageKey,
-		XorKey:          xorKey,
-		WechatDbSrcPath: viper.GetString("WECHAT_DB_SRC_PATH"),
-		WechatDbKey:     viper.GetString("WECHAT_DB_KEY"),
-		WxKeyDllPath:    viper.GetString("WXKEY_DLL_PATH"),
-		WechatPath:      viper.GetString("WXKEY_WECHAT_PATH"),
-		WechatDataPath:  viper.GetString("WXKEY_WECHAT_DATA_PATH"),
-		AIEnabled:       viper.GetBool("AI_ENABLED"),
-		AIProvider:      viper.GetString("AI_PROVIDER"),
-		AIAPIKey:        viper.GetString("AI_API_KEY"),
-		AIBaseURL:       viper.GetString("AI_BASE_URL"),
-		AIModel:         viper.GetString("AI_MODEL"),
+		ListenAddr:       listenAddr,
+		DataDir:          workDir,
+		ImageKey:         imageKey,
+		XorKey:           xorKey,
+		WechatDbSrcPath:  viper.GetString("WECHAT_DB_SRC_PATH"),
+		WechatDbKey:      viper.GetString("WECHAT_DB_KEY"),
+		WxKeyDllPath:     viper.GetString("WXKEY_DLL_PATH"),
+		WechatPath:       viper.GetString("WXKEY_WECHAT_PATH"),
+		WechatDataPath:   viper.GetString("WXKEY_WECHAT_DATA_PATH"),
+		AIEnabled:        viper.GetBool("AI_ENABLED"),
+		AIProvider:       viper.GetString("AI_PROVIDER"),
+		AIAPIKey:         viper.GetString("AI_API_KEY"),
+		AIBaseURL:        viper.GetString("AI_BASE_URL"),
+		AIModel:          viper.GetString("AI_MODEL"),
+		ChangelogContent: changelogMD,
 	}
 	webService := web.NewService(newStore, &webConf, staticFS)
 

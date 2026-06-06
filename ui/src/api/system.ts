@@ -180,6 +180,9 @@ export const systemApi = {
     request.delete<{ status: string }>(`/api/v1/system/mobile/pairings/${id}`),
   renameMobilePairing: (id: string, label: string) =>
     request.put<{ status: string }>(`/api/v1/system/mobile/pairings/${id}`, { label }),
+  // 更新日志
+  getChangelog: () => request.get<{ content: string }>("/api/v1/system/changelog"),
+
   testTTSConfigUrl: (text?: string, voice?: string, speed?: number): string => {
     const baseURL = getApiBaseUrl();
     const params = new URLSearchParams();

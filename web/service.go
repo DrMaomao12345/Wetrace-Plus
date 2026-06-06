@@ -36,11 +36,12 @@ type Config struct {
 	WxKeyDllPath    string
 	WechatPath      string
 	WechatDataPath  string
-	AIEnabled       bool
-	AIProvider      string
-	AIAPIKey        string
-	AIBaseURL       string
-	AIModel         string
+	AIEnabled        bool
+	AIProvider       string
+	AIAPIKey         string
+	AIBaseURL        string
+	AIModel          string
+	ChangelogContent string
 }
 
 // NewService 创建一个新的 web 服务。
@@ -60,11 +61,12 @@ func NewService(store store.Store, conf *Config, staticFS fs.FS) *Service {
 		WechatDataPath:  conf.WechatDataPath,
 		ImageKey:        conf.ImageKey,
 		XorKey:          conf.XorKey,
-		AIEnabled:       conf.AIEnabled,
-		AIProvider:      conf.AIProvider,
-		AIAPIKey:        conf.AIAPIKey,
-		AIBaseURL:       conf.AIBaseURL,
-		AIModel:         conf.AIModel,
+		AIEnabled:        conf.AIEnabled,
+		AIProvider:       conf.AIProvider,
+		AIAPIKey:         conf.AIAPIKey,
+		AIBaseURL:        conf.AIBaseURL,
+		AIModel:          conf.AIModel,
+		ChangelogContent: conf.ChangelogContent,
 	}
 
 	apiHandler := api.NewAPI(store, mediaService, apiConf, staticFS)

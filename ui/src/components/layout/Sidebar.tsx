@@ -247,7 +247,13 @@ export function Sidebar() {
       <div className="mt-auto px-2 flex flex-col gap-0.5 pt-2 border-t border-border mx-2">
         {renderNavItem(settingsItem)}
 
-        <div className="text-[10px] text-muted-foreground/40 text-center py-1 select-none">v1.6.3</div>
+        <button
+          onClick={() => navigate("/changelog")}
+          className="text-[10px] text-muted-foreground/40 hover:text-muted-foreground text-center py-1 w-full transition-colors"
+          title="查看更新日志"
+        >
+          v1.7.1
+        </button>
 
         <div className="flex items-center gap-1 mt-1 px-1">
           <button

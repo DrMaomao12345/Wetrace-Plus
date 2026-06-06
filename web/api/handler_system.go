@@ -778,3 +778,8 @@ func (a *API) GetDataVersion(c *gin.Context) {
 	v := a.Store.GetDataVersion()
 	transport.SendSuccess(c, gin.H{"version": v})
 }
+
+// GetChangelog 返回内嵌的 CHANGELOG.md 内容。
+func (a *API) GetChangelog(c *gin.Context) {
+	transport.SendSuccess(c, gin.H{"content": a.Conf.ChangelogContent})
+}

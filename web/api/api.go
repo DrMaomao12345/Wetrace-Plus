@@ -61,19 +61,20 @@ type API struct {
 }
 
 type Config struct {
-	DataDir         string
-	WechatDbSrcPath string
-	WechatDbKey     string
-	WxKeyDllPath    string
-	WechatPath      string
-	WechatDataPath  string
-	ImageKey        string
-	XorKey          string
-	AIEnabled       bool
-	AIProvider      string
-	AIAPIKey        string
-	AIBaseURL       string
-	AIModel         string
+	DataDir          string
+	WechatDbSrcPath  string
+	WechatDbKey      string
+	WxKeyDllPath     string
+	WechatPath       string
+	WechatDataPath   string
+	ImageKey         string
+	XorKey           string
+	AIEnabled        bool
+	AIProvider       string
+	AIAPIKey         string
+	AIBaseURL        string
+	AIModel          string
+	ChangelogContent string
 }
 
 // NewAPI 创建一个新的 API 处理器。
