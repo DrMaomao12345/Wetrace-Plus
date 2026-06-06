@@ -56,7 +56,7 @@ func updateEnv(updates map[string]string) error {
 
 	// 重新组合并写回文件
 	output := strings.Join(newLines, "\n")
-	return os.WriteFile(envPath, []byte(output), 0644)
+	return os.WriteFile(envPath, []byte(output), 0600)
 }
 
 // GetWeChatDbKey 获取微信数据库密钥 (参考 CliController.Run 逻辑)
@@ -193,7 +193,7 @@ func (a *API) GetWeChatDbKey(c *gin.Context) {
 		if k, ok := dl.PollKeyData(); ok {
 			key = k
 			found = true
-			log.Info().Str("key", key).Msg("密钥获取成功")
+			log.Info().Msg("密钥获取成功")
 			break
 		}
 
@@ -242,7 +242,6 @@ func (a *API) GetWeChatDbKey(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"key": key,
 			"pid": pid,
 		},
 	})
@@ -339,7 +338,7 @@ func (a *API) GetWeChatImageKey(c *gin.Context) {
 
 		if keyResult.Success {
 			xorStr := fmt.Sprintf("%02X", keyResult.XorKey)
-			log.Info().Int("xor_key", keyResult.XorKey).Str("aes_key", keyResult.AesKey).Msg("成功获取图片密钥")
+			log.Info().Msg("成功获取图片密钥")
 
 			// 写入 .env 文件
 			updates := map[string]string{
@@ -366,9 +365,7 @@ func (a *API) GetWeChatImageKey(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{
 				"success": true,
 				"data": gin.H{
-					"image_xor_key": xorStr,
-					"image_aes_key": keyResult.AesKey,
-					"pid":           pid,
+					"pid": pid,
 				},
 			})
 			return

@@ -110,13 +110,12 @@ func (a *API) GetSystemStatus(c *gin.Context) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	// 获取当前配置中的密钥，用于前端判断是否存在
 	status := gin.H{
 		"store_initialized": true,
 		"config": gin.H{
-			"wechat_db_key":      a.Conf.WechatDbKey,
-			"image_key":          a.Media.ImageKey,
-			"xor_key":            a.Media.XorKey,
+			"has_wechat_db_key":  a.Conf.WechatDbKey != "",
+			"has_image_key":      a.Media.ImageKey != "",
+			"has_xor_key":        a.Media.XorKey != "",
 			"wechat_path":        a.Conf.WechatPath,
 			"wechat_db_src_path": a.Conf.WechatDbSrcPath,
 		},

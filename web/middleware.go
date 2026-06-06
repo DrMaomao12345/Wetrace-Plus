@@ -1,6 +1,8 @@
 package web
 
 import (
+	"strings"
+
 	"github.com/afumu/wetrace/web/transport"
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog/log"
@@ -15,13 +17,16 @@ func (s *Service) setupMiddleware() {
 	)
 }
 
-// corsMiddleware 提供一个宽松的 CORS 策略。
+// corsMiddleware 只允许来自 localhost/127.0.0.1 的跨域请求，防止外部站点 CSRF。
 func corsMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
-		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
-		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Accept, Authorization, Content-Type, X-CSRF-Token")
+		origin := c.Request.Header.Get("Origin")
+		if origin != "" && isAllowedOrigin(origin) {
+			c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
+			c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+			c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			c.Writer.Header().Set("Access-Control-Allow-Headers", "Accept, Authorization, Content-Type, X-CSRF-Token, X-Auth-Token")
+		}
 
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(204)
@@ -30,6 +35,13 @@ func corsMiddleware() gin.HandlerFunc {
 
 		c.Next()
 	}
+}
+
+func isAllowedOrigin(origin string) bool {
+	return strings.HasPrefix(origin, "http://localhost:") ||
+		strings.HasPrefix(origin, "http://127.0.0.1:") ||
+		strings.HasPrefix(origin, "https://localhost:") ||
+		strings.HasPrefix(origin, "https://127.0.0.1:")
 }
 
 // recoveryMiddleware 从任何 panic 中恢复并写入一个 500 错误。

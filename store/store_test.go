@@ -16,13 +16,9 @@ import (
 )
 
 func TestDefaultStore_Integration(t *testing.T) {
-	// 1. 初始化 Store
-	// 注意：确保该路径下的数据库文件已解密，否则会报错 "file is not a database"
-	tmpDir := "C:\\Users\\Administrator\\Documents\\chatlog\\wxid_dcn1p0w7ipne22_50ce\\db_storage"
-
-	// 如果您想使用 Mock 数据进行测试，请取消下面两行的注释，并注释掉上面的 tmpDir 赋值
-	// tmpDir := t.TempDir()
-	// setupMockData(t, tmpDir)
+	// 1. 初始化 Store（使用临时目录 + Mock 数据，不依赖真实微信数据库）
+	tmpDir := t.TempDir()
+	setupMockData(t, tmpDir)
 
 	s, err := NewStore(tmpDir)
 	if err != nil {

@@ -154,7 +154,7 @@ func (a *API) VerifyPassword(c *gin.Context) {
 	a.Password.AddSession(token)
 
 	// 设置 cookie
-	c.SetCookie("auth_token", token, 86400, "/", "", false, false)
+	c.SetCookie("auth_token", token, 86400, "/", "", false, true)
 
 	transport.SendSuccess(c, gin.H{
 		"status": "unlocked",
