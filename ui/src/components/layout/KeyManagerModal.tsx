@@ -20,6 +20,7 @@ export function KeyManagerModal({ onClose }: Props) {
   const [loading, setLoading] = useState<'db' | 'image' | 'detect_wechat' | 'detect_db' | 'init' | null>('init')
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
+  const [isMac, setIsMac] = useState(false)
 
   const isInitialMount = useRef(true)
   const dbAbortRef = useRef<AbortController | null>(null)
@@ -80,8 +81,11 @@ export function KeyManagerModal({ onClose }: Props) {
     const checkExistingKeys = async () => {
       try {
         const res: any = await systemApi.getStatus()
+        const platform = res?.platform || res?.data?.platform
+        const mac = platform === 'darwin'
+        setIsMac(mac)
         const config = res?.config || res?.data?.config
-        
+
         if (config) {
           if (config.wechat_db_key) {
             setDbKey(config.wechat_db_key)
@@ -92,9 +96,11 @@ export function KeyManagerModal({ onClose }: Props) {
           if (config.wechat_path) setWechatPath(config.wechat_path)
           if (config.wechat_db_src_path) setDbSrcPath(config.wechat_db_src_path)
           
-          // 如果路径为空，自动触发检测
-          if (!config.wechat_path) handleDetectWeChat();
-          if (!config.wechat_db_src_path) handleDetectDbPath();
+          // 仅 Windows 需要自动检测路径；macOS 用 lldb hook 自动定位数据目录
+          if (!mac) {
+            if (!config.wechat_path) handleDetectWeChat();
+            if (!config.wechat_db_src_path) handleDetectDbPath();
+          }
         }
       } catch (err) {
         console.error("Failed to fetch initial status:", err)
@@ -302,7 +308,8 @@ export function KeyManagerModal({ onClose }: Props) {
             </div>
           )}
 
-          {/* Path Configuration Section */}
+          {/* Path Configuration Section — 仅 Windows 显示（macOS 用 hook 自动定位数据目录）*/}
+          {!isMac && (
           <div className="space-y-4">
              <h4 className="text-sm font-bold flex items-center gap-2">
                 <FolderSearch className="w-4 h-4 text-purple-500" />
@@ -414,6 +421,7 @@ export function KeyManagerModal({ onClose }: Props) {
              </div>
              <p className="text-[10px] text-muted-foreground">提示：输入路径后系统将自动保存配置。</p>
           </div>
+          )}
 
           <div className="border-t border-dashed" />
 
@@ -439,6 +447,13 @@ export function KeyManagerModal({ onClose }: Props) {
               </Button>
             </div>
             
+            {isMac && loading === 'db' && (
+              <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900 text-blue-800 dark:text-blue-300 p-3 rounded-xl text-xs space-y-1 animate-in slide-in-from-top-2">
+                <p className="font-bold">👉 正在监听密钥，请现在切换到「微信」操作：</p>
+                <p>打开几个不同的聊天、点开「朋友圈」或「收藏」——数据库一加载，密钥就会被自动捕获并填入。</p>
+              </div>
+            )}
+
             {dbKey && (
               <div className="relative group animate-in slide-in-from-left-2">
                 <div className="bg-muted font-mono text-xs p-4 rounded-xl break-all pr-10 border border-border/50">
@@ -455,9 +470,15 @@ export function KeyManagerModal({ onClose }: Props) {
 
             <div className="py-1 flex gap-2 items-start text-destructive dark:text-red-400">
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+              {isMac ? (
+              <p className="text-xs font-medium leading-relaxed">
+                <span className="font-bold">macOS 提示：</span>需先<span className="font-bold underline">关闭 SIP</span>（恢复模式执行 <code className="bg-destructive/10 px-1 rounded">csrutil disable</code>），并保持<span className="font-bold underline">微信已登录运行</span>。点击获取后，请在微信里<span className="font-bold underline">切换几个聊天或打开朋友圈/收藏</span>以触发密钥加载（微信不会重启）。
+              </p>
+              ) : (
               <p className="text-xs font-medium leading-relaxed">
                 <span className="font-bold">注意：</span>获取过程中<span className="font-bold underline">微信将自动重启</span>。成功捕获密钥后微信可能会自动退出，这属于正常情况，您只需<span className="font-bold underline">再次手动登录</span>即可正常使用。
               </p>
+              )}
             </div>
           </div>
 

@@ -29,6 +29,8 @@ export const getApiBaseUrl = (): string => {
   const settings = getSettings()
   if (settings.apiBaseUrl) return settings.apiBaseUrl
   
+  // 前端由后端同源 serve，默认走同源，端口无关（避免硬编码端口与实际监听端口不一致）
+  if (typeof window !== 'undefined' && window.location?.origin) return window.location.origin
   return import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:5200'
 }
 

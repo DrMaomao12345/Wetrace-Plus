@@ -112,6 +112,7 @@ func (a *API) GetSystemStatus(c *gin.Context) {
 
 	status := gin.H{
 		"store_initialized": true,
+		"platform":          runtime.GOOS,
 		"config": gin.H{
 			"has_wechat_db_key":  a.Conf.WechatDbKey != "",
 			"has_image_key":      a.Media.ImageKey != "",

@@ -1,5 +1,14 @@
 # 开发日志
 
+## v1.8.0 — 2026-07-29
+
+- **macOS 原生支持**：Wetrace 现可在 Apple Silicon Mac 上原生编译运行（此前仅支持 Windows），新增 `run-macos.sh` 一键构建启动脚本
+- **macOS 密钥提取**：内嵌 chatlog 后端（`internal/cl/`，Apache-2.0），通过 lldb 在系统函数 `CCKeyDerivationPBKDF` 上下断点，于微信 v4（4.1.x）打开数据库、派生密钥的那一刻截获 32 字节数据库密钥——替代对新版微信已失效的内存扫描方案。运行前提：关闭 SIP（`csrutil disable`）+ 微信登录运行
+- **平台自动分流**：`GetWeChatDbKey` 按 `GOOS` 用 build tag 自动选择 Windows（DLL 注入）或 macOS（lldb hook）方案；原 Windows-only 的 `key/pkg`、`wxkey` 加 build tag 隔离，两平台互不影响
+- **前端同源修复**：API baseURL 改为 `window.location.origin`（原硬编码 `127.0.0.1:5200`），解决服务实际监听端口与前端请求端口不一致时页面一直「加载中」/ Network Error 的问题
+- **密钥面板 Mac 引导**：`KeyManagerModal` 在 macOS 下提示关闭 SIP、保持微信登录等操作要点
+- **已知限制**：macOS 端图片解密所需的图片密钥（v4 `07085632` 格式）暂未支持——经排查该密钥由微信自研加密实现处理、不经过任何系统加密 API，无法用同一套 hook 手段截获；聊天记录的统计与分析功能不受影响
+
 ## v1.7.0 — 2026-06-06
 
 - **多账号管理**：支持在同一台电脑上管理多个微信账号的聊天记录，新增账号列表 API（`/api/v1/accounts`）
