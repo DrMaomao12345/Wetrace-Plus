@@ -440,8 +440,11 @@ export default function AnnualReportView() {
 
   // 配置区域（始终可见）
   const configPanel = (
-    <div className="space-y-4">
+    <div className="space-y-4 print-hide">
       <div className="flex items-center gap-2 flex-wrap">
+        <Button variant="outline" size="sm" className="gap-1" onClick={() => window.print()}>
+          导出 PDF
+        </Button>
         <Button
           variant="outline"
           size="sm"
@@ -682,7 +685,7 @@ export default function AnnualReportView() {
 
   return (
     <ScrollArea className="h-full">
-      <div className="max-w-5xl mx-auto p-6 space-y-6 pb-20">
+      <div id="report-print" className="max-w-5xl mx-auto p-6 space-y-6 pb-20">
         {/* Header */}
         <div className="flex items-center justify-between flex-wrap gap-4">
           <div>

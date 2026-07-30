@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils"
 import {
   MessageSquare, RefreshCw, Moon, Sun, Monitor, Search, Key,
   ImageIcon, BarChart3, Sparkles, Users, Settings, Shield,
-  ChevronDown, CalendarDays, Heart, Cloud, BrainCircuit, PlayCircle, Clock, History,
+  ChevronDown, CalendarDays, Heart, Cloud, BrainCircuit, PlayCircle, Clock, History, Network,
 } from "lucide-react"
 import { useNavigate, useLocation } from "react-router-dom"
 import { useState, useEffect } from "react"
@@ -51,6 +51,7 @@ export function Sidebar() {
       label: '分析',
       children: [
         { key: 'report', icon: CalendarDays, label: '年度报告', path: '/report' },
+        { key: 'insights', icon: Network, label: '关系洞察', path: '/insights' },
         { key: 'sentiment', icon: Heart, label: '情感分析', path: '/sentiment' },
         { key: 'wordcloud', icon: Cloud, label: '词云', path: '/wordcloud' },
         { key: 'replay', icon: PlayCircle, label: '对话回放', path: '/replay' },
@@ -252,7 +253,7 @@ export function Sidebar() {
           className="text-[10px] text-muted-foreground/40 hover:text-muted-foreground text-center py-1 w-full transition-colors"
           title="查看更新日志"
         >
-          v1.8.0
+          v1.9.0
         </button>
 
         <div className="flex items-center gap-1 mt-1 px-1">

@@ -53,6 +53,13 @@ type Store interface {
 	ComputeMonthlyAvgInRange(ctx context.Context, fromYear, toYear, tzOffsetSeconds int) []*model.MonthlyStat
 	ComputePastOverviewAvg(ctx context.Context, year, pastStartYear, defaultTzOffset int) *model.AnnualOverview
 
+	// 扩展分析（功能 9/3/5/7/4）
+	GetCalendarHeatmap(ctx context.Context, year, tzOffsetSec int) []*model.DayHeat
+	GetInteractionRatios(ctx context.Context, year, tzOffsetSec, gapSeconds, limit int) ([]*model.InteractionRatio, error)
+	GetReplySpeedRanking(ctx context.Context, year, tzOffsetSec, limit int) ([]*model.ReplySpeed, error)
+	GetYearCompare(ctx context.Context, yearA, yearB, tzOffsetSec int) (*model.YearCompare, error)
+	GetCommonGroups(ctx context.Context, wxid string) ([]*model.CommonGroup, error)
+
 	// 设置全局默认时区修饰符（影响联系人侧分析查询）
 	SetDefaultTzModifier(mod string)
 	// 当前数据版本指纹（DB 文件 path+size+mtime 的 md5）

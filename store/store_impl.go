@@ -186,6 +186,26 @@ func (s *DefaultStore) ComputePastOverviewAvg(ctx context.Context, year, pastSta
 	return s.repo.ComputePastOverviewAvg(ctx, year, pastStartYear, defaultTzOffset)
 }
 
+func (s *DefaultStore) GetCalendarHeatmap(ctx context.Context, year, tzOffsetSec int) []*model.DayHeat {
+	return s.repo.GetCalendarHeatmap(ctx, year, tzOffsetSec)
+}
+
+func (s *DefaultStore) GetInteractionRatios(ctx context.Context, year, tzOffsetSec, gapSeconds, limit int) ([]*model.InteractionRatio, error) {
+	return s.repo.GetInteractionRatios(ctx, year, tzOffsetSec, gapSeconds, limit)
+}
+
+func (s *DefaultStore) GetReplySpeedRanking(ctx context.Context, year, tzOffsetSec, limit int) ([]*model.ReplySpeed, error) {
+	return s.repo.GetReplySpeedRanking(ctx, year, tzOffsetSec, limit)
+}
+
+func (s *DefaultStore) GetYearCompare(ctx context.Context, yearA, yearB, tzOffsetSec int) (*model.YearCompare, error) {
+	return s.repo.GetYearCompare(ctx, yearA, yearB, tzOffsetSec)
+}
+
+func (s *DefaultStore) GetCommonGroups(ctx context.Context, wxid string) ([]*model.CommonGroup, error) {
+	return s.repo.GetCommonGroups(ctx, wxid)
+}
+
 func (s *DefaultStore) SetDefaultTzModifier(mod string) {
 	s.repo.SetDefaultTzModifier(mod)
 }

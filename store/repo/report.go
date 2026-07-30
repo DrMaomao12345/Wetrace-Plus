@@ -116,13 +116,15 @@ func buildSegments(year int, defaultTzOffset int, userSegs []types.TZSegment) []
 	return result
 }
 
-// computePastYearsMonthlyAvg 计算 year 之前若干年（pastStartYear..year-1）的月度趋势平均。
+// computePastYearsMonthlyAvg 计算「往年月均」参考线。
+// 固定按 [pastStartYear, 当前年] 计算，与所看报告的年份无关，保证同一条参考线不随切换报告年份而改变。
 // 用于年度报告内置默认参考线。
 func (r *Repository) computePastYearsMonthlyAvg(ctx context.Context, year, pastStartYear, defaultTzOffset int) []*model.MonthlyStat {
 	if pastStartYear < 2010 {
 		pastStartYear = 2023
 	}
-	to := year - 1
+	_ = year // 参考线固定到当前年，不再随报告年份变化
+	to := time.Now().Year()
 	return r.ComputeMonthlyAvgInRange(ctx, pastStartYear, to, defaultTzOffset)
 }
 
@@ -134,6 +136,7 @@ func (r *Repository) ComputeMonthlyAvgInRange(ctx context.Context, fromYear, toY
 
 	loc := time.FixedZone("default", tzOffsetSeconds)
 	tzMod := tzModifier(loc)
+	nowLoc := time.Now().In(loc)
 
 	if fromYear > toYear {
 		fromYear, toYear = toYear, fromYear
@@ -157,7 +160,15 @@ func (r *Repository) ComputeMonthlyAvgInRange(ctx context.Context, fromYear, toY
 		if !anyData {
 			continue
 		}
+		// 当前年是不完整的：只统计已经过去的月份，避免尚未到来的月份（count=0）把该月均值拉低
+		maxMonth := 12
+		if py == nowLoc.Year() {
+			maxMonth = int(nowLoc.Month())
+		}
 		for _, t := range trend {
+			if t.Month > maxMonth {
+				continue
+			}
 			monthlyTotal[t.Month] += t.Count
 			monthlyCount[t.Month] += 1
 		}

@@ -150,6 +150,7 @@ func (s *Service) setupRoutes() {
 			reportGroup.POST("/exclude_talkers", s.api.UpdateExcludeTalkers)
 			reportGroup.GET("/past_monthly_avg", s.api.GetPastYearsMonthlyAvg)
 			reportGroup.GET("/baseline", s.api.GetReportBaseline)
+			reportGroup.GET("/year_compare", s.api.GetYearCompare) // 功能7 年度对比
 		}
 
 		// AI 路由
@@ -180,6 +181,10 @@ func (s *Service) setupRoutes() {
 			analysisGroup.GET("/calls/:id", s.api.GetCallStats)
 			analysisGroup.GET("/yearly_monthly/:id", s.api.GetYearlyMonthlyActivity)
 			analysisGroup.GET("/top_contacts_monthly_avg", s.api.GetTopContactsHistoricalMonthlyAvg)
+			analysisGroup.GET("/calendar_heatmap", s.api.GetCalendarHeatmap)       // 功能9
+			analysisGroup.GET("/interaction_ratios", s.api.GetInteractionRatios)   // 功能3
+			analysisGroup.GET("/reply_speed", s.api.GetReplySpeedRanking)          // 功能5
+			analysisGroup.GET("/common_groups", s.api.GetCommonGroups)             // 功能4
 			analysisGroup.GET("/member_activity/:id", s.api.GetMemberActivity)
 			analysisGroup.GET("/repeat/:id", s.api.GetRepeatAnalysis)
 			analysisGroup.GET("/wordcloud/global", s.api.GetWordCloudGlobal)

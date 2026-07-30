@@ -6,6 +6,7 @@ import Chat from '@/views/Chat'
 import Contact from '@/views/Contact'
 import Search from '@/views/Search'
 import AnnualReport from '@/views/AnnualReport'
+import Insights from '@/views/Insights'
 import Sentiment from '@/views/Sentiment'
 import WordCloud from '@/views/WordCloud'
 import AITools from '@/views/AITools'
@@ -92,6 +93,7 @@ function App() {
           <Route path="contact" element={<Contact />} />
           <Route path="search" element={<Search />} />
           <Route path="report" element={<AnnualReport />} />
+          <Route path="insights" element={<Insights />} />
           <Route path="sentiment" element={<Sentiment />} />
           <Route path="wordcloud" element={<WordCloud />} />
           <Route path="ai-tools" element={<AITools />} />

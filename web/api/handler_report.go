@@ -150,13 +150,14 @@ func (a *API) GetReportBaseline(c *gin.Context) {
 	tzOffsetMin, _ := strconv.Atoi(c.Query("tz_offset"))
 	tzOffsetSec := tzOffsetMin * 60
 	pastStartYear := effectiveChatStartYear()
+	pastEndYear := time.Now().Year() // 「往年月均」参考线固定按 [起始年, 当前年] 计算，不随所看报告年份变化
 
-	monthlyAvg := a.Store.ComputeMonthlyAvgInRange(c.Request.Context(), pastStartYear, year-1, tzOffsetSec)
+	monthlyAvg := a.Store.ComputeMonthlyAvgInRange(c.Request.Context(), pastStartYear, pastEndYear, tzOffsetSec)
 	overviewAvg := a.Store.ComputePastOverviewAvg(c.Request.Context(), year, pastStartYear, tzOffsetSec)
 
 	transport.SendSuccess(c, gin.H{
 		"past_start_year":         pastStartYear,
-		"past_end_year":           year - 1,
+		"past_end_year":           pastEndYear,
 		"past_years_monthly_avg":  monthlyAvg,
 		"past_overview_avg":       overviewAvg,
 	})

@@ -113,3 +113,20 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* ── 功能8 报告 PDF 导出：打印时只保留报告主体，隐藏侧边栏/工具栏 ── */
+@media print {
+  @page { margin: 12mm; }
+  html, body { background: #ffffff !important; }
+  body * { visibility: hidden !important; }
+  #report-print, #report-print * { visibility: visible !important; }
+  #report-print {
+    position: absolute !important;
+    left: 0; top: 0; width: 100%;
+    padding: 0 !important;
+  }
+  .print-hide { display: none !important; }
+  #report-print .recharts-wrapper,
+  #report-print [class*="rounded-xl"],
+  #report-print [class*="rounded-2xl"] { break-inside: avoid; }
+}
