@@ -153,6 +153,15 @@ func (s *Service) setupRoutes() {
 			reportGroup.GET("/year_compare", s.api.GetYearCompare) // 功能7 年度对比
 		}
 
+		// 关系星图路由
+		galaxyGroup := v1.Group("/galaxy")
+		{
+			galaxyGroup.GET("/profile", s.api.GetGalaxyProfile)
+			galaxyGroup.PUT("/profile", s.api.UpdateGalaxyProfile)
+			galaxyGroup.POST("/rebuild", s.api.RebuildGalaxy)
+			galaxyGroup.GET("/graph", s.api.GetGalaxyGraph)
+		}
+
 		// AI 路由
 		aiGroup := v1.Group("/ai")
 		{

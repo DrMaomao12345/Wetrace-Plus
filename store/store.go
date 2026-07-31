@@ -60,6 +60,9 @@ type Store interface {
 	GetYearCompare(ctx context.Context, yearA, yearB, tzOffsetSec int) (*model.YearCompare, error)
 	GetCommonGroups(ctx context.Context, wxid string) ([]*model.CommonGroup, error)
 
+	// 关系星图（Relationship Galaxy）
+	BuildGalaxy(ctx context.Context, profile *model.UserProfile, tzOffsetSec, topN int) (*model.RelationshipGraph, error)
+
 	// 设置全局默认时区修饰符（影响联系人侧分析查询）
 	SetDefaultTzModifier(mod string)
 	// 当前数据版本指纹（DB 文件 path+size+mtime 的 md5）

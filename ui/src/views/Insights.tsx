@@ -262,7 +262,7 @@ export default function Insights() {
   const sel = 'rounded-lg border border-border bg-background px-3 py-1.5 text-sm'
 
   return (
-    <div className="mx-auto max-w-5xl space-y-5 p-6">
+    <div className="h-full overflow-y-auto mx-auto max-w-5xl space-y-5 p-6">
       <div className="flex items-center gap-3">
         <h1 className="text-xl font-bold">关系洞察</h1>
         <select className={sel + ' ml-auto'} value={year} onChange={(e) => setYear(+e.target.value)}>

@@ -52,6 +52,7 @@ export function Sidebar() {
       children: [
         { key: 'report', icon: CalendarDays, label: '年度报告', path: '/report' },
         { key: 'insights', icon: Network, label: '关系洞察', path: '/insights' },
+        { key: 'galaxy', icon: Sparkles, label: '关系星图', path: '/galaxy' },
         { key: 'sentiment', icon: Heart, label: '情感分析', path: '/sentiment' },
         { key: 'wordcloud', icon: Cloud, label: '词云', path: '/wordcloud' },
         { key: 'replay', icon: PlayCircle, label: '对话回放', path: '/replay' },
