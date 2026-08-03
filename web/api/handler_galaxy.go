@@ -78,12 +78,18 @@ func (a *API) RebuildGalaxy(c *gin.Context) {
 	if topN == 0 {
 		topN = 50
 	}
-	graph, err := a.Store.BuildGalaxy(c.Request.Context(), &p, tzSec, topN)
+	var cached []model.GalaxyRawFeature
+	if c.Query("force") != "1" {
+		readJSONFile(galaxyPath("raw_features.json"), &cached) // §30 增量:复用未变联系人的特征
+	}
+	graph, feats, err := a.Store.BuildGalaxyIncremental(c.Request.Context(), &p, tzSec, topN, cached)
 	if err != nil {
 		transport.InternalServerError(c, err.Error())
 		return
 	}
+	_ = writeJSONFile(galaxyPath("raw_features.json"), feats)
 	_ = writeJSONFile(galaxyPath("relationship_graph.json"), graph)
+	applyGalaxyOverrides(graph)
 	transport.SendSuccess(c, graph)
 }
 
@@ -91,6 +97,7 @@ func (a *API) RebuildGalaxy(c *gin.Context) {
 func (a *API) GetGalaxyGraph(c *gin.Context) {
 	var graph model.RelationshipGraph
 	if readJSONFile(galaxyPath("relationship_graph.json"), &graph) && len(graph.Nodes) > 0 {
+		applyGalaxyOverrides(&graph)
 		transport.SendSuccess(c, graph)
 		return
 	}
@@ -100,11 +107,128 @@ func (a *API) GetGalaxyGraph(c *gin.Context) {
 		return
 	}
 	tzSec := resolveTzMinutes(c) * 60
-	g, err := a.Store.BuildGalaxy(c.Request.Context(), &p, tzSec, 50)
+	var cached []model.GalaxyRawFeature
+	readJSONFile(galaxyPath("raw_features.json"), &cached)
+	g, feats, err := a.Store.BuildGalaxyIncremental(c.Request.Context(), &p, tzSec, 50, cached)
 	if err != nil {
 		transport.InternalServerError(c, err.Error())
 		return
 	}
+	_ = writeJSONFile(galaxyPath("raw_features.json"), feats)
 	_ = writeJSONFile(galaxyPath("relationship_graph.json"), g)
+	applyGalaxyOverrides(g)
 	transport.SendSuccess(c, g)
+}
+
+// applyGalaxyOverrides 把 overrides.json 里的用户修正套到图上(不改缓存文件本身,
+// 因此系统原判与用户修正同时保留 §28);隐藏的联系人从节点与时间轴中剔除。
+func applyGalaxyOverrides(graph *model.RelationshipGraph) {
+	var ov model.GalaxyOverrides
+	if !readJSONFile(galaxyPath("overrides.json"), &ov) || len(ov.Contacts) == 0 {
+		return
+	}
+	keptN := graph.Nodes[:0]
+	for _, n := range graph.Nodes {
+		o := ov.Contacts[n.ContactID]
+		if o == nil {
+			keptN = append(keptN, n)
+			continue
+		}
+		if o.Hidden {
+			continue
+		}
+		if o.RelationshipType != "" {
+			n.RelationshipType = o.RelationshipType
+		}
+		if o.RelationshipLabel != "" {
+			n.RelationshipLabel = o.RelationshipLabel
+		}
+		if o.MainLifeStage != "" {
+			n.MainLifeStage = o.MainLifeStage
+		}
+		if o.ManualImportant {
+			n.ManualImportant = true
+		}
+		keptN = append(keptN, n)
+	}
+	graph.Nodes = keptN
+
+	if graph.Timeline != nil {
+		keptC := graph.Timeline.Contacts[:0]
+		for _, c := range graph.Timeline.Contacts {
+			o := ov.Contacts[c.ContactID]
+			if o != nil {
+				if o.Hidden {
+					continue
+				}
+				if o.RelationshipType != "" {
+					c.Type = o.RelationshipType
+				}
+			}
+			keptC = append(keptC, c)
+		}
+		graph.Timeline.Contacts = keptC
+	}
+}
+
+// GetGalaxyOverrides GET /api/v1/galaxy/overrides
+func (a *API) GetGalaxyOverrides(c *gin.Context) {
+	var ov model.GalaxyOverrides
+	readJSONFile(galaxyPath("overrides.json"), &ov)
+	if ov.Contacts == nil {
+		ov.Contacts = map[string]*model.ContactOverride{}
+	}
+	transport.SendSuccess(c, ov)
+}
+
+// PatchGalaxyContact PATCH /api/v1/galaxy/contact/:id —— 保存单个联系人的手动修正。
+// body: {relationship_type?, relationship_label?, main_life_stage?, manual_important?, hidden?, reset?}
+func (a *API) PatchGalaxyContact(c *gin.Context) {
+	id := c.Param("id")
+	var body struct {
+		RelationshipType  *string `json:"relationship_type"`
+		RelationshipLabel *string `json:"relationship_label"`
+		MainLifeStage     *string `json:"main_life_stage"`
+		ManualImportant   *bool   `json:"manual_important"`
+		Hidden            *bool   `json:"hidden"`
+		Reset             bool    `json:"reset"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		transport.BadRequest(c, "参数错误")
+		return
+	}
+	var ov model.GalaxyOverrides
+	readJSONFile(galaxyPath("overrides.json"), &ov)
+	if ov.Contacts == nil {
+		ov.Contacts = map[string]*model.ContactOverride{}
+	}
+	if body.Reset {
+		delete(ov.Contacts, id)
+	} else {
+		o := ov.Contacts[id]
+		if o == nil {
+			o = &model.ContactOverride{}
+			ov.Contacts[id] = o
+		}
+		if body.RelationshipType != nil {
+			o.RelationshipType = *body.RelationshipType
+		}
+		if body.RelationshipLabel != nil {
+			o.RelationshipLabel = *body.RelationshipLabel
+		}
+		if body.MainLifeStage != nil {
+			o.MainLifeStage = *body.MainLifeStage
+		}
+		if body.ManualImportant != nil {
+			o.ManualImportant = *body.ManualImportant
+		}
+		if body.Hidden != nil {
+			o.Hidden = *body.Hidden
+		}
+	}
+	if err := writeJSONFile(galaxyPath("overrides.json"), &ov); err != nil {
+		transport.InternalServerError(c, "保存失败: "+err.Error())
+		return
+	}
+	transport.SendSuccess(c, gin.H{"ok": true})
 }

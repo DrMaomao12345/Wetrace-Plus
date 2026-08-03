@@ -206,6 +206,10 @@ func (s *DefaultStore) GetCommonGroups(ctx context.Context, wxid string) ([]*mod
 	return s.repo.GetCommonGroups(ctx, wxid)
 }
 
+func (s *DefaultStore) BuildGalaxyIncremental(ctx context.Context, profile *model.UserProfile, tzOffsetSec, topN int, cached []model.GalaxyRawFeature) (*model.RelationshipGraph, []model.GalaxyRawFeature, error) {
+	return s.repo.BuildGalaxyIncremental(ctx, profile, tzOffsetSec, topN, cached)
+}
+
 func (s *DefaultStore) BuildGalaxy(ctx context.Context, profile *model.UserProfile, tzOffsetSec, topN int) (*model.RelationshipGraph, error) {
 	return s.repo.BuildGalaxy(ctx, profile, tzOffsetSec, topN)
 }

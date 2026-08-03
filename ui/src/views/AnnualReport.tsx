@@ -4,6 +4,8 @@ import { useReportStream } from "@/hooks/useReportStream"
 import { useCountUp } from "@/hooks/useCountUp"
 import { reportApi, type AnnualReport, type AnnualOverview, type TZSegment, type WordCountStat } from "@/api/report"
 import { sessionApi, systemApi } from "@/api"
+import { galaxyApi, type RelationshipGraph } from "@/api/galaxy"
+import { computeYearReview } from "@/lib/relationshipReview"
 import { toast } from "sonner"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -129,6 +131,9 @@ export default function AnnualReportView() {
   const [defaultTz, setDefaultTz] = useState(() => loadConfig().defaultTz)
   const [segments, setSegments] = useState<SegmentRow[]>(() => loadConfig().segments)
   const [excludeTalkers, setExcludeTalkers] = useState<string[]>(() => loadConfig().excludeTalkers ?? [])
+  const [galaxy, setGalaxy] = useState<RelationshipGraph | null>(null)
+  const [showReview, setShowReview] = useState(true)
+  useEffect(() => { galaxyApi.getGraph().then(setGalaxy).catch(() => setGalaxy(null)) }, [])
   const [showTzPanel, setShowTzPanel] = useState(false)
   const [showExcludePanel, setShowExcludePanel] = useState(false)
   const [excludeSearch, setExcludeSearch] = useState("")
@@ -445,6 +450,10 @@ export default function AnnualReportView() {
         <Button variant="outline" size="sm" className="gap-1" onClick={() => window.print()}>
           导出 PDF
         </Button>
+        <label className="flex cursor-pointer items-center gap-1 text-xs text-muted-foreground">
+          <input type="checkbox" checked={showReview} onChange={(e) => setShowReview(e.target.checked)} className="accent-primary" />
+          关系回顾
+        </label>
         <Button
           variant="outline"
           size="sm"
@@ -709,6 +718,28 @@ export default function AnnualReportView() {
             后台仍在生成 {stream.params?.year} 年报告（{stream.current}/{stream.total}），完成后自动写入缓存。
           </div>
         )}
+
+        {/* Phase3 §14 关系回顾（来自关系星图，配置里可开关，随报告一起导出 PDF） */}
+        {showReview && galaxy && (() => {
+          const rv = computeYearReview(galaxy, String(data?.year ?? params.year))
+          if (!rv || rv.top.length === 0) return null
+          const quad: [string, number][] = [["新增重要关系", rv.newly.length], ["持续陪伴", rv.continued.length], ["重新恢复", rv.resumed.length], ["逐渐淡出", rv.faded.length]]
+          return (
+            <div className="rounded-2xl border bg-gradient-to-br from-primary/5 to-transparent p-5">
+              <div className="mb-3 flex items-center gap-2">
+                <span className="text-sm font-semibold">我的 {rv.year} 关系回顾</span>
+                <span className="text-xs text-muted-foreground">来自关系星图{rv.stage ? " · " + rv.stage : ""}</span>
+              </div>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                {quad.map(([l, v]) => (
+                  <div key={l} className="rounded-xl bg-muted/40 p-3"><div className="text-2xl font-bold">{v}</div><div className="text-xs text-muted-foreground">{l}</div></div>
+                ))}
+              </div>
+              <div className="mt-3 text-xs text-muted-foreground">这一年陪伴你最多：<span className="text-foreground">{rv.top.map((t) => t.name).join("、")}</span></div>
+              <div className="mt-1 text-xs text-muted-foreground">本年度活跃 {rv.activeMonths} 个月{rv.keywords.length ? " · 关键词：" + rv.keywords.join("、") : ""}</div>
+            </div>
+          )
+        })()}
 
         {/* 区块渲染：流式运行中且该步未到达 → 骨架屏；其余情况 → 正常渲染（含缓存路径） */}
         {(() => {

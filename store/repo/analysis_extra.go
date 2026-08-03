@@ -340,9 +340,16 @@ func (r *Repository) GetYearCompare(ctx context.Context, yearA, yearB, tzOffsetS
 		}
 	}
 
+	// 淡出/新进/升降 名单只统计「人」，排除群聊(@chatroom)和公众号(gh_)
+	isPerson := func(t string) bool {
+		return !strings.HasSuffix(t, "@chatroom") && !strings.HasPrefix(t, "gh_")
+	}
 	var faded, newly, rising, falling []*model.ContactYearDelta
 	seen := map[string]bool{}
 	for t, a := range ma {
+		if !isPerson(t) {
+			continue
+		}
 		seen[t] = true
 		bc := 0
 		if b, ok := mb[t]; ok {
@@ -360,7 +367,7 @@ func (r *Repository) GetYearCompare(ctx context.Context, yearA, yearB, tzOffsetS
 		}
 	}
 	for t, b := range mb {
-		if seen[t] {
+		if seen[t] || !isPerson(t) {
 			continue
 		}
 		d := mk(t, 0, b.count)

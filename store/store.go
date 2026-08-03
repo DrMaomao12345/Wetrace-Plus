@@ -62,6 +62,7 @@ type Store interface {
 
 	// 关系星图（Relationship Galaxy）
 	BuildGalaxy(ctx context.Context, profile *model.UserProfile, tzOffsetSec, topN int) (*model.RelationshipGraph, error)
+	BuildGalaxyIncremental(ctx context.Context, profile *model.UserProfile, tzOffsetSec, topN int, cached []model.GalaxyRawFeature) (*model.RelationshipGraph, []model.GalaxyRawFeature, error)
 
 	// 设置全局默认时区修饰符（影响联系人侧分析查询）
 	SetDefaultTzModifier(mod string)

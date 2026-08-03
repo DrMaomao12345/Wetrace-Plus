@@ -160,6 +160,8 @@ func (s *Service) setupRoutes() {
 			galaxyGroup.PUT("/profile", s.api.UpdateGalaxyProfile)
 			galaxyGroup.POST("/rebuild", s.api.RebuildGalaxy)
 			galaxyGroup.GET("/graph", s.api.GetGalaxyGraph)
+			galaxyGroup.GET("/overrides", s.api.GetGalaxyOverrides)     // Phase4
+			galaxyGroup.PATCH("/contact/:id", s.api.PatchGalaxyContact) // Phase4
 		}
 
 		// AI 路由
@@ -190,10 +192,10 @@ func (s *Service) setupRoutes() {
 			analysisGroup.GET("/calls/:id", s.api.GetCallStats)
 			analysisGroup.GET("/yearly_monthly/:id", s.api.GetYearlyMonthlyActivity)
 			analysisGroup.GET("/top_contacts_monthly_avg", s.api.GetTopContactsHistoricalMonthlyAvg)
-			analysisGroup.GET("/calendar_heatmap", s.api.GetCalendarHeatmap)       // 功能9
-			analysisGroup.GET("/interaction_ratios", s.api.GetInteractionRatios)   // 功能3
-			analysisGroup.GET("/reply_speed", s.api.GetReplySpeedRanking)          // 功能5
-			analysisGroup.GET("/common_groups", s.api.GetCommonGroups)             // 功能4
+			analysisGroup.GET("/calendar_heatmap", s.api.GetCalendarHeatmap)     // 功能9
+			analysisGroup.GET("/interaction_ratios", s.api.GetInteractionRatios) // 功能3
+			analysisGroup.GET("/reply_speed", s.api.GetReplySpeedRanking)        // 功能5
+			analysisGroup.GET("/common_groups", s.api.GetCommonGroups)           // 功能4
 			analysisGroup.GET("/member_activity/:id", s.api.GetMemberActivity)
 			analysisGroup.GET("/repeat/:id", s.api.GetRepeatAnalysis)
 			analysisGroup.GET("/wordcloud/global", s.api.GetWordCloudGlobal)

@@ -14,9 +14,13 @@ func (r *Repository) BuildGalaxy(ctx context.Context, profile *model.UserProfile
 	if err != nil {
 		return nil, err
 	}
-	nodes := ScoreGalaxy(feats, profile)
+	return assembleGalaxy(feats, profile, tzOffsetSec, topN), nil
+}
 
-	// 排除服务号/一次性联系人(§16)
+// assembleGalaxy 把原始特征跑完 评分 → 排除服务号(§16) → 排序取 TopN → 布局 → 时间轴，产出图。
+// 全量与增量两条路径共用它,保证归一化/布局一致。
+func assembleGalaxy(feats []*rawFeatures, profile *model.UserProfile, tzOffsetSec, topN int) *model.RelationshipGraph {
+	nodes := ScoreGalaxy(feats, profile)
 	vis := make([]*model.GalaxyNode, 0, len(nodes))
 	for _, nd := range nodes {
 		if !nd.Excluded {
@@ -29,7 +33,6 @@ func (r *Repository) BuildGalaxy(ctx context.Context, profile *model.UserProfile
 		vis = vis[:topN]
 	}
 	LayoutGalaxy(vis)
-
 	return &model.RelationshipGraph{
 		GeneratedAt: time.Now().Format(time.RFC3339),
 		Version:     1,
@@ -37,5 +40,6 @@ func (r *Repository) BuildGalaxy(ctx context.Context, profile *model.UserProfile
 		Profile:     profile,
 		Nodes:       vis,
 		TotalCount:  total,
-	}, nil
+		Timeline:    BuildTimeline(feats, vis),
+	}
 }
