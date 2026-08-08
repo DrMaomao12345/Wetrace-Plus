@@ -254,7 +254,7 @@ export function Sidebar() {
           className="text-[10px] text-muted-foreground/40 hover:text-muted-foreground text-center py-1 w-full transition-colors"
           title="查看更新日志"
         >
-          v1.9.0
+          v2.0.0
         </button>
 
         <div className="flex items-center gap-1 mt-1 px-1">
