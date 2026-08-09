@@ -97,7 +97,7 @@ function MergeForwardImage({ item }: { item: RecordItem }) {
              target.src = thumbUrl
           } else {
              target.style.display = 'none'
-             target.parentElement!.innerHTML = '<div class="p-4 text-xs text-muted-foreground">[图片加载失败]</div>'
+             target.parentElement!.innerHTML = '<div class="p-4 text-xs text-muted-foreground">[图片]</div>'
           }
         }}
       />

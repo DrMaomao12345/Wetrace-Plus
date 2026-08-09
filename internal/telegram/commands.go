@@ -295,7 +295,7 @@ func (b *Bot) cmdCalls(ctx context.Context, args []string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	stats, err := b.store.GetCallStats(ctx, talker)
+	stats, err := b.store.GetCallStats(ctx, talker, time.Time{}, time.Time{})
 	if err != nil {
 		return "", fmt.Errorf("查询失败: %w", err)
 	}

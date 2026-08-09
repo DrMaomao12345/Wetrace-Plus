@@ -3,6 +3,8 @@ package api
 import (
 	"net/http"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog/log"
@@ -35,6 +37,17 @@ func (a *API) GetDailyActivity(c *gin.Context) {
 	}
 
 	stats, err := a.Store.GetDailyActivity(c.Request.Context(), sessionID)
+	// year 可选：年度报告里的每日趋势应该只看当年，不传则返回全部历史
+	if y := c.Query("year"); y != "" && err == nil {
+		prefix := y + "-"
+		filtered := stats[:0]
+		for _, d := range stats {
+			if strings.HasPrefix(d.Date, prefix) {
+				filtered = append(filtered, d)
+			}
+		}
+		stats = filtered
+	}
 	if err != nil {
 		log.Error().Err(err).Msg("获取每日活跃度失败")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -153,7 +166,15 @@ func (a *API) GetCallStats(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "id is required"})
 		return
 	}
-	stats, err := a.Store.GetCallStats(c.Request.Context(), sessionID)
+	var cStart, cEnd time.Time
+	if y := c.Query("year"); y != "" {
+		if n, e := strconv.Atoi(y); e == nil && n >= 2000 && n <= 2100 {
+			loc := time.FixedZone("rep", resolveTzMinutes(c)*60)
+			cStart = time.Date(n, 1, 1, 0, 0, 0, 0, loc)
+			cEnd = time.Date(n, 12, 31, 23, 59, 59, 0, loc)
+		}
+	}
+	stats, err := a.Store.GetCallStats(c.Request.Context(), sessionID, cStart, cEnd)
 	if err != nil {
 		log.Error().Err(err).Msg("获取通话统计失败")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

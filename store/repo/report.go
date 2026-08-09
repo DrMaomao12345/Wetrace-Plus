@@ -35,10 +35,14 @@ func tzModifier(loc *time.Location) string {
 // defaultTzOffset 是用户明确指定的默认时区偏移（秒），用于填充没有被 segments 覆盖的区间。
 // 重叠的 segments 会被自动裁剪（后来者覆盖先来者）。
 func buildSegments(year int, defaultTzOffset int, userSegs []types.TZSegment) []reportSegment {
-	yearStart := time.Date(year, 1, 1, 0, 0, 0, 0, time.UTC)
-	yearEnd := time.Date(year, 12, 31, 23, 59, 59, 999999999, time.UTC)
-
 	defaultLoc := time.FixedZone("default", defaultTzOffset)
+
+	// 年界必须按用户时区划，不能用 UTC。
+	// 早先写成 time.Date(year,1,1,...,time.UTC)，对 UTC+8 用户来说
+	// 「2026 年」实际是本地时间 2026-01-01 08:00 到 2027-01-01 07:59 ——
+	// 元旦头 8 小时被漏掉，还混进了下一年元旦的头 8 小时。
+	yearStart := time.Date(year, 1, 1, 0, 0, 0, 0, defaultLoc)
+	yearEnd := time.Date(year, 12, 31, 23, 59, 59, 999999999, defaultLoc)
 
 	// 排序用户 segments（按开始时间升序）
 	sorted := make([]types.TZSegment, len(userSegs))
@@ -149,7 +153,7 @@ func (r *Repository) ComputeMonthlyAvgInRange(ctx context.Context, fromYear, toY
 			loc:   loc,
 			tzMod: tzMod,
 		}
-		trend := r.getAnnualMonthlyTrend(ctx, []reportSegment{seg})
+		trend := r.getAnnualMonthlyTrend(ctx, []reportSegment{seg}, r.ReportTableFilter(ctx, nil))
 		var anyData bool
 		for _, t := range trend {
 			if t.Count > 0 {
@@ -200,8 +204,11 @@ func (r *Repository) GetAnnualReport(ctx context.Context, year int, defaultTzOff
 		MessageTypes: make(map[string]int),
 	}
 
+	// 排除名单与统计范围要贯穿报告的每一个分区，不能只作用于亲密度排行
+	allow := r.ReportTableFilter(ctx, excludeSet)
+
 	// 1. 获取概览数据
-	overview, err := r.getAnnualOverview(ctx, segs)
+	overview, err := r.getAnnualOverview(ctx, segs, allow)
 	if err != nil {
 		log.Warn().Err(err).Msg("获取年度概览失败")
 	}
@@ -217,22 +224,22 @@ func (r *Repository) GetAnnualReport(ctx context.Context, year int, defaultTzOff
 	report.TopContacts = topContacts
 
 	// 3. 获取月度趋势
-	report.MonthlyTrend = r.getAnnualMonthlyTrend(ctx, segs)
+	report.MonthlyTrend = r.getAnnualMonthlyTrend(ctx, segs, allow)
 
 	// 3.1 计算往年（不含当年）的月度趋势平均，用作参考线
 	report.PastYearsMonthlyAvg = r.computePastYearsMonthlyAvg(ctx, year, pastStartYear, defaultTzOffset)
 
 	// 4. 获取星期分布
-	report.WeekdayDist = r.getAnnualWeekdayDist(ctx, segs)
+	report.WeekdayDist = r.getAnnualWeekdayDist(ctx, segs, allow)
 
 	// 5. 获取小时分布
-	report.HourlyDist = r.getAnnualHourlyDist(ctx, segs)
+	report.HourlyDist = r.getAnnualHourlyDist(ctx, segs, allow)
 
 	// 6. 获取消息类型分布
-	report.MessageTypes = r.getAnnualMessageTypes(ctx, yearStart, yearEnd)
+	report.MessageTypes = r.getAnnualMessageTypes(ctx, yearStart, yearEnd, allow)
 
 	// 7. 获取亮点数据
-	report.Highlights = r.getAnnualHighlights(ctx, segs)
+	report.Highlights = r.getAnnualHighlights(ctx, segs, allow)
 
 	// 8. 计算往年同期 (YTD) 概览数据，再算 delta
 	report.OverviewDeltas = r.computeOverviewDeltas(ctx, year, pastStartYear, defaultTzOffset, overview)
@@ -258,12 +265,15 @@ func (r *Repository) GetAnnualReportWithProgress(ctx context.Context, year int, 
 		MessageTypes: make(map[string]int),
 	}
 
+	// 排除名单与统计范围要贯穿报告的每一个分区，不能只作用于亲密度排行
+	allow := r.ReportTableFilter(ctx, excludeSet)
+
 	const totalSteps = 8
 	yearStart := segs[0].start
 	yearEnd := segs[len(segs)-1].end
 
 	// 1. 获取概览数据
-	overview, err := r.getAnnualOverview(ctx, segs)
+	overview, err := r.getAnnualOverview(ctx, segs, allow)
 	if err != nil {
 		log.Warn().Err(err).Msg("获取年度概览失败")
 	}
@@ -283,7 +293,7 @@ func (r *Repository) GetAnnualReportWithProgress(ctx context.Context, year int, 
 	}
 
 	// 3. 获取月度趋势
-	report.MonthlyTrend = r.getAnnualMonthlyTrend(ctx, segs)
+	report.MonthlyTrend = r.getAnnualMonthlyTrend(ctx, segs, allow)
 	if progressFn != nil {
 		progressFn("monthly_trend", 3, totalSteps, report.MonthlyTrend)
 	}
@@ -295,25 +305,25 @@ func (r *Repository) GetAnnualReportWithProgress(ctx context.Context, year int, 
 	}
 
 	// 5. 获取星期分布
-	report.WeekdayDist = r.getAnnualWeekdayDist(ctx, segs)
+	report.WeekdayDist = r.getAnnualWeekdayDist(ctx, segs, allow)
 	if progressFn != nil {
 		progressFn("weekday_dist", 5, totalSteps, report.WeekdayDist)
 	}
 
 	// 6. 获取小时分布
-	report.HourlyDist = r.getAnnualHourlyDist(ctx, segs)
+	report.HourlyDist = r.getAnnualHourlyDist(ctx, segs, allow)
 	if progressFn != nil {
 		progressFn("hourly_dist", 6, totalSteps, report.HourlyDist)
 	}
 
 	// 7. 获取消息类型分布
-	report.MessageTypes = r.getAnnualMessageTypes(ctx, yearStart, yearEnd)
+	report.MessageTypes = r.getAnnualMessageTypes(ctx, yearStart, yearEnd, allow)
 	if progressFn != nil {
 		progressFn("message_types", 7, totalSteps, report.MessageTypes)
 	}
 
 	// 8. 获取亮点数据 + 往年 delta
-	report.Highlights = r.getAnnualHighlights(ctx, segs)
+	report.Highlights = r.getAnnualHighlights(ctx, segs, allow)
 	report.OverviewDeltas = r.computeOverviewDeltas(ctx, year, pastStartYear, defaultTzOffset, overview)
 	report.DataVersion = r.GetDataVersion()
 	if progressFn != nil {
@@ -355,7 +365,7 @@ func (r *Repository) ComputePastOverviewAvg(ctx context.Context, year, pastStart
 			continue
 		}
 		seg := reportSegment{start: startUTC, end: endUTC, loc: loc, tzMod: tzMod}
-		ov, err := r.getAnnualOverview(ctx, []reportSegment{seg})
+		ov, err := r.getAnnualOverview(ctx, []reportSegment{seg}, r.ReportTableFilter(ctx, nil))
 		if err != nil || ov.TotalMessages == 0 {
 			continue
 		}

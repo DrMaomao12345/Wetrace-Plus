@@ -134,8 +134,8 @@ func (s *DefaultStore) GetMessageTypeDistribution(ctx context.Context, sessionID
 	return s.repo.GetMessageTypeDistribution(ctx, sessionID)
 }
 
-func (s *DefaultStore) GetCallStats(ctx context.Context, sessionID string) (*model.CallStats, error) {
-	return s.repo.GetCallStats(ctx, sessionID)
+func (s *DefaultStore) GetCallStats(ctx context.Context, sessionID string, start, end time.Time) (*model.CallStats, error) {
+	return s.repo.GetCallStats(ctx, sessionID, start, end)
 }
 
 func (s *DefaultStore) GetMemberActivity(ctx context.Context, sessionID string) ([]*model.MemberActivity, error) {

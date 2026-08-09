@@ -122,10 +122,10 @@ type DashboardTimeline struct {
 
 // WordCountStat 字数统计（按消息内容字符数）
 type WordCountStat struct {
-	TotalChars int                       `json:"total_chars"`
-	SentChars  int                       `json:"sent_chars"`
-	RecvChars  int                       `json:"recv_chars"`
-	Contacts   []*ContactWordCountStat   `json:"contacts"` // 按 talker 分组
+	TotalChars int                     `json:"total_chars"`
+	SentChars  int                     `json:"sent_chars"`
+	RecvChars  int                     `json:"recv_chars"`
+	Contacts   []*ContactWordCountStat `json:"contacts"` // 按 talker 分组
 }
 
 // ContactWordCountStat 单个联系人/群聊的字数与消息条数
@@ -177,7 +177,11 @@ type AnnualOverview struct {
 	ActiveChatrooms  int    `json:"active_chatrooms"`
 	FirstMessageDate string `json:"first_message_date"`
 	LastMessageDate  string `json:"last_message_date"`
-	ActiveDays       int    `json:"active_days"`
+	// ActiveDays 是所选年份内有聊天的天数 —— 年度报告里的一切都该是当年的，
+	// 同比也用它才有意义。
+	ActiveDays int `json:"active_days"`
+	// ActiveDaysLifetime 是有史以来有聊天的天数，单独展示，不参与同比。
+	ActiveDaysLifetime int `json:"active_days_lifetime"`
 }
 
 // AnnualHighlights 年度亮点

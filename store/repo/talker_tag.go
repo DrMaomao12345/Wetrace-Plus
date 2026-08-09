@@ -156,6 +156,28 @@ func (r *Repository) cachedTalkerMD5Map(ctx context.Context) map[string]string {
 	return m
 }
 
+// ReportTableFilter 是年度报告专用的表过滤器：既尊重「统计范围」配置，
+// 也应用本次请求传入的排除名单。
+//
+// 早先排除名单只在亲密度排行里生效，概览、月度、星期、小时、类型、亮点、同比
+// 全都照算被排除的人 —— 用户以为屏蔽了某个群，结果总数里它还在。
+func (r *Repository) ReportTableFilter(ctx context.Context, excludeSet map[string]bool) func(string) bool {
+	scopeAllow := r.TableFilter(ctx, model.ModuleReport)
+	if len(excludeSet) == 0 {
+		return scopeAllow
+	}
+	md5Map := r.cachedTalkerMD5Map(ctx)
+	return func(tableName string) bool {
+		if !scopeAllow(tableName) {
+			return false
+		}
+		if talker, ok := md5Map[strings.TrimPrefix(tableName, "Msg_")]; ok {
+			return !excludeSet[talker]
+		}
+		return true
+	}
+}
+
 // loadTalkerTypes 扫描联系人库，为每个已知会话算出自动分类
 func (r *Repository) loadTalkerTypes(ctx context.Context) map[string]model.TalkerType {
 	types := make(map[string]model.TalkerType)

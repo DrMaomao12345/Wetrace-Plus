@@ -3,6 +3,7 @@ import { mediaApi } from "@/api/media"
 import { cn } from "@/lib/utils"
 import { Image as ImageIcon } from "lucide-react"
 import { useImagePreviewStore } from "@/stores/image-preview"
+import { usePlatform } from "@/hooks/usePlatform"
 
 interface ImageMessageProps {
   id?: string | number // Message ID required for preview
@@ -15,9 +16,24 @@ export function ImageMessage({ id, md5, path, content }: ImageMessageProps) {
   const [error, setError] = useState(false)
   const [loaded, setLoaded] = useState(false)
   const openPreview = useImagePreviewStore(state => state.openPreview)
+  const { imagesUnavailable } = usePlatform()
 
   const imageUrl = content || (md5 ? mediaApi.getImageUrl(md5, path) : "")
   const thumbUrl = content || (md5 ? mediaApi.getThumbnailUrl(md5, path) : "")
+
+  // 图片密钥拿不到时，加载必然失败。与其让每条消息都去请求一遍再显示「加载失败」
+  // （既浪费请求又让人以为是网络问题），不如直接按微信原生的样子显示 [图片]。
+  if (imagesUnavailable) {
+    return (
+      <div
+        className="inline-flex items-center gap-1.5 rounded-lg bg-muted/60 px-2.5 py-1.5 text-muted-foreground"
+        title="macOS 暂无法解密图片：微信 4.x 的图片密钥由自研加密处理，不经过系统加密接口"
+      >
+        <ImageIcon className="h-3.5 w-3.5" />
+        <span className="text-xs">[图片]</span>
+      </div>
+    )
+  }
 
   if (!imageUrl) {
     return (

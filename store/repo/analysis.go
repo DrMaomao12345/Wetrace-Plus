@@ -315,15 +315,15 @@ func (r *Repository) GetMonthlyActivity(ctx context.Context, talker string) ([]*
 
 // 已知的消息类型常量。其他类型会被归入"其他"桶。
 var knownMessageTypes = map[int]bool{
-	1: true,    // 文本
-	3: true,    // 图片
-	34: true,   // 语音
-	42: true,   // 名片
-	43: true,   // 视频
-	47: true,   // 表情
-	48: true,   // 位置
-	49: true,   // 链接/文件/小程序等
-	50: true,   // 通话
+	1:  true, // 文本
+	3:  true, // 图片
+	34: true, // 语音
+	42: true, // 名片
+	43: true, // 视频
+	47: true, // 表情
+	48: true, // 位置
+	49: true, // 链接/文件/小程序等
+	50: true, // 通话
 }
 
 // 类型「其他」的桶 ID
@@ -1175,7 +1175,6 @@ func (r *Repository) searchV4Global(ctx context.Context, db *sql.DB, q types.Mes
 	return msgs, nil
 }
 
-
 // GetTextMessagesGlobal 高效拉取全局文本消息内容（仅 Type=1），
 // 用于词云分析，避免 LIKE 全表扫和 1000 条硬限制。
 func (r *Repository) GetTextMessagesGlobal(ctx context.Context, start, end time.Time, limit int) ([]string, error) {
@@ -1205,13 +1204,15 @@ func (r *Repository) GetTextMessagesGlobal(ctx context.Context, start, end time.
 func (r *Repository) fetchV3GlobalTexts(ctx context.Context, db *sql.DB, start, end time.Time, limit int) []string {
 	conds := []string{"Type = 1"}
 	args := []interface{}{}
+	// V3 的 CreateTime 是毫秒时间戳（本文件其它 V3 查询都是 *1000）。
+	// 这里早先传的是秒，条件几乎恒不成立，全局词云在 V3 上直接返回空。
 	if !start.IsZero() {
 		conds = append(conds, "CreateTime >= ?")
-		args = append(args, start.Unix())
+		args = append(args, start.Unix()*1000)
 	}
 	if !end.IsZero() {
 		conds = append(conds, "CreateTime <= ?")
-		args = append(args, end.Unix())
+		args = append(args, end.Unix()*1000)
 	}
 	args = append(args, limit)
 	query := "SELECT StrContent FROM MSG WHERE " + strings.Join(conds, " AND ") + " ORDER BY CreateTime DESC LIMIT ?"
@@ -1305,10 +1306,17 @@ func stripGroupSenderPrefix(content string) string {
 	return content
 }
 
-// GetCallStats 计算指定会话的通话统计
-func (r *Repository) GetCallStats(ctx context.Context, talker string) (*model.CallStats, error) {
+// GetCallStats 计算指定会话的通话统计。
+// start/end 为零值时统计全部历史。
+func (r *Repository) GetCallStats(ctx context.Context, talker string, start, end time.Time) (*model.CallStats, error) {
 	stats := &model.CallStats{}
-	targets := r.router.Resolve(time.Unix(0, 0), time.Now(), talker)
+	if start.IsZero() {
+		start = time.Unix(0, 0)
+	}
+	if end.IsZero() {
+		end = time.Now()
+	}
+	targets := r.router.Resolve(start, end, talker)
 	if len(targets) == 0 {
 		return stats, nil
 	}
@@ -1325,9 +1333,11 @@ func (r *Repository) GetCallStats(ctx context.Context, talker string) (*model.Ca
 		var query string
 		var args []interface{}
 		if r.isTableExist(db, tableName) {
-			query = fmt.Sprintf("SELECT message_content FROM %s WHERE (local_type & 4294967295) = 50", tableName)
+			query = fmt.Sprintf("SELECT message_content FROM %s WHERE (local_type & 4294967295) = 50 AND create_time >= ? AND create_time <= ?", tableName)
+			args = append(args, start.Unix(), end.Unix())
 		} else {
-			query = "SELECT StrContent FROM MSG WHERE Type = 50"
+			query = "SELECT StrContent FROM MSG WHERE Type = 50 AND CreateTime >= ? AND CreateTime <= ?"
+			args = append(args, start.Unix()*1000, end.Unix()*1000)
 			if target.TalkerID != 0 {
 				query += " AND TalkerId = ?"
 				args = append(args, target.TalkerID)
@@ -1374,4 +1384,3 @@ func (r *Repository) GetCallStats(ctx context.Context, talker string) (*model.Ca
 	}
 	return stats, nil
 }
-

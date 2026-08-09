@@ -34,7 +34,7 @@ type Store interface {
 	GetYearlyMonthlyActivity(ctx context.Context, sessionID string) ([]*model.YearMonthStat, error)
 	GetTopContactsHistoricalMonthlyAvg(ctx context.Context, limit int) ([]*model.MonthlyStat, error)
 	GetMessageTypeDistribution(ctx context.Context, sessionID string) ([]*model.MessageTypeStat, error)
-	GetCallStats(ctx context.Context, sessionID string) (*model.CallStats, error)
+	GetCallStats(ctx context.Context, sessionID string, start, end time.Time) (*model.CallStats, error)
 	GetMemberActivity(ctx context.Context, sessionID string) ([]*model.MemberActivity, error)
 	GetRepeatAnalysis(ctx context.Context, sessionID string) ([]*model.RepeatStat, error)
 	GetPersonalTopContacts(ctx context.Context, limit int) ([]*model.PersonalTopContact, error)

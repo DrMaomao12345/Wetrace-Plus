@@ -15,7 +15,7 @@ import (
 )
 
 // getAnnualOverview 获取年度概览统计（跨多时区段）
-func (r *Repository) getAnnualOverview(ctx context.Context, segs []reportSegment) (model.AnnualOverview, error) {
+func (r *Repository) getAnnualOverview(ctx context.Context, segs []reportSegment, allow func(string) bool) (model.AnnualOverview, error) {
 	var overview model.AnnualOverview
 	var totalMsgs, sentMsgs, recvMsgs int
 	contactSet := make(map[string]bool)
@@ -32,7 +32,7 @@ func (r *Repository) getAnnualOverview(ctx context.Context, segs []reportSegment
 			if r.isTableExist(db, "MSG") {
 				r.overviewV3(ctx, db, seg.start, seg.end, &totalMsgs, &sentMsgs, &recvMsgs, contactSet, chatroomSet, daySet, &firstDate, &lastDate, seg.tzMod)
 			} else {
-				r.overviewV4(ctx, db, seg.start, seg.end, &totalMsgs, &sentMsgs, &recvMsgs, contactSet, chatroomSet, daySet, &firstDate, &lastDate, seg.tzMod)
+				r.overviewV4(ctx, db, seg.start, seg.end, &totalMsgs, &sentMsgs, &recvMsgs, contactSet, chatroomSet, daySet, &firstDate, &lastDate, seg.tzMod, allow)
 			}
 		}
 	}
@@ -66,10 +66,12 @@ func (r *Repository) getAnnualOverview(ctx context.Context, segs []reportSegment
 		if r.isTableExist(db, "MSG") {
 			r.overviewV3(ctx, db, lifeStart, lifeEnd, &lTotal, &lSent, &lRecv, lContact, lChatroom, lifetimeDays, &lFirst, &lLast, lifeTz)
 		} else {
-			r.overviewV4(ctx, db, lifeStart, lifeEnd, &lTotal, &lSent, &lRecv, lContact, lChatroom, lifetimeDays, &lFirst, &lLast, lifeTz)
+			r.overviewV4(ctx, db, lifeStart, lifeEnd, &lTotal, &lSent, &lRecv, lContact, lChatroom, lifetimeDays, &lFirst, &lLast, lifeTz, allow)
 		}
 	}
-	overview.ActiveDays = len(lifetimeDays)
+	// 当年活跃天数（同比用它）与累计活跃天数（单独展示）分开给
+	overview.ActiveDays = len(daySet)
+	overview.ActiveDaysLifetime = len(lifetimeDays)
 
 	activeContacts := 0
 	activeChatrooms := 0
@@ -111,7 +113,7 @@ func (r *Repository) overviewV3(ctx context.Context, db *sql.DB, start, end time
 	query := `SELECT COUNT(*),
 		SUM(CASE WHEN COALESCE(IsSender, 0) = 1 THEN 1 ELSE 0 END),
 		SUM(CASE WHEN COALESCE(IsSender, 0) != 1 THEN 1 ELSE 0 END)
-		FROM MSG WHERE CreateTime >= ? AND CreateTime <= ?`
+		FROM MSG WHERE CreateTime >= ? AND CreateTime <= ? AND COALESCE(Type,0) != 10000`
 	var total, sent, recv sql.NullInt64
 	if err := db.QueryRowContext(ctx, query, start.Unix()*1000, end.Unix()*1000).Scan(&total, &sent, &recv); err == nil {
 		if total.Valid {
@@ -157,11 +159,11 @@ func (r *Repository) overviewV3(ctx context.Context, db *sql.DB, start, end time
 func (r *Repository) overviewV4(ctx context.Context, db *sql.DB, start, end time.Time,
 	totalMsgs, sentMsgs, recvMsgs *int,
 	contactSet, chatroomSet, daySet map[string]bool,
-	firstDate, lastDate *string, tzMod string) {
+	firstDate, lastDate *string, tzMod string, allow func(string) bool) {
 
 	myWxid := r.getCurrentUserWxid(ctx)
 	talkerMD5Map := r.getTalkerMD5Map(ctx)
-	allowTalker := r.TalkerFilter(ctx, model.ModuleReport)
+	allowTable := allow
 
 	tables, err := db.QueryContext(ctx, "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'Msg_%%'")
 	if err != nil {
@@ -187,8 +189,8 @@ func (r *Repository) overviewV4(ctx context.Context, db *sql.DB, start, end time
 			}
 		}
 
-		// 统计范围：被排除类型的会话整表跳过（talker 反查不到时放行）
-		if talker != "unknown" && !allowTalker(talker) {
+		// 统计范围 + 排除名单：不参与统计的会话整表跳过
+		if !allowTable(tableName) {
 			continue
 		}
 
@@ -395,7 +397,7 @@ func (r *Repository) getAnnualTopContacts(ctx context.Context, start, end time.T
 }
 
 // getAnnualMonthlyTrend 获取年度月度趋势（跨多时区段）
-func (r *Repository) getAnnualMonthlyTrend(ctx context.Context, segs []reportSegment) []*model.MonthlyStat {
+func (r *Repository) getAnnualMonthlyTrend(ctx context.Context, segs []reportSegment, allow func(string) bool) []*model.MonthlyStat {
 	monthlyStats := make(map[int]int)
 
 	for _, seg := range segs {
@@ -420,14 +422,14 @@ func (r *Repository) getAnnualMonthlyTrend(ctx context.Context, segs []reportSeg
 				if err != nil {
 					continue
 				}
-				allowTable := r.TableFilter(ctx, model.ModuleReport)
+				allowTable := allow
 				for tables.Next() {
 					var tableName string
 					tables.Scan(&tableName)
 					if !allowTable(tableName) {
 						continue
 					}
-					query := fmt.Sprintf("SELECT CAST(strftime('%%m', create_time, 'unixepoch', %s) AS INTEGER) as month, COUNT(*) as count FROM %s WHERE create_time >= ? AND create_time <= ? GROUP BY month", seg.tzMod, tableName)
+					query := fmt.Sprintf("SELECT CAST(strftime('%%m', create_time, 'unixepoch', %s) AS INTEGER) as month, COUNT(*) as count FROM %s WHERE create_time >= ? AND create_time <= ? AND (local_type & 4294967295) != 10000 GROUP BY month", seg.tzMod, tableName)
 					rows, err := db.QueryContext(ctx, query, seg.start.Unix(), seg.end.Unix())
 					if err == nil {
 						for rows.Next() {
@@ -451,7 +453,7 @@ func (r *Repository) getAnnualMonthlyTrend(ctx context.Context, segs []reportSeg
 }
 
 // getAnnualWeekdayDist 获取年度星期分布（跨多时区段）
-func (r *Repository) getAnnualWeekdayDist(ctx context.Context, segs []reportSegment) []*model.WeekdayStat {
+func (r *Repository) getAnnualWeekdayDist(ctx context.Context, segs []reportSegment, allow func(string) bool) []*model.WeekdayStat {
 	weekdayStats := make(map[int]int)
 
 	for _, seg := range segs {
@@ -472,7 +474,7 @@ func (r *Repository) getAnnualWeekdayDist(ctx context.Context, segs []reportSegm
 					rows.Close()
 				}
 			} else {
-				r.weekdayV4Shards(ctx, db, seg.start, seg.end, weekdayStats, seg.tzMod)
+				r.weekdayV4Shards(ctx, db, seg.start, seg.end, weekdayStats, seg.tzMod, allow)
 			}
 		}
 	}
@@ -484,8 +486,8 @@ func (r *Repository) getAnnualWeekdayDist(ctx context.Context, segs []reportSegm
 	return result
 }
 
-func (r *Repository) weekdayV4Shards(ctx context.Context, db *sql.DB, start, end time.Time, weekdayStats map[int]int, tzMod string) {
-	allowTable := r.TableFilter(ctx, model.ModuleReport)
+func (r *Repository) weekdayV4Shards(ctx context.Context, db *sql.DB, start, end time.Time, weekdayStats map[int]int, tzMod string, allow func(string) bool) {
+	allowTable := allow
 	tables, err := db.QueryContext(ctx, "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'Msg_%%'")
 	if err != nil {
 		return
@@ -498,7 +500,7 @@ func (r *Repository) weekdayV4Shards(ctx context.Context, db *sql.DB, start, end
 		if !allowTable(tableName) {
 			continue
 		}
-		query := fmt.Sprintf("SELECT CASE WHEN CAST(strftime('%%w', create_time, 'unixepoch', %s) AS INTEGER) = 0 THEN 7 ELSE CAST(strftime('%%w', create_time, 'unixepoch', %s) AS INTEGER) END as weekday, COUNT(*) as count FROM %s WHERE create_time >= ? AND create_time <= ? GROUP BY weekday", tzMod, tzMod, tableName)
+		query := fmt.Sprintf("SELECT CASE WHEN CAST(strftime('%%w', create_time, 'unixepoch', %s) AS INTEGER) = 0 THEN 7 ELSE CAST(strftime('%%w', create_time, 'unixepoch', %s) AS INTEGER) END as weekday, COUNT(*) as count FROM %s WHERE create_time >= ? AND create_time <= ? AND (local_type & 4294967295) != 10000 GROUP BY weekday", tzMod, tzMod, tableName)
 		rows, err := db.QueryContext(ctx, query, start.Unix(), end.Unix())
 		if err == nil {
 			for rows.Next() {
@@ -512,7 +514,7 @@ func (r *Repository) weekdayV4Shards(ctx context.Context, db *sql.DB, start, end
 }
 
 // getAnnualHourlyDist 获取年度小时分布（跨多时区段）
-func (r *Repository) getAnnualHourlyDist(ctx context.Context, segs []reportSegment) []*model.HourlyStat {
+func (r *Repository) getAnnualHourlyDist(ctx context.Context, segs []reportSegment, allow func(string) bool) []*model.HourlyStat {
 	hourlyStats := make(map[int]int)
 
 	for _, seg := range segs {
@@ -533,7 +535,7 @@ func (r *Repository) getAnnualHourlyDist(ctx context.Context, segs []reportSegme
 					rows.Close()
 				}
 			} else {
-				r.hourlyV4Shards(ctx, db, seg.start, seg.end, hourlyStats, seg.tzMod)
+				r.hourlyV4Shards(ctx, db, seg.start, seg.end, hourlyStats, seg.tzMod, allow)
 			}
 		}
 	}
@@ -545,8 +547,8 @@ func (r *Repository) getAnnualHourlyDist(ctx context.Context, segs []reportSegme
 	return result
 }
 
-func (r *Repository) hourlyV4Shards(ctx context.Context, db *sql.DB, start, end time.Time, hourlyStats map[int]int, tzMod string) {
-	allowTable := r.TableFilter(ctx, model.ModuleReport)
+func (r *Repository) hourlyV4Shards(ctx context.Context, db *sql.DB, start, end time.Time, hourlyStats map[int]int, tzMod string, allow func(string) bool) {
+	allowTable := allow
 	tables, err := db.QueryContext(ctx, "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'Msg_%%'")
 	if err != nil {
 		return
@@ -559,7 +561,7 @@ func (r *Repository) hourlyV4Shards(ctx context.Context, db *sql.DB, start, end 
 		if !allowTable(tableName) {
 			continue
 		}
-		query := fmt.Sprintf("SELECT CAST(strftime('%%H', create_time, 'unixepoch', %s) AS INTEGER) as hour, COUNT(*) as count FROM %s WHERE create_time >= ? AND create_time <= ? GROUP BY hour", tzMod, tableName)
+		query := fmt.Sprintf("SELECT CAST(strftime('%%H', create_time, 'unixepoch', %s) AS INTEGER) as hour, COUNT(*) as count FROM %s WHERE create_time >= ? AND create_time <= ? AND (local_type & 4294967295) != 10000 GROUP BY hour", tzMod, tableName)
 		rows, err := db.QueryContext(ctx, query, start.Unix(), end.Unix())
 		if err == nil {
 			for rows.Next() {
@@ -573,7 +575,7 @@ func (r *Repository) hourlyV4Shards(ctx context.Context, db *sql.DB, start, end 
 }
 
 // getAnnualMessageTypes 获取年度消息类型分布（不依赖时区）
-func (r *Repository) getAnnualMessageTypes(ctx context.Context, start, end time.Time) map[string]int {
+func (r *Repository) getAnnualMessageTypes(ctx context.Context, start, end time.Time, allow func(string) bool) map[string]int {
 	typeStats := make(map[int]int)
 
 	for _, shard := range r.router.GetShards() {
@@ -593,7 +595,7 @@ func (r *Repository) getAnnualMessageTypes(ctx context.Context, start, end time.
 				rows.Close()
 			}
 		} else {
-			r.messageTypesV4Shards(ctx, db, start, end, typeStats)
+			r.messageTypesV4Shards(ctx, db, start, end, typeStats, allow)
 		}
 	}
 
@@ -604,8 +606,8 @@ func (r *Repository) getAnnualMessageTypes(ctx context.Context, start, end time.
 	return result
 }
 
-func (r *Repository) messageTypesV4Shards(ctx context.Context, db *sql.DB, start, end time.Time, typeStats map[int]int) {
-	allowTable := r.TableFilter(ctx, model.ModuleReport)
+func (r *Repository) messageTypesV4Shards(ctx context.Context, db *sql.DB, start, end time.Time, typeStats map[int]int, allow func(string) bool) {
+	allowTable := allow
 	tables, err := db.QueryContext(ctx, "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'Msg_%%'")
 	if err != nil {
 		return
@@ -618,7 +620,12 @@ func (r *Repository) messageTypesV4Shards(ctx context.Context, db *sql.DB, start
 		if !allowTable(tableName) {
 			continue
 		}
-		query := fmt.Sprintf("SELECT local_type, COUNT(*) FROM %s WHERE create_time >= ? AND create_time <= ? GROUP BY local_type", tableName)
+		// V4 的 local_type 是 (sub_type << 32) | type，必须取低 32 位才是真实类型，
+		// 否则带子类型的消息（如 local_type=21474836529 实为 49）会全落进「其他」
+		query := fmt.Sprintf(
+			"SELECT (local_type & 4294967295) AS t, COUNT(*) FROM %s "+
+				"WHERE create_time >= ? AND create_time <= ? AND (local_type & 4294967295) != 10000 "+
+				"GROUP BY t", tableName)
 		rows, err := db.QueryContext(ctx, query, start.Unix(), end.Unix())
 		if err == nil {
 			for rows.Next() {
@@ -659,7 +666,7 @@ func messageTypeName(t int) string {
 }
 
 // getAnnualHighlights 获取年度亮点数据（跨多时区段）
-func (r *Repository) getAnnualHighlights(ctx context.Context, segs []reportSegment) model.AnnualHighlights {
+func (r *Repository) getAnnualHighlights(ctx context.Context, segs []reportSegment, allow func(string) bool) model.AnnualHighlights {
 	highlights := model.AnnualHighlights{}
 	dailyCounts := make(map[string]int)
 	var lateNightCount int
@@ -676,7 +683,7 @@ func (r *Repository) getAnnualHighlights(ctx context.Context, segs []reportSegme
 			if r.isTableExist(db, "MSG") {
 				r.highlightsV3(ctx, db, seg.start, seg.end, dailyCounts, &lateNightCount, &earliestMinute, &latestMinute, seg.tzMod)
 			} else {
-				r.highlightsV4(ctx, db, seg.start, seg.end, dailyCounts, &lateNightCount, &earliestMinute, &latestMinute, seg.tzMod)
+				r.highlightsV4(ctx, db, seg.start, seg.end, dailyCounts, &lateNightCount, &earliestMinute, &latestMinute, seg.tzMod, allow)
 			}
 		}
 	}
@@ -704,7 +711,7 @@ func (r *Repository) getAnnualHighlights(ctx context.Context, segs []reportSegme
 	// 新规则：以 07:00 为日界
 	// 最早：先在 06:30–07:30 找发送前 ≥4h 无其他消息的消息；无则取 07:00 后第一条
 	// 最晚：先在 06:30–07:30 找发送后 ≥4h 无其他消息的消息；无则取 07:00 前最后一条
-	earlyMin, lateMin := r.computeEarliestLatestNew(ctx, segs)
+	earlyMin, lateMin := r.computeEarliestLatestNew(ctx, segs, allow)
 	if earlyMin >= 0 {
 		highlights.EarliestMessageTime = fmt.Sprintf("%02d:%02d", earlyMin/60, earlyMin%60)
 	}
@@ -717,7 +724,7 @@ func (r *Repository) getAnnualHighlights(ctx context.Context, segs []reportSegme
 
 // computeEarliestLatestNew 用新的 07:00 日界规则计算年度最早/最晚消息的时刻（分钟数 0-1439）。
 // 返回 -1 表示无数据。
-func (r *Repository) computeEarliestLatestNew(ctx context.Context, segs []reportSegment) (earlyMinOfDay, lateMinOfDay int) {
+func (r *Repository) computeEarliestLatestNew(ctx context.Context, segs []reportSegment, allow func(string) bool) (earlyMinOfDay, lateMinOfDay int) {
 	type ts struct {
 		unix int64
 		loc  *time.Location
@@ -749,16 +756,15 @@ func (r *Repository) computeEarliestLatestNew(ctx context.Context, segs []report
 					continue
 				}
 				var tableNames []string
-				allowTable := r.TableFilter(ctx, model.ModuleReport)
 				for tableRows.Next() {
 					var n string
-					if tableRows.Scan(&n) == nil && allowTable(n) {
+					if tableRows.Scan(&n) == nil && allow(n) {
 						tableNames = append(tableNames, n)
 					}
 				}
 				tableRows.Close()
 				for _, tn := range tableNames {
-					q := fmt.Sprintf("SELECT create_time FROM %s WHERE create_time >= ? AND create_time <= ?", tn)
+					q := fmt.Sprintf("SELECT create_time FROM %s WHERE create_time >= ? AND create_time <= ? AND (local_type & 4294967295) != 10000", tn)
 					rows, err := db.QueryContext(ctx, q, seg.start.Unix(), seg.end.Unix())
 					if err != nil {
 						continue
@@ -945,9 +951,9 @@ func (r *Repository) highlightsV3(ctx context.Context, db *sql.DB, start, end ti
 }
 
 func (r *Repository) highlightsV4(ctx context.Context, db *sql.DB, start, end time.Time,
-	dailyCounts map[string]int, lateNightCount *int, earliestMinute, latestMinute *int, tzMod string) {
+	dailyCounts map[string]int, lateNightCount *int, earliestMinute, latestMinute *int, tzMod string, allow func(string) bool) {
 
-	allowTable := r.TableFilter(ctx, model.ModuleReport)
+	allowTable := allow
 	tables, err := db.QueryContext(ctx, "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'Msg_%%'")
 	if err != nil {
 		return
@@ -961,7 +967,7 @@ func (r *Repository) highlightsV4(ctx context.Context, db *sql.DB, start, end ti
 			continue
 		}
 
-		query := fmt.Sprintf("SELECT strftime('%%Y-%%m-%%d', create_time, 'unixepoch', %s) as d, COUNT(*) as c FROM %s WHERE create_time >= ? AND create_time <= ? GROUP BY d", tzMod, tableName)
+		query := fmt.Sprintf("SELECT strftime('%%Y-%%m-%%d', create_time, 'unixepoch', %s) as d, COUNT(*) as c FROM %s WHERE create_time >= ? AND create_time <= ? AND (local_type & 4294967295) != 10000 GROUP BY d", tzMod, tableName)
 		rows, err := db.QueryContext(ctx, query, start.Unix(), end.Unix())
 		if err == nil {
 			for rows.Next() {

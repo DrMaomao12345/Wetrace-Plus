@@ -10,6 +10,7 @@ import { useState, useEffect } from "react"
 import { systemApi, mediaApi } from "@/api"
 import { toast } from "sonner"
 import { KeyManagerModal } from "./KeyManagerModal"
+import { usePlatform } from "@/hooks/usePlatform"
 import { ImageCacheManager } from "../chat/ImageCacheManager"
 
 type NavItem = {
@@ -42,15 +43,8 @@ export function Sidebar() {
   const [isSyncing, setIsSyncing] = useState(false)
   const [showKeyManager, setShowKeyManager] = useState(false)
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
-  const [platform, setPlatform] = useState<string>('')
-
-  // macOS 上图片密钥尚未攻克，图库打开也是空的 —— 直接把入口置灰，别让人白点
-  useEffect(() => {
-    systemApi.getStatus()
-      .then((s: any) => setPlatform(s?.platform || ''))
-      .catch(() => {})
-  }, [])
-  const isMac = platform === 'darwin'
+  // 图片相关入口是否可用 —— 与消息气泡共用同一份判断
+  const { imagesUnavailable: isMac } = usePlatform()
 
   const navEntries: NavEntry[] = [
     { key: 'chat', icon: MessageSquare, label: '聊天', path: '/chat' },
@@ -276,7 +270,7 @@ export function Sidebar() {
           className="text-[10px] text-muted-foreground/40 hover:text-muted-foreground text-center py-1 w-full transition-colors"
           title="查看更新日志"
         >
-          v2.3.1
+          v2.4.0
         </button>
 
         <div className="flex items-center gap-1 mt-1 px-1">

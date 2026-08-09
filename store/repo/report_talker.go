@@ -3,6 +3,7 @@ package repo
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/afumu/wetrace/internal/model"
@@ -112,14 +113,27 @@ func (r *Repository) GetTalkerAnnualReport(ctx context.Context, year int, talker
 	report.Extras = r.GetTalkerExtras(ctx, talker, year, defaultTzOffset)
 
 	// 概览
+	activeContactCount, activeChatroomCount := 0, 0
+	if total > 0 {
+		if strings.HasSuffix(talker, "@chatroom") {
+			activeChatroomCount = 1
+		} else {
+			activeContactCount = 1
+		}
+	}
 	report.Overview = model.AnnualOverview{
 		TotalMessages:    total,
 		SentMessages:     sent,
 		ReceivedMessages: recv,
-		ActiveContacts:   1,
-		ActiveDays:       activeDaysLifetime,
-		FirstMessageDate: firstDate,
-		LastMessageDate:  lastDate,
+		// 单个会话的报告：是群聊就算 1 个活跃群聊，否则算 1 个活跃联系人；
+		// 当年没有消息则都为 0。早先无条件写死「联系人 1 / 群聊 0」，
+		// 看群聊报告或空年份时是错的。
+		ActiveContacts:     activeContactCount,
+		ActiveChatrooms:    activeChatroomCount,
+		ActiveDays:         len(dailyCounts),
+		ActiveDaysLifetime: activeDaysLifetime,
+		FirstMessageDate:   firstDate,
+		LastMessageDate:    lastDate,
 	}
 
 	// 联系人年度报告也给出「相对往年同期的百分比变化」—— 用刚拉到的全周期
