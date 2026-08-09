@@ -64,6 +64,7 @@ func (s *Service) setupRoutes() {
 			// TTS 语音转文字配置路由
 			system.GET("/tts_config", s.api.GetTTSConfig)
 			system.POST("/tts_config", s.api.UpdateTTSConfig)
+			system.GET("/tts_local/scan", s.api.ScanWhisperLocal) // 自动查找本机 Whisper 可执行文件与模型
 
 			// 数据目录
 			system.GET("/data_dir", s.api.GetDataDir)
@@ -153,6 +154,9 @@ func (s *Service) setupRoutes() {
 			reportGroup.GET("/year_compare", s.api.GetYearCompare) // 功能7 年度对比
 		}
 
+		// 公众号订阅画像
+		v1.GET("/biz/profile", s.api.GetBizProfile)
+
 		// 统计范围 / 会话类型标签路由
 		statsGroup := v1.Group("/stats")
 		{
@@ -167,6 +171,8 @@ func (s *Service) setupRoutes() {
 		{
 			galaxyGroup.GET("/profile", s.api.GetGalaxyProfile)
 			galaxyGroup.PUT("/profile", s.api.UpdateGalaxyProfile)
+			galaxyGroup.GET("/identity_rules", s.api.GetGalaxyIdentityRules) // §17.2 自定义身份词典
+			galaxyGroup.PUT("/identity_rules", s.api.UpdateGalaxyIdentityRules)
 			galaxyGroup.POST("/rebuild", s.api.RebuildGalaxy)
 			galaxyGroup.GET("/graph", s.api.GetGalaxyGraph)
 			galaxyGroup.GET("/overrides", s.api.GetGalaxyOverrides)     // Phase4

@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { galaxyApi } from '@/api/galaxy'
-import type { GalaxyNode, RelationshipGraph, GalaxyTimeline } from '@/api/galaxy'
+import type { GalaxyNode, RelationshipGraph, GalaxyTimeline, IdentityRule } from '@/api/galaxy'
 
 const TYPE_COLORS: Record<string, string> = {
   friend: '#eab308', family: '#22c55e', teacher: '#a855f7', classmate: '#3b82f6',
@@ -26,6 +26,9 @@ export default function Galaxy() {
   const [selected, setSelected] = useState<GalaxyNode | null>(null)
   const [rebuilding, setRebuilding] = useState(false)
   const [view, setView] = useState<'galaxy' | 'timeline' | 'memory'>('galaxy')
+  // §12.2 时段反向筛选：在时间轴上框选月份区间，星图只留该区间内有互动的关系
+  const [range, setRange] = useState<{ from: string; to: string } | null>(null)
+  const [showRules, setShowRules] = useState(false)
   const [anim, setAnim] = useState(true)
   const [by, setBy] = useState(2003)
   const [bm, setBm] = useState(9)
@@ -73,13 +76,38 @@ export default function Galaxy() {
     } catch { /* ignore */ }
   }
 
+  // 选中时段后：只保留区间内有互动的人，并用区间内的强度重算「当前温度」，
+  // 但保留后端算好的坐标 —— 空间位置不变，方便对照前后差异(§33.5)
+  const displayNodes = useMemo<GalaxyNode[]>(() => {
+    if (!graph) return []
+    if (!range || !graph.timeline) return graph.nodes
+    const { from, to } = range
+    const inRange = new Map<string, number>()
+    for (const c of graph.timeline.contacts) {
+      let sum = 0
+      for (const seg of c.segments) {
+        if (seg.month >= from && seg.month <= to) sum += seg.message_count
+      }
+      if (sum > 0) inRange.set(c.contact_id, sum)
+    }
+    const max = Math.max(1, ...inRange.values())
+    return graph.nodes
+      .filter((n) => inRange.has(n.contact_id))
+      .map((n) => ({
+        ...n,
+        current_temperature: Math.round((inRange.get(n.contact_id)! / max) * 100),
+        recent_activity: 0, // 历史时段不该脉动
+        status: 'active',
+      }))
+  }, [graph, range])
+
   useEffect(() => {
     if (!graph) return
     const canvas = canvasRef.current; if (!canvas) return
     const ctx = canvas.getContext('2d'); if (!ctx) return
     const dpr = window.devicePixelRatio || 1
     const maxR = Math.max(1, ...graph.nodes.map(n => Math.hypot(n.x, n.y)))
-    const pts = graph.nodes.map(n => ({ n, sx: 0, sy: 0 }))
+    const pts = displayNodes.map(n => ({ n, sx: 0, sy: 0 }))
     let raf = 0
 
     const resize = () => { const r = canvas.getBoundingClientRect(); canvas.width = r.width * dpr; canvas.height = r.height * dpr }
@@ -139,6 +167,11 @@ export default function Galaxy() {
         ctx.beginPath(); ctx.arc(px, py, rNode, 0, Math.PI * 2)
         ctx.fillStyle = faded ? '#3a3a44' : dim(color, bright); ctx.fill()
         if (n.manual_important) { ctx.strokeStyle = '#fbbf24'; ctx.lineWidth = 2 * dpr; ctx.stroke() }
+        if (n.pinned) {
+          ctx.beginPath(); ctx.arc(px, py, rNode + 6 * dpr, 0, Math.PI * 2)
+          ctx.setLineDash([2 * dpr, 3 * dpr]); ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 1.5 * dpr
+          ctx.stroke(); ctx.setLineDash([])
+        }
         if (selected?.contact_id === n.contact_id) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 2 * dpr; ctx.stroke() }
         ctx.fillStyle = '#fff'; ctx.font = `${9 * dpr}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
         ctx.fillText((n.display_name || '?').slice(0, 1), px, py)
@@ -176,7 +209,7 @@ export default function Galaxy() {
       canvas.removeEventListener('click', onClick); canvas.removeEventListener('wheel', onWheel); canvas.removeEventListener('mousedown', onDown)
       window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp)
     }
-  }, [graph, selected])
+  }, [graph, displayNodes, selected])
 
   if (needProfile) {
     const years = Array.from({ length: 66 }, (_, i) => 2015 - i)
@@ -206,7 +239,7 @@ export default function Galaxy() {
     <div className="relative h-full w-full overflow-hidden bg-[#0a0a12]">
       <canvas ref={canvasRef} className="absolute inset-0 h-full w-full cursor-grab active:cursor-grabbing" />
       {view === 'timeline' && graph?.timeline && (
-        <TimelineView tl={graph.timeline} nodes={graph.nodes} selectedId={selected?.contact_id} onPick={(id) => setSelected(graph.nodes.find((n) => n.contact_id === id) || null)} />
+        <TimelineView tl={graph.timeline} nodes={graph.nodes} selectedId={selected?.contact_id} range={range} onRangeChange={setRange} onPick={(id) => setSelected(graph.nodes.find((n) => n.contact_id === id) || null)} />
       )}
       {view === 'memory' && graph?.timeline && (
         <MemoryView graph={graph} onPick={(id) => setSelected(graph.nodes.find((n) => n.contact_id === id) || null)} />
@@ -214,7 +247,11 @@ export default function Galaxy() {
       {/* 顶部工具条 */}
       <div className="absolute left-4 top-4 z-10 flex items-center gap-3 rounded-xl bg-black/40 px-3 py-2 backdrop-blur">
         <span className="text-sm font-semibold text-white">关系星图</span>
-        {graph && <span className="text-xs text-white/60">Top {graph.nodes.length} / 共 {graph.total_count} 人</span>}
+        {graph && (
+          <span className="text-xs text-white/60">
+            {range ? `时段内 ${displayNodes.length} 人` : `Top ${graph.nodes.length} / 共 ${graph.total_count} 人`}
+          </span>
+        )}
         <div className="flex rounded-lg bg-white/10 p-0.5 text-xs">
           <button onClick={() => setView('galaxy')} className={`rounded px-2 py-0.5 ${view === 'galaxy' ? 'bg-white/25 text-white' : 'text-white/60'}`}>星图</button>
           <button onClick={() => setView('timeline')} className={`rounded px-2 py-0.5 ${view === 'timeline' ? 'bg-white/25 text-white' : 'text-white/60'}`}>时间轴</button>
@@ -224,8 +261,23 @@ export default function Galaxy() {
           {rebuilding ? '重算中…' : '重新分析'}
         </button>
         <button onClick={() => setNeedProfile(true)} className="rounded-lg bg-white/10 px-2 py-1 text-xs text-white hover:bg-white/20">改出生年月</button>
+        <button onClick={() => setShowRules(true)} className="rounded-lg bg-white/10 px-2 py-1 text-xs text-white hover:bg-white/20">身份词典</button>
         <button onClick={() => { animRef.current = !anim; setAnim(!anim) }} className="rounded-lg bg-white/10 px-2 py-1 text-xs text-white hover:bg-white/20">{anim ? '动画开' : '动画关'}</button>
       </div>
+
+      {/* §12.2 时段筛选横幅 */}
+      {range && (
+        <div className="absolute left-1/2 top-4 z-20 flex -translate-x-1/2 items-center gap-2 rounded-xl bg-indigo-500/25 px-3 py-2 text-xs text-white backdrop-blur">
+          <span>时段 {range.from} → {range.to}</span>
+          <span className="text-white/60">星图只显示这段时间里有互动的 {displayNodes.length} 人</span>
+          <button onClick={() => setRange(null)} className="rounded bg-white/15 px-2 py-0.5 hover:bg-white/25">清除</button>
+          {view !== 'galaxy' && (
+            <button onClick={() => setView('galaxy')} className="rounded bg-white/15 px-2 py-0.5 hover:bg-white/25">看星图 →</button>
+          )}
+        </div>
+      )}
+
+      {showRules && <IdentityRulesModal onClose={() => setShowRules(false)} onSaved={rebuild} />}
       {loading && <div className="absolute inset-0 z-10 flex items-center justify-center text-sm text-white/70">加载星图…</div>}
       {/* 图例 */}
       <div className="absolute bottom-4 left-4 z-10 flex flex-wrap gap-x-3 gap-y-1 rounded-xl bg-black/40 px-3 py-2 text-[11px] text-white/70 backdrop-blur">
@@ -294,6 +346,7 @@ export default function Galaxy() {
               </label>
               <div className="flex flex-wrap gap-1.5">
                 <button onClick={() => patchContact({ manual_important: !selected.manual_important })} className={`rounded px-2 py-1 ${selected.manual_important ? 'bg-amber-500/30 text-amber-300' : 'bg-white/10'}`}>{selected.manual_important ? '★ 重要' : '☆ 标记重要'}</button>
+                <button onClick={() => patchContact({ pinned: !selected.pinned })} className={`rounded px-2 py-1 ${selected.pinned ? 'bg-white/30 text-white' : 'bg-white/10'}`} title="置顶后始终出现在星图，不会被 Top N 截断">{selected.pinned ? '📌 已置顶' : '📌 固定置顶'}</button>
                 <button onClick={() => patchContact({ hidden: true })} className="rounded bg-white/10 px-2 py-1 hover:bg-red-500/30">隐藏</button>
                 <button onClick={() => patchContact({ reset: true })} className="rounded bg-white/10 px-2 py-1">恢复默认</button>
               </div>
@@ -306,12 +359,50 @@ export default function Galaxy() {
 }
 
 // ── 功能11 陪伴时间轴视图 ────────────────────────────────────
-function TimelineView({ tl, nodes, selectedId, onPick }: { tl: GalaxyTimeline; nodes: GalaxyNode[]; selectedId?: string; onPick: (id: string) => void }) {
+function TimelineView({ tl, nodes, selectedId, range, onRangeChange, onPick }: {
+  tl: GalaxyTimeline; nodes: GalaxyNode[]; selectedId?: string
+  range: { from: string; to: string } | null
+  onRangeChange: (r: { from: string; to: string } | null) => void
+  onPick: (id: string) => void
+}) {
   const months = tl.months
   const cw = 14 // 每月格宽 px
   const trackW = months.length * cw
   const [sort, setSort] = useState<'first' | 'intimacy' | 'name'>('first')
   const selRef = useRef<HTMLDivElement | null>(null)
+  // §12.2 在热力带上拖拽框选月份区间
+  const bandRef = useRef<HTMLDivElement | null>(null)
+  const [dragFrom, setDragFrom] = useState<number | null>(null)
+  const [dragTo, setDragTo] = useState<number | null>(null)
+
+  const monthIndexAt = (clientX: number) => {
+    const el = bandRef.current
+    if (!el) return null
+    const r = el.getBoundingClientRect()
+    const i = Math.floor((clientX - r.left) / cw)
+    return Math.max(0, Math.min(months.length - 1, i))
+  }
+  useEffect(() => {
+    if (dragFrom === null) return
+    const move = (e: MouseEvent) => { const i = monthIndexAt(e.clientX); if (i !== null) setDragTo(i) }
+    const up = (e: MouseEvent) => {
+      const i = monthIndexAt(e.clientX)
+      if (i !== null && dragFrom !== null) {
+        const [a, b] = [Math.min(dragFrom, i), Math.max(dragFrom, i)]
+        onRangeChange({ from: months[a], to: months[b] })
+      }
+      setDragFrom(null); setDragTo(null)
+    }
+    window.addEventListener('mousemove', move)
+    window.addEventListener('mouseup', up, { once: true })
+    return () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up) }
+  }, [dragFrom, months, onRangeChange])
+
+  const selFrom = dragFrom !== null && dragTo !== null ? Math.min(dragFrom, dragTo)
+    : range ? months.indexOf(range.from) : -1
+  const selTo = dragFrom !== null && dragTo !== null ? Math.max(dragFrom, dragTo)
+    : range ? months.indexOf(range.to) : -1
+  const inSel = (i: number) => selFrom >= 0 && i >= selFrom && i <= selTo
   useEffect(() => { selRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' }) }, [selectedId])
   const intimacy = new Map(nodes.map((n) => [n.contact_id, n.composite_intimacy]))
   const contacts = [...tl.contacts].sort((a, b) => {
@@ -346,19 +437,33 @@ function TimelineView({ tl, nodes, selectedId, onPick }: { tl: GalaxyTimeline; n
             ))}
           </div>
         </div>
-        {/* 全局热力带 */}
-        <div className="mb-2 flex items-center">
-          <div className="w-40 shrink-0 text-[11px] text-white/70">总体陪伴热力</div>
-          <div className="flex" style={{ width: trackW }}>
-            {months.map((m) => {
+        {/* 全局热力带 —— 也是时段框选的交互区 */}
+        <div className="mb-1 flex items-center">
+          <div className="w-40 shrink-0 pr-2 text-[11px] text-white/70">
+            总体陪伴热力
+            <div className="text-[10px] text-white/40">拖拽框选时段</div>
+          </div>
+          <div ref={bandRef} className="flex cursor-col-resize select-none" style={{ width: trackW }}
+            onMouseDown={(e) => { const i = monthIndexAt(e.clientX); if (i !== null) { setDragFrom(i); setDragTo(i) } }}>
+            {months.map((m, i) => {
               const g = tl.global_heat.find((x) => x.month === m)
               return (
                 <div key={m} title={g ? `${m}　活跃 ${g.active_relationships} 人 / 强关系 ${g.strong_relationships} 人 / ${g.message_count} 条` : m}
-                  style={{ width: cw - 1, height: 20, marginRight: 1, background: g ? heat(g.heat_score) : 'transparent', borderRadius: 2 }} />
+                  style={{
+                    width: cw - 1, height: 20, marginRight: 1, borderRadius: 2,
+                    background: g ? heat(g.heat_score) : 'transparent',
+                    outline: inSel(i) ? '1px solid rgba(255,255,255,0.85)' : 'none',
+                  }} />
               )
             })}
           </div>
         </div>
+        {range && (
+          <div className="mb-2 flex items-center gap-2 pl-40 text-[11px] text-white/70">
+            <span className="rounded bg-indigo-500/30 px-2 py-0.5">已选 {range.from} → {range.to}</span>
+            <button onClick={() => onRangeChange(null)} className="rounded bg-white/10 px-2 py-0.5 hover:bg-white/20">清除</button>
+          </div>
+        )}
         {/* 每人轨迹 */}
         <div className="space-y-0.5">
           {contacts.map((c) => {
@@ -370,11 +475,15 @@ function TimelineView({ tl, nodes, selectedId, onPick }: { tl: GalaxyTimeline; n
                   {c.display_name}
                 </div>
                 <div className="flex" style={{ width: trackW, height: 16 }}>
-                  {months.map((m) => {
+                  {months.map((m, i) => {
                     const s = smap.get(m)
                     return (
                       <div key={m} title={s ? `${m}　强度 ${s.strength} / ${s.message_count} 条` : m}
-                        style={{ width: cw - 1, height: 12, marginRight: 1, marginTop: 2, background: s ? cell(s.strength) : 'transparent', borderRadius: 2 }} />
+                        style={{
+                          width: cw - 1, height: 12, marginRight: 1, marginTop: 2, borderRadius: 2,
+                          background: s ? cell(s.strength) : 'transparent',
+                          opacity: selFrom >= 0 && !inSel(i) ? 0.25 : 1,
+                        }} />
                     )
                   })}
                 </div>
@@ -478,6 +587,110 @@ function MemoryView({ graph, onPick }: { graph: RelationshipGraph; onPick: (id: 
           <span className="rounded-full bg-white/10 px-3 py-1">主要阶段：{stage?.name || '—'}</span>
           {[...kw].filter(Boolean).map((k) => <span key={k} className="rounded-full bg-white/10 px-3 py-1 text-white/70">{k}</span>)}
         </div>
+      </div>
+    </div>
+  )
+}
+
+// ── §17.2 自定义身份词典 ──────────────────────────────────────
+// 规则按顺序匹配备注 + 昵称，先命中者胜；用户规则永远排在内置词典之前，
+// 所以想纠正系统的判断（比如把「XX 教练」从服务/商家改成老师）加一条就行。
+function IdentityRulesModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+  const [rules, setRules] = useState<IdentityRule[]>([])
+  const [builtin, setBuiltin] = useState<IdentityRule[]>([])
+  const [types, setTypes] = useState<{ key: string; label: string }[]>([])
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState('')
+
+  useEffect(() => {
+    ;(async () => {
+      try {
+        const r = await galaxyApi.getIdentityRules()
+        setRules(r.rules || [])
+        setBuiltin(r.builtin || [])
+        setTypes(r.types || [])
+      } catch { setErr('加载失败') } finally { setLoading(false) }
+    })()
+  }, [])
+
+  const update = (i: number, patch: Partial<IdentityRule>) =>
+    setRules((rs) => rs.map((r, k) => (k === i ? { ...r, ...patch } : r)))
+  const remove = (i: number) => setRules((rs) => rs.filter((_, k) => k !== i))
+  const add = () => setRules((rs) => [...rs, { type: types[0]?.key || 'friend', label: '', keywords: [] }])
+
+  const save = async () => {
+    setSaving(true); setErr('')
+    try {
+      await galaxyApi.saveIdentityRules(rules.filter((r) => r.keywords.length > 0))
+      onClose()
+      onSaved() // 规则变了要重算关系判定
+    } catch (e: any) { setErr(e?.message || '保存失败') } finally { setSaving(false) }
+  }
+
+  return (
+    <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/60 p-6" onClick={onClose}>
+      <div className="max-h-full w-full max-w-2xl overflow-y-auto rounded-2xl bg-[#14141c] p-5 text-white" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-2">
+          <h3 className="text-base font-bold">自定义身份词典</h3>
+          <button onClick={onClose} className="ml-auto text-white/50 hover:text-white">✕</button>
+        </div>
+        <p className="mt-1 text-xs text-white/60">
+          按备注和昵称里的关键词判定关系类型。你的规则优先于系统内置词典，从上往下先命中者生效。
+        </p>
+
+        {loading ? (
+          <div className="py-8 text-center text-sm text-white/60">加载中…</div>
+        ) : (
+          <>
+            <div className="mt-4 space-y-2">
+              {rules.length === 0 && (
+                <div className="rounded-lg border border-dashed border-white/15 py-6 text-center text-xs text-white/40">
+                  还没有自定义规则，下面「+ 添加规则」开始
+                </div>
+              )}
+              {rules.map((r, i) => (
+                <div key={i} className="flex items-start gap-2 rounded-lg bg-white/5 p-2">
+                  <span className="mt-2 w-5 shrink-0 text-center text-[11px] text-white/40">{i + 1}</span>
+                  <select value={r.type} onChange={(e) => update(i, { type: e.target.value })}
+                    className="h-8 shrink-0 rounded bg-white/10 px-2 text-xs">
+                    {types.map((t) => <option key={t.key} value={t.key} className="bg-[#14141c]">{t.label}</option>)}
+                  </select>
+                  <input value={r.label} onChange={(e) => update(i, { label: e.target.value })}
+                    placeholder="显示标签(选填)"
+                    className="h-8 w-32 shrink-0 rounded bg-white/10 px-2 text-xs placeholder:text-white/30" />
+                  <input value={r.keywords.join('、')}
+                    onChange={(e) => update(i, { keywords: e.target.value.split(/[、,，\s]+/).filter(Boolean) })}
+                    placeholder="关键词，用、或逗号分隔"
+                    className="h-8 flex-1 rounded bg-white/10 px-2 text-xs placeholder:text-white/30" />
+                  <button onClick={() => remove(i)} className="h-8 shrink-0 rounded bg-white/10 px-2 text-xs hover:bg-red-500/30">删除</button>
+                </div>
+              ))}
+            </div>
+            <button onClick={add} className="mt-2 rounded-lg bg-white/10 px-3 py-1.5 text-xs hover:bg-white/20">+ 添加规则</button>
+
+            <div className="mt-5 border-t border-white/10 pt-3">
+              <div className="text-xs font-medium text-white/70">系统内置词典（只读，排在你的规则之后）</div>
+              <div className="mt-2 space-y-1.5">
+                {builtin.map((b) => (
+                  <div key={b.type} className="flex gap-2 text-[11px]">
+                    <span className="w-16 shrink-0 text-white/60">{b.label}</span>
+                    <span className="text-white/35">{b.keywords.join('、')}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {err && <div className="mt-3 text-xs text-red-400">{err}</div>}
+            <div className="mt-5 flex justify-end gap-2">
+              <button onClick={onClose} className="rounded-lg bg-white/10 px-3 py-1.5 text-xs hover:bg-white/20">取消</button>
+              <button onClick={save} disabled={saving}
+                className="rounded-lg bg-primary px-3 py-1.5 text-xs text-primary-foreground disabled:opacity-60">
+                {saving ? '保存中…' : '保存并重新分析'}
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   )

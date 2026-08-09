@@ -20,6 +20,7 @@ func NewV4() *V4 {
 	return &V4{
 		patterns: []v4Pattern{
 			{Message, regexp.MustCompile(`(?i)^message(_[0-9]?[0-9])?\.db$`)},
+			{BizMessage, regexp.MustCompile(`(?i)^biz_message(_[0-9]?[0-9])?\.db$`)},
 			{Contact, regexp.MustCompile(`(?i)^contact\.db$`)},
 			{Image, regexp.MustCompile(`(?i)^hardlink\.db$`)},
 			{Video, regexp.MustCompile(`(?i)^hardlink\.db$`)},

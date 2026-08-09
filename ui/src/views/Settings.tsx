@@ -9,6 +9,7 @@ import type {
   SyncConfigUpdate,
   BackupConfigUpdate,
   TTSConfigUpdate,
+  WhisperScanResult,
 } from "@/api/system"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { StatsScopeSection } from "@/components/settings/StatsScopeSection"
@@ -957,6 +958,29 @@ function TTSConfigSection() {
     onError: (err: Error) => toast.error("保存失败: " + err.message),
   })
 
+  // 本地模式打开时自动在常见位置找一遍 whisper.cpp 和模型，省得用户自己翻路径
+  const [scan, setScan] = useState<WhisperScanResult | null>(null)
+  const [scanning, setScanning] = useState(false)
+  const [scanErr, setScanErr] = useState("")
+
+  const runScan = async () => {
+    setScanning(true)
+    setScanErr("")
+    try {
+      setScan(await systemApi.scanWhisperLocal())
+    } catch (e: any) {
+      setScanErr(e?.message || "查找失败")
+    } finally {
+      setScanning(false)
+    }
+  }
+
+  useEffect(() => {
+    if (form.enabled && form.local_mode && !scan && !scanning) {
+      runScan()
+    }
+  }, [form.enabled, form.local_mode])
+
   if (isLoading) {
     return (
       <Card>
@@ -1001,6 +1025,94 @@ function TTSConfigSection() {
             {form.local_mode ? (
               /* 本地模式：配置 whisper.cpp 路径 */
               <div className="space-y-3 border rounded-md p-3 bg-muted/30">
+                {/* 自动查找本机的 whisper.cpp 与模型 */}
+                <div className="rounded-md border border-border bg-background/60 p-3 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium">本机查找</span>
+                    {scanning && (
+                      <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        正在扫描常见安装位置…
+                      </span>
+                    )}
+                    <Button size="sm" variant="outline" className="ml-auto h-7 text-xs"
+                      onClick={runScan} disabled={scanning}>
+                      重新查找
+                    </Button>
+                  </div>
+
+                  {scanErr && <p className="text-xs text-destructive">{scanErr}</p>}
+
+                  {!scanning && scan && (
+                    <>
+                      {(scan.binaries?.length ?? 0) > 0 ? (
+                        <div className="space-y-1">
+                          <p className="text-xs text-muted-foreground">
+                            找到 {scan.binaries!.length} 个可执行文件，点击填入：
+                          </p>
+                          {scan.binaries!.map((b) => (
+                            <button key={b.path}
+                              onClick={() => setForm((f) => ({ ...f, local_binary: b.path }))}
+                              className={cn(
+                                "w-full text-left rounded px-2 py-1 font-mono text-[11px] hover:bg-muted",
+                                form.local_binary === b.path && "bg-primary/10 text-primary",
+                              )}>
+                              {b.path}
+                              <span className="ml-2 font-sans text-[10px] text-muted-foreground">来自 {b.source}</span>
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-amber-600 dark:text-amber-500">
+                          没找到 whisper.cpp 可执行文件。macOS 可以直接
+                          <span className="font-mono"> brew install whisper-cpp </span>
+                          安装，或到 GitHub Releases 下载预编译版本。
+                        </p>
+                      )}
+
+                      {(scan.models?.length ?? 0) > 0 ? (
+                        <div className="space-y-1">
+                          <p className="text-xs text-muted-foreground">
+                            找到 {scan.models!.length} 个模型，点击填入（越大越准、越慢）：
+                          </p>
+                          {scan.models!.map((m) => (
+                            <button key={m.path}
+                              onClick={() => setForm((f) => ({ ...f, local_model: m.path }))}
+                              className={cn(
+                                "w-full text-left rounded px-2 py-1 font-mono text-[11px] hover:bg-muted",
+                                form.local_model === m.path && "bg-primary/10 text-primary",
+                              )}>
+                              {m.name}
+                              <span className="ml-2 font-sans text-[10px] text-muted-foreground">
+                                {m.size_mb ? `${m.size_mb.toFixed(0)} MB · ` : ""}{m.source}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="rounded bg-amber-500/10 p-2 text-xs text-amber-700 dark:text-amber-400 space-y-1">
+                          <p className="font-medium">没有在本机找到任何 Whisper 模型（ggml-*.bin）</p>
+                          <p>
+                            中文推荐下载 <span className="font-mono">ggml-medium.bin</span>（约 1.5 GB），
+                            想快一点用 <span className="font-mono">ggml-base.bin</span>（约 142 MB）：
+                          </p>
+                          <p className="font-mono break-all">
+                            huggingface.co/ggerganov/whisper.cpp/tree/main
+                          </p>
+                          <p>下载后放到下面任一目录，再点「重新查找」即可自动识别。</p>
+                        </div>
+                      )}
+
+                      <details className="text-[11px] text-muted-foreground">
+                        <summary className="cursor-pointer">查看已搜索的 {scan.searched?.length ?? 0} 个位置</summary>
+                        <div className="mt-1 space-y-0.5 font-mono">
+                          {(scan.searched || []).map((d) => <div key={d}>{d}</div>)}
+                        </div>
+                      </details>
+                    </>
+                  )}
+                </div>
+
                 <div className="space-y-1.5">
                   <label className="text-sm font-medium leading-none">whisper.cpp 可执行文件路径</label>
                   <Input

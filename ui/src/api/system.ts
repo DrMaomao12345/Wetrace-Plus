@@ -86,6 +86,21 @@ export interface TTSConfig {
   format: string;
 }
 
+/** 本机 Whisper 可执行文件 / 模型的扫描结果 */
+export interface WhisperFound {
+  path: string;
+  name: string;
+  size_mb?: number;
+  source: string;
+}
+
+export interface WhisperScanResult {
+  binaries: WhisperFound[] | null;
+  models: WhisperFound[] | null;
+  searched: string[];
+  platform: string;
+}
+
 export interface TTSConfigUpdate {
   enabled: boolean;
   provider?: string;
@@ -154,6 +169,8 @@ export const systemApi = {
 
   // TTS Config
   getTTSConfig: () => request.get<TTSConfig>("/api/v1/system/tts_config"),
+  scanWhisperLocal: () =>
+    request.get<WhisperScanResult>("/api/v1/system/tts_local/scan"),
   updateTTSConfig: (data: TTSConfigUpdate) => request.post("/api/v1/system/tts_config", data),
 
   // Data directory

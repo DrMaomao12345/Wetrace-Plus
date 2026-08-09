@@ -12,6 +12,7 @@ const (
 	File
 	Voice
 	Session
+	BizMessage // 公众号推送消息库 biz_message_*.db，与普通会话消息分开存放
 )
 
 func (g GroupType) String() string {
@@ -30,6 +31,8 @@ func (g GroupType) String() string {
 		return "Voice"
 	case Session:
 		return "Session"
+	case BizMessage:
+		return "BizMessage"
 	default:
 		return "Unknown"
 	}

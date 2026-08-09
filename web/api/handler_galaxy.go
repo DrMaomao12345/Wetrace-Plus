@@ -82,7 +82,7 @@ func (a *API) RebuildGalaxy(c *gin.Context) {
 	if c.Query("force") != "1" {
 		readJSONFile(galaxyPath("raw_features.json"), &cached) // §30 增量:复用未变联系人的特征
 	}
-	graph, feats, err := a.Store.BuildGalaxyIncremental(c.Request.Context(), &p, tzSec, topN, cached)
+	graph, feats, err := a.Store.BuildGalaxyIncremental(c.Request.Context(), &p, tzSec, topN, cached, pinnedContacts())
 	if err != nil {
 		transport.InternalServerError(c, err.Error())
 		return
@@ -109,7 +109,7 @@ func (a *API) GetGalaxyGraph(c *gin.Context) {
 	tzSec := resolveTzMinutes(c) * 60
 	var cached []model.GalaxyRawFeature
 	readJSONFile(galaxyPath("raw_features.json"), &cached)
-	g, feats, err := a.Store.BuildGalaxyIncremental(c.Request.Context(), &p, tzSec, 50, cached)
+	g, feats, err := a.Store.BuildGalaxyIncremental(c.Request.Context(), &p, tzSec, 50, cached, pinnedContacts())
 	if err != nil {
 		transport.InternalServerError(c, err.Error())
 		return
@@ -118,6 +118,21 @@ func (a *API) GetGalaxyGraph(c *gin.Context) {
 	_ = writeJSONFile(galaxyPath("relationship_graph.json"), g)
 	applyGalaxyOverrides(g)
 	transport.SendSuccess(c, g)
+}
+
+// pinnedContacts 读出被用户 pin 住的联系人 —— 建图时要保证他们不被 TopN 截断
+func pinnedContacts() []string {
+	var ov model.GalaxyOverrides
+	if !readJSONFile(galaxyPath("overrides.json"), &ov) || len(ov.Contacts) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(ov.Contacts))
+	for id, o := range ov.Contacts {
+		if o != nil && o.Pinned && !o.Hidden {
+			out = append(out, id)
+		}
+	}
+	return out
 }
 
 // applyGalaxyOverrides 把 overrides.json 里的用户修正套到图上(不改缓存文件本身,
@@ -148,6 +163,9 @@ func applyGalaxyOverrides(graph *model.RelationshipGraph) {
 		}
 		if o.ManualImportant {
 			n.ManualImportant = true
+		}
+		if o.Pinned {
+			n.Pinned = true
 		}
 		keptN = append(keptN, n)
 	}
@@ -190,6 +208,7 @@ func (a *API) PatchGalaxyContact(c *gin.Context) {
 		RelationshipLabel *string `json:"relationship_label"`
 		MainLifeStage     *string `json:"main_life_stage"`
 		ManualImportant   *bool   `json:"manual_important"`
+		Pinned            *bool   `json:"pinned"`
 		Hidden            *bool   `json:"hidden"`
 		Reset             bool    `json:"reset"`
 	}
@@ -222,6 +241,9 @@ func (a *API) PatchGalaxyContact(c *gin.Context) {
 		if body.ManualImportant != nil {
 			o.ManualImportant = *body.ManualImportant
 		}
+		if body.Pinned != nil {
+			o.Pinned = *body.Pinned
+		}
 		if body.Hidden != nil {
 			o.Hidden = *body.Hidden
 		}
@@ -229,6 +251,11 @@ func (a *API) PatchGalaxyContact(c *gin.Context) {
 	if err := writeJSONFile(galaxyPath("overrides.json"), &ov); err != nil {
 		transport.InternalServerError(c, "保存失败: "+err.Error())
 		return
+	}
+	// pin 变化会改变「哪些人进图」，缓存图里可能根本没有这个人 —— 作废缓存，
+	// 下次取图时按新的 pin 名单重建（走增量，很快）。
+	if body.Pinned != nil || body.Reset {
+		_ = os.Remove(galaxyPath("relationship_graph.json"))
 	}
 	transport.SendSuccess(c, gin.H{"ok": true})
 }

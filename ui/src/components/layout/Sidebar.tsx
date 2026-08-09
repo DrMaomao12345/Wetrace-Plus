@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils"
 import {
   MessageSquare, RefreshCw, Moon, Sun, Monitor, Search, Key,
   ImageIcon, BarChart3, Sparkles, Users, Settings, Shield,
-  ChevronDown, CalendarDays, Heart, Cloud, BrainCircuit, PlayCircle, Clock, History, Network,
+  ChevronDown, CalendarDays, Heart, Cloud, BrainCircuit, PlayCircle, Clock, History, Network, Newspaper,
 } from "lucide-react"
 import { useNavigate, useLocation } from "react-router-dom"
 import { useState, useEffect } from "react"
@@ -17,6 +17,9 @@ type NavItem = {
   icon: React.ComponentType<{ className?: string }>
   label: string
   path: string
+  /** 当前平台不支持时置灰，鼠标悬停给出原因 */
+  disabled?: boolean
+  disabledReason?: string
 }
 
 type NavGroup = {
@@ -39,12 +42,25 @@ export function Sidebar() {
   const [isSyncing, setIsSyncing] = useState(false)
   const [showKeyManager, setShowKeyManager] = useState(false)
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
+  const [platform, setPlatform] = useState<string>('')
+
+  // macOS 上图片密钥尚未攻克，图库打开也是空的 —— 直接把入口置灰，别让人白点
+  useEffect(() => {
+    systemApi.getStatus()
+      .then((s: any) => setPlatform(s?.platform || ''))
+      .catch(() => {})
+  }, [])
+  const isMac = platform === 'darwin'
 
   const navEntries: NavEntry[] = [
     { key: 'chat', icon: MessageSquare, label: '聊天', path: '/chat' },
     { key: 'contacts', icon: Users, label: '联系人', path: '/contacts' },
     { key: 'contact-reminder', icon: Clock, label: '联系提醒', path: '/contact-reminder' },
-    { key: 'gallery', icon: ImageIcon, label: '图片', path: '/gallery' },
+    {
+      key: 'gallery', icon: ImageIcon, label: '图片', path: '/gallery',
+      disabled: isMac,
+      disabledReason: 'macOS 暂不支持查看图片：微信 4.x 的图片密钥由自研加密处理，不经过系统加密接口，目前无法提取。文字消息的统计与分析不受影响。',
+    },
     {
       key: 'analysis',
       icon: BarChart3,
@@ -53,6 +69,7 @@ export function Sidebar() {
         { key: 'report', icon: CalendarDays, label: '年度报告', path: '/report' },
         { key: 'insights', icon: Network, label: '关系洞察', path: '/insights' },
         { key: 'galaxy', icon: Sparkles, label: '关系星图', path: '/galaxy' },
+        { key: 'biz', icon: Newspaper, label: '公众号画像', path: '/biz' },
         { key: 'sentiment', icon: Heart, label: '情感分析', path: '/sentiment' },
         { key: 'wordcloud', icon: Cloud, label: '词云', path: '/wordcloud' },
         { key: 'replay', icon: PlayCircle, label: '对话回放', path: '/replay' },
@@ -173,17 +190,22 @@ export function Sidebar() {
   const renderNavItem = (item: NavItem, indent = false) => (
     <button
       key={item.key}
-      onClick={() => handleNavClick(item.key, item.path)}
+      onClick={() => { if (!item.disabled) handleNavClick(item.key, item.path) }}
+      disabled={item.disabled}
+      title={item.disabled ? item.disabledReason : undefined}
       className={cn(
         "w-full h-9 flex items-center gap-3 rounded-lg px-3 text-sm transition-colors",
         indent && "pl-9",
-        isActive(item.key)
-          ? "bg-primary/10 text-primary font-medium"
-          : "text-muted-foreground hover:bg-muted hover:text-foreground"
+        item.disabled
+          ? "text-muted-foreground/35 cursor-not-allowed"
+          : isActive(item.key)
+            ? "bg-primary/10 text-primary font-medium"
+            : "text-muted-foreground hover:bg-muted hover:text-foreground"
       )}
     >
       <item.icon className="w-4 h-4 shrink-0" />
       <span className="truncate">{item.label}</span>
+      {item.disabled && <span className="ml-auto text-[10px] shrink-0">不可用</span>}
     </button>
   )
 
@@ -214,7 +236,7 @@ export function Sidebar() {
         <div
           className={cn(
             "overflow-hidden transition-all duration-200",
-            expanded ? "max-h-40 opacity-100 mt-0.5" : "max-h-0 opacity-0"
+            expanded ? "max-h-[400px] opacity-100 mt-0.5" : "max-h-0 opacity-0"
           )}
         >
           <div className="flex flex-col gap-0.5">
@@ -254,7 +276,7 @@ export function Sidebar() {
           className="text-[10px] text-muted-foreground/40 hover:text-muted-foreground text-center py-1 w-full transition-colors"
           title="查看更新日志"
         >
-          v2.1.0
+          v2.2.1
         </button>
 
         <div className="flex items-center gap-1 mt-1 px-1">

@@ -10,12 +10,13 @@ const (
 	ModuleDashboard StatsModule = "dashboard" // 仪表盘 / 首页
 	ModuleWordCloud StatsModule = "wordcloud" // 词云
 	ModuleReminder  StatsModule = "reminder"  // 联系提醒
+	ModuleBiz       StatsModule = "biz"       // 公众号订阅画像
 )
 
 // AllStatsModules 是全部可覆盖模块，顺序即前端展示顺序。
 var AllStatsModules = []StatsModule{
 	ModuleReport, ModuleInsights, ModuleGalaxy,
-	ModuleDashboard, ModuleWordCloud, ModuleReminder,
+	ModuleDashboard, ModuleWordCloud, ModuleReminder, ModuleBiz,
 }
 
 var statsModuleLabels = map[StatsModule]string{
@@ -25,6 +26,7 @@ var statsModuleLabels = map[StatsModule]string{
 	ModuleDashboard: "仪表盘",
 	ModuleWordCloud: "词云",
 	ModuleReminder:  "联系提醒",
+	ModuleBiz:       "公众号画像",
 }
 
 // Label 返回模块中文名

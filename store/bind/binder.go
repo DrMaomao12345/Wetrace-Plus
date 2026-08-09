@@ -159,7 +159,7 @@ func (r *TimelineRouter) GetAllDBPaths(targetType strategy.GroupType) ([]string,
 		subDirName = "contact"
 	case strategy.Image, strategy.Video, strategy.File:
 		subDirName = "hardlink"
-	case strategy.Message:
+	case strategy.Message, strategy.BizMessage:
 		subDirName = "message"
 	case strategy.Voice:
 		subDirName = "message"
@@ -248,7 +248,7 @@ func (r *TimelineRouter) findFileByType(targetType strategy.GroupType) (string, 
 		subDirName = "contact"
 	case strategy.Image, strategy.Video, strategy.File:
 		subDirName = "hardlink"
-	case strategy.Message:
+	case strategy.Message, strategy.BizMessage:
 		subDirName = "message"
 	case strategy.Voice:
 		subDirName = "message" // 或者 voice? 通常 voice 在 media_x.db

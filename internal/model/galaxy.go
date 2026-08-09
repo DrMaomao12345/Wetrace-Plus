@@ -9,10 +9,26 @@ type LifeStage struct {
 }
 
 type UserProfile struct {
-	BirthYear      int         `json:"birth_year"`
-	BirthMonth     int         `json:"birth_month"`
-	LifeStages     []LifeStage `json:"life_stages"`
-	CustomKeywords []string    `json:"custom_keywords,omitempty"` // 用户自定义身份词典(§17.2)
+	BirthYear  int         `json:"birth_year"`
+	BirthMonth int         `json:"birth_month"`
+	LifeStages []LifeStage `json:"life_stages"`
+	// CustomKeywords 是早期版本的扁平词表，等价于一条 type=friend 的规则，保留以兼容旧配置
+	CustomKeywords []string `json:"custom_keywords,omitempty"`
+	// IdentityRules 是用户自定义身份词典(§17.2)。优先于内置词典匹配，
+	// 顺序即优先级 —— 排在前面的规则先命中。
+	IdentityRules []IdentityRule `json:"identity_rules,omitempty"`
+}
+
+// IdentityRule 一条自定义身份规则：备注/昵称里出现任一关键词，就判为该关系类型。
+type IdentityRule struct {
+	Type     string   `json:"type"`     // family/teacher/classmate/work/service/friend
+	Label    string   `json:"label"`    // 展示用标签，如「健身房教练」；空则用类型默认名
+	Keywords []string `json:"keywords"` // 命中关键词（大小写不敏感）
+}
+
+// BuiltinIdentityKeywords 返回内置词典，供前端展示「系统默认认哪些词」。
+func BuiltinIdentityKeywords() []IdentityRule {
+	return builtinIdentityRules()
 }
 
 // ── 星图节点:一位联系人的完整关系画像 + 布局坐标(§29.4) ──────
@@ -51,6 +67,7 @@ type GalaxyNode struct {
 	Evidence      []string `json:"evidence"` // 分析依据(可解释 §33.3)
 
 	ManualImportant bool `json:"manual_important"`
+	Pinned          bool `json:"pinned"` // 固定置顶：始终出现在星图，不被 TopN 截断
 	Excluded        bool `json:"excluded"`
 }
 
@@ -103,6 +120,7 @@ type ContactOverride struct {
 	RelationshipLabel string `json:"relationship_label,omitempty"`
 	MainLifeStage     string `json:"main_life_stage,omitempty"`
 	ManualImportant   bool   `json:"manual_important,omitempty"`
+	Pinned            bool   `json:"pinned,omitempty"`
 	Hidden            bool   `json:"hidden,omitempty"`
 }
 

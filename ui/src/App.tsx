@@ -7,6 +7,7 @@ import Contact from '@/views/Contact'
 import Search from '@/views/Search'
 import AnnualReport from '@/views/AnnualReport'
 import Insights from '@/views/Insights'
+import BizProfile from '@/views/BizProfile'
 import Galaxy from '@/views/Galaxy'
 import Sentiment from '@/views/Sentiment'
 import WordCloud from '@/views/WordCloud'
@@ -95,6 +96,7 @@ function App() {
           <Route path="search" element={<Search />} />
           <Route path="report" element={<AnnualReport />} />
           <Route path="insights" element={<Insights />} />
+          <Route path="biz" element={<BizProfile />} />
           <Route path="galaxy" element={<Galaxy />} />
           <Route path="sentiment" element={<Sentiment />} />
           <Route path="wordcloud" element={<WordCloud />} />

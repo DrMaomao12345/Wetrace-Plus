@@ -31,7 +31,15 @@ export interface GalaxyNode {
   active_months: number
   evidence: string[]
   manual_important: boolean
+  pinned: boolean
   excluded: boolean
+}
+
+/** §17.2 自定义身份规则 */
+export interface IdentityRule {
+  type: string
+  label: string
+  keywords: string[]
 }
 
 export interface GalaxyMonthSegment { month: string; strength: number; message_count: number }
@@ -62,6 +70,13 @@ export const galaxyApi = {
     request.put<{ profile: UserProfile }>(`/api/v1/galaxy/profile`, { birth_year, birth_month, life_stages }),
   getGraph: () => request.get<RelationshipGraph>(`/api/v1/galaxy/graph`),
   rebuild: (top = 50) => request.post<RelationshipGraph>(`/api/v1/galaxy/rebuild?top=${top}`),
-  patchContact: (id: string, patch: { relationship_type?: string; main_life_stage?: string; manual_important?: boolean; hidden?: boolean; reset?: boolean }) =>
+  patchContact: (id: string, patch: { relationship_type?: string; main_life_stage?: string; manual_important?: boolean; pinned?: boolean; hidden?: boolean; reset?: boolean }) =>
     request.patch(`/api/v1/galaxy/contact/${encodeURIComponent(id)}`, patch),
+
+  getIdentityRules: () =>
+    request.get<{ rules: IdentityRule[]; builtin: IdentityRule[]; types: { key: string; label: string }[] }>(
+      `/api/v1/galaxy/identity_rules`,
+    ),
+  saveIdentityRules: (rules: IdentityRule[]) =>
+    request.put<{ rules: IdentityRule[] }>(`/api/v1/galaxy/identity_rules`, { rules }),
 }

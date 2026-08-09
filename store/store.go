@@ -53,6 +53,9 @@ type Store interface {
 	ComputeMonthlyAvgInRange(ctx context.Context, fromYear, toYear, tzOffsetSeconds int) []*model.MonthlyStat
 	ComputePastOverviewAvg(ctx context.Context, year, pastStartYear, defaultTzOffset int) *model.AnnualOverview
 
+	// 公众号订阅画像
+	GetBizProfile(ctx context.Context, year, tzOffsetSec int, withTitles bool) *model.BizProfile
+
 	// 会话类型标签与统计范围
 	SetStatsScope(scope *model.StatsScope)
 	StatsScope() *model.StatsScope
@@ -68,8 +71,8 @@ type Store interface {
 	GetCommonGroups(ctx context.Context, wxid string) ([]*model.CommonGroup, error)
 
 	// 关系星图（Relationship Galaxy）
-	BuildGalaxy(ctx context.Context, profile *model.UserProfile, tzOffsetSec, topN int) (*model.RelationshipGraph, error)
-	BuildGalaxyIncremental(ctx context.Context, profile *model.UserProfile, tzOffsetSec, topN int, cached []model.GalaxyRawFeature) (*model.RelationshipGraph, []model.GalaxyRawFeature, error)
+	BuildGalaxy(ctx context.Context, profile *model.UserProfile, tzOffsetSec, topN int, pinned []string) (*model.RelationshipGraph, error)
+	BuildGalaxyIncremental(ctx context.Context, profile *model.UserProfile, tzOffsetSec, topN int, cached []model.GalaxyRawFeature, pinned []string) (*model.RelationshipGraph, []model.GalaxyRawFeature, error)
 
 	// 设置全局默认时区修饰符（影响联系人侧分析查询）
 	SetDefaultTzModifier(mod string)

@@ -9,15 +9,6 @@ import (
 	"github.com/afumu/wetrace/internal/model"
 )
 
-// ── 身份关键词词典(§17.2,可被 user_profile 扩展) ──────────────
-var (
-	kwFamily    = []string{"妈妈", "爸爸", "母亲", "父亲", "老妈", "老爸", "姐姐", "哥哥", "弟弟", "妹妹", "奶奶", "爷爷", "外婆", "外公", "姑", "叔", "舅", "姨", "表哥", "表弟", "表姐", "表妹", "家"}
-	kwTeacher   = []string{"老师", "导师", "教授", "班主任", "教练", "助教", "teacher", "tutor", "professor", "coach"}
-	kwClassmate = []string{"同学", "室友", "舍友", "同桌", "班长", "学委"}
-	kwWork      = []string{"同事", "老板", "经理", "总监", "hr", "leader", "主管", "公司", "实习"}
-	kwService   = []string{"客服", "中介", "销售", "外卖", "快递", "维修", "房东", "房产", "贷款", "理财", "官方", "助手", "小助手", "通知"}
-)
-
 // DefaultLifeStages 依据出生年月生成默认教育阶段(§3.2),按常见入学年龄。
 func DefaultLifeStages(birthYear, birthMonth int) []model.LifeStage {
 	if birthYear < 1950 || birthYear > 2025 {
@@ -114,7 +105,7 @@ func ScoreGalaxy(feats []*rawFeatures, profile *model.UserProfile) []*model.Gala
 		crossScore := crossStageScore(stageCount)
 
 		// 关系类型 + 标签 + 是否服务号
-		rtype, label, isService := classifyRelation(f, mainStage)
+		rtype, label, isService := classifyRelation(f, mainStage, profile)
 
 		// 历史关系深度(§20.1)
 		depth := 0.30*msgN[i] + 0.25*sessN[i] + 0.20*amN[i] + 0.15*recip + 0.10*crossScore
@@ -223,39 +214,28 @@ func crossStageScore(count int) float64 {
 }
 
 // classifyRelation 按词典判定关系类型 + 标签,返回 (type,label,isService)。
-func classifyRelation(f *rawFeatures, stage string) (string, string, bool) {
+// 规则链 = 用户自定义身份词典(§17.2) + 内置词典，先命中者胜。
+func classifyRelation(f *rawFeatures, stage string, profile *model.UserProfile) (string, string, bool) {
 	text := strings.ToLower(f.remark + " " + f.nickName)
-	has := func(kws []string) bool {
-		for _, k := range kws {
-			if strings.Contains(text, strings.ToLower(k)) {
-				return true
-			}
+
+	for _, rule := range profile.EffectiveIdentityRules() {
+		if !rule.Matches(text) {
+			continue
 		}
-		return false
+		label := rule.Label
+		if label == "" {
+			label = model.IdentityTypeLabels[rule.Type]
+		}
+		// 老师 / 同学带上人生阶段前缀，「高中同学」比「同学」有信息量
+		if (rule.Type == "teacher" || rule.Type == "classmate") &&
+			stage != "" && stage != "未分阶段" && stage != "其他" {
+			label = stage + label
+		}
+		return rule.Type, label, rule.Type == "service"
 	}
-	switch {
-	case has(kwService):
-		return "service", "服务/商家", true
-	case has(kwFamily):
-		return "family", "家人", false
-	case has(kwTeacher):
-		lbl := "老师"
-		if stage != "" && stage != "未分阶段" && stage != "其他" {
-			lbl = stage + "老师"
-		}
-		return "teacher", lbl, false
-	case has(kwClassmate):
-		lbl := "同学"
-		if stage != "" && stage != "未分阶段" && stage != "其他" {
-			lbl = stage + "同学"
-		}
-		return "classmate", lbl, false
-	case has(kwWork):
-		return "work", "工作关系", false
-	default:
-		// 无身份词:按亲密度粗分朋友 / 陌生
-		return "friend", "朋友", false
-	}
+
+	// 无身份词:按亲密度粗分朋友 / 陌生
+	return "friend", "朋友", false
 }
 
 func relationStatus(depth, temp float64, f *rawFeatures, now int64) string {
