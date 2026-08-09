@@ -84,9 +84,13 @@ func (r *Repository) getAnnualOverview(ctx context.Context, segs []reportSegment
 	overview.ActiveChatrooms = activeChatrooms
 
 	sessions, _ := r.GetSessions(ctx, types.SessionQuery{Limit: 10000})
+	allowTalker := r.TalkerFilter(ctx, model.ModuleReport)
 	totalContacts := 0
 	totalChatrooms := 0
 	for _, s := range sessions {
+		if !allowTalker(s.UserName) {
+			continue
+		}
 		if strings.HasSuffix(s.UserName, "@chatroom") {
 			totalChatrooms++
 		} else {
@@ -157,6 +161,7 @@ func (r *Repository) overviewV4(ctx context.Context, db *sql.DB, start, end time
 
 	myWxid := r.getCurrentUserWxid(ctx)
 	talkerMD5Map := r.getTalkerMD5Map(ctx)
+	allowTalker := r.TalkerFilter(ctx, model.ModuleReport)
 
 	tables, err := db.QueryContext(ctx, "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'Msg_%%'")
 	if err != nil {
@@ -180,6 +185,11 @@ func (r *Repository) overviewV4(ctx context.Context, db *sql.DB, start, end time
 					talker = md5Hash + "@chatroom"
 				}
 			}
+		}
+
+		// 统计范围：被排除类型的会话整表跳过（talker 反查不到时放行）
+		if talker != "unknown" && !allowTalker(talker) {
+			continue
 		}
 
 		var total, sent, recv sql.NullInt64
@@ -235,7 +245,7 @@ func (r *Repository) overviewV4(ctx context.Context, db *sql.DB, start, end time
 }
 
 // getAnnualTopContacts 亲密度排行（不依赖时区分段，用整年范围，包含群聊）
-func (r *Repository) getAnnualTopContacts(ctx context.Context, start, end time.Time, limit int, excludeSet map[string]bool) ([]*model.PersonalTopContact, error) {
+func (r *Repository) getAnnualTopContacts(ctx context.Context, start, end time.Time, limit int, excludeSet map[string]bool, mod model.StatsModule) ([]*model.PersonalTopContact, error) {
 	sessions, err := r.GetSessions(ctx, types.SessionQuery{Limit: 5000})
 	if err != nil {
 		return nil, err
@@ -248,9 +258,10 @@ func (r *Repository) getAnnualTopContacts(ctx context.Context, start, end time.T
 	}
 	aggStats := make(map[string]*stats)
 
+	allowTalker := r.TalkerFilter(ctx, mod)
 	for _, session := range sessions {
 		talker := session.UserName
-		if excludeSet[talker] {
+		if excludeSet[talker] || !allowTalker(talker) {
 			continue
 		}
 
@@ -409,9 +420,13 @@ func (r *Repository) getAnnualMonthlyTrend(ctx context.Context, segs []reportSeg
 				if err != nil {
 					continue
 				}
+				allowTable := r.TableFilter(ctx, model.ModuleReport)
 				for tables.Next() {
 					var tableName string
 					tables.Scan(&tableName)
+					if !allowTable(tableName) {
+						continue
+					}
 					query := fmt.Sprintf("SELECT CAST(strftime('%%m', create_time, 'unixepoch', %s) AS INTEGER) as month, COUNT(*) as count FROM %s WHERE create_time >= ? AND create_time <= ? GROUP BY month", seg.tzMod, tableName)
 					rows, err := db.QueryContext(ctx, query, seg.start.Unix(), seg.end.Unix())
 					if err == nil {
@@ -470,6 +485,7 @@ func (r *Repository) getAnnualWeekdayDist(ctx context.Context, segs []reportSegm
 }
 
 func (r *Repository) weekdayV4Shards(ctx context.Context, db *sql.DB, start, end time.Time, weekdayStats map[int]int, tzMod string) {
+	allowTable := r.TableFilter(ctx, model.ModuleReport)
 	tables, err := db.QueryContext(ctx, "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'Msg_%%'")
 	if err != nil {
 		return
@@ -479,6 +495,9 @@ func (r *Repository) weekdayV4Shards(ctx context.Context, db *sql.DB, start, end
 	for tables.Next() {
 		var tableName string
 		tables.Scan(&tableName)
+		if !allowTable(tableName) {
+			continue
+		}
 		query := fmt.Sprintf("SELECT CASE WHEN CAST(strftime('%%w', create_time, 'unixepoch', %s) AS INTEGER) = 0 THEN 7 ELSE CAST(strftime('%%w', create_time, 'unixepoch', %s) AS INTEGER) END as weekday, COUNT(*) as count FROM %s WHERE create_time >= ? AND create_time <= ? GROUP BY weekday", tzMod, tzMod, tableName)
 		rows, err := db.QueryContext(ctx, query, start.Unix(), end.Unix())
 		if err == nil {
@@ -527,6 +546,7 @@ func (r *Repository) getAnnualHourlyDist(ctx context.Context, segs []reportSegme
 }
 
 func (r *Repository) hourlyV4Shards(ctx context.Context, db *sql.DB, start, end time.Time, hourlyStats map[int]int, tzMod string) {
+	allowTable := r.TableFilter(ctx, model.ModuleReport)
 	tables, err := db.QueryContext(ctx, "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'Msg_%%'")
 	if err != nil {
 		return
@@ -536,6 +556,9 @@ func (r *Repository) hourlyV4Shards(ctx context.Context, db *sql.DB, start, end 
 	for tables.Next() {
 		var tableName string
 		tables.Scan(&tableName)
+		if !allowTable(tableName) {
+			continue
+		}
 		query := fmt.Sprintf("SELECT CAST(strftime('%%H', create_time, 'unixepoch', %s) AS INTEGER) as hour, COUNT(*) as count FROM %s WHERE create_time >= ? AND create_time <= ? GROUP BY hour", tzMod, tableName)
 		rows, err := db.QueryContext(ctx, query, start.Unix(), end.Unix())
 		if err == nil {
@@ -582,6 +605,7 @@ func (r *Repository) getAnnualMessageTypes(ctx context.Context, start, end time.
 }
 
 func (r *Repository) messageTypesV4Shards(ctx context.Context, db *sql.DB, start, end time.Time, typeStats map[int]int) {
+	allowTable := r.TableFilter(ctx, model.ModuleReport)
 	tables, err := db.QueryContext(ctx, "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'Msg_%%'")
 	if err != nil {
 		return
@@ -591,6 +615,9 @@ func (r *Repository) messageTypesV4Shards(ctx context.Context, db *sql.DB, start
 	for tables.Next() {
 		var tableName string
 		tables.Scan(&tableName)
+		if !allowTable(tableName) {
+			continue
+		}
 		query := fmt.Sprintf("SELECT local_type, COUNT(*) FROM %s WHERE create_time >= ? AND create_time <= ? GROUP BY local_type", tableName)
 		rows, err := db.QueryContext(ctx, query, start.Unix(), end.Unix())
 		if err == nil {
@@ -722,9 +749,10 @@ func (r *Repository) computeEarliestLatestNew(ctx context.Context, segs []report
 					continue
 				}
 				var tableNames []string
+				allowTable := r.TableFilter(ctx, model.ModuleReport)
 				for tableRows.Next() {
 					var n string
-					if tableRows.Scan(&n) == nil {
+					if tableRows.Scan(&n) == nil && allowTable(n) {
 						tableNames = append(tableNames, n)
 					}
 				}
@@ -919,6 +947,7 @@ func (r *Repository) highlightsV3(ctx context.Context, db *sql.DB, start, end ti
 func (r *Repository) highlightsV4(ctx context.Context, db *sql.DB, start, end time.Time,
 	dailyCounts map[string]int, lateNightCount *int, earliestMinute, latestMinute *int, tzMod string) {
 
+	allowTable := r.TableFilter(ctx, model.ModuleReport)
 	tables, err := db.QueryContext(ctx, "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'Msg_%%'")
 	if err != nil {
 		return
@@ -928,6 +957,9 @@ func (r *Repository) highlightsV4(ctx context.Context, db *sql.DB, start, end ti
 	for tables.Next() {
 		var tableName string
 		tables.Scan(&tableName)
+		if !allowTable(tableName) {
+			continue
+		}
 
 		query := fmt.Sprintf("SELECT strftime('%%Y-%%m-%%d', create_time, 'unixepoch', %s) as d, COUNT(*) as c FROM %s WHERE create_time >= ? AND create_time <= ? GROUP BY d", tzMod, tableName)
 		rows, err := db.QueryContext(ctx, query, start.Unix(), end.Unix())

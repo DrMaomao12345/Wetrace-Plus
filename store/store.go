@@ -53,6 +53,13 @@ type Store interface {
 	ComputeMonthlyAvgInRange(ctx context.Context, fromYear, toYear, tzOffsetSeconds int) []*model.MonthlyStat
 	ComputePastOverviewAvg(ctx context.Context, year, pastStartYear, defaultTzOffset int) *model.AnnualOverview
 
+	// 会话类型标签与统计范围
+	SetStatsScope(scope *model.StatsScope)
+	StatsScope() *model.StatsScope
+	TalkerTypes(ctx context.Context) map[string]model.TalkerType
+	TalkerTypeOf(ctx context.Context, talker string) model.TalkerType
+	InvalidateTalkerTags()
+
 	// 扩展分析（功能 9/3/5/7/4）
 	GetCalendarHeatmap(ctx context.Context, year, tzOffsetSec int) []*model.DayHeat
 	GetInteractionRatios(ctx context.Context, year, tzOffsetSec, gapSeconds, limit int) ([]*model.InteractionRatio, error)

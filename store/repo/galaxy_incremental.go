@@ -57,9 +57,13 @@ func (r *Repository) extractIncremental(ctx context.Context, tzOffsetSec int, ca
 	var talkers []string
 	rescanned := 0
 
+	allowTalker := r.TalkerFilter(ctx, model.ModuleGalaxy)
 	for _, s := range sessions {
 		talker := s.UserName
 		if strings.HasSuffix(talker, "@chatroom") {
+			continue
+		}
+		if !allowTalker(talker) {
 			continue
 		}
 		if c := cachedMap[talker]; c != nil && c.total > 0 && s.NTime.Unix() <= c.lastTime {

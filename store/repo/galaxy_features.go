@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/afumu/wetrace/internal/model"
 	"github.com/afumu/wetrace/store/types"
 )
 
@@ -79,9 +80,13 @@ func (r *Repository) ExtractGalaxyFeatures(ctx context.Context, tzOffsetSec int)
 	out := make([]*rawFeatures, 0, 256)
 	var talkers []string
 
+	allowTalker := r.TalkerFilter(ctx, model.ModuleGalaxy)
 	for _, s := range sessions {
 		talker := s.UserName
 		if strings.HasSuffix(talker, "@chatroom") {
+			continue
+		}
+		if !allowTalker(talker) {
 			continue
 		}
 		f := &rawFeatures{contactID: talker, monthCounts: map[string]int{}}

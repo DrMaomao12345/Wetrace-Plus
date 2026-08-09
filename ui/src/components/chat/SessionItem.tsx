@@ -1,4 +1,5 @@
 import type { Session } from "@/types"
+import { TALKER_TAG_LABELS } from "@/types"
 import { cn } from "@/lib/utils"
 import { formatSessionTime } from "@/lib/date"
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar"
@@ -35,10 +36,17 @@ export function SessionItem({ session, isActive, onClick, onDelete }: SessionIte
       
       <div className="flex-1 min-w-0">
         <div className="flex justify-between items-start mb-1">
-          <EmojiText 
-            text={session.name || session.talkerName || ""} 
-            className="font-medium truncate text-sm text-foreground block pr-6" 
-          />
+          <div className="flex items-center gap-1.5 min-w-0 pr-6">
+            <EmojiText
+              text={session.name || session.talkerName || ""}
+              className="font-medium truncate text-sm text-foreground block"
+            />
+            {session.tag && session.tag !== "friend" && (
+              <span className="shrink-0 text-[10px] leading-none px-1.5 py-0.5 rounded border border-border text-muted-foreground">
+                {TALKER_TAG_LABELS[session.tag] ?? session.tag}
+              </span>
+            )}
+          </div>
           <span className="text-[10px] text-muted-foreground whitespace-nowrap ml-2">
             {session.lastMessage ? formatSessionTime(session.lastMessage.createTime) : ''}
           </span>

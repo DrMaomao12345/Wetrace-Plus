@@ -11,6 +11,7 @@ import type {
   TTSConfigUpdate,
 } from "@/api/system"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { StatsScopeSection } from "@/components/settings/StatsScopeSection"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -1495,6 +1496,7 @@ export default function SettingsView() {
         <DataDirSection />
         <MobilePairingSection />
         <DefaultTimezoneSection />
+        <StatsScopeSection />
         <EffectiveChatStartSection />
         <AIConfigSection />
         <TTSConfigSection />

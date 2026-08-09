@@ -694,10 +694,14 @@ func (r *Repository) GetPersonalTopContacts(ctx context.Context, limit int) ([]*
 	}
 	aggStats := make(map[string]*stats)
 
+	allowTalker := r.TalkerFilter(ctx, model.ModuleDashboard)
 	for _, session := range sessions {
 		talker := session.UserName
 		// 排除群聊：个人社交分析只关注私聊记录
 		if strings.HasSuffix(talker, "@chatroom") {
+			continue
+		}
+		if !allowTalker(talker) {
 			continue
 		}
 
@@ -835,6 +839,8 @@ func (r *Repository) GetDashboardData(ctx context.Context) (*model.DashboardData
 
 	var totalMsgs, sentMsgs, recvMsgs int
 	var earliest, latest int64
+	allowTable := r.TableFilter(ctx, model.ModuleDashboard)
+	allowTalker := r.TalkerFilter(ctx, model.ModuleDashboard)
 
 	// 2. 遍历所有消息分片，直接统计全局总量和时间范围
 	// 这样比按会话统计要快得多，且能覆盖所有消息
@@ -873,6 +879,9 @@ func (r *Repository) GetDashboardData(ctx context.Context) (*model.DashboardData
 				for rows.Next() {
 					var tableName string
 					rows.Scan(&tableName)
+					if !allowTable(tableName) {
+						continue
+					}
 
 					var count int
 					var minT, maxT sql.NullInt64
@@ -911,6 +920,9 @@ func (r *Repository) GetDashboardData(ctx context.Context) (*model.DashboardData
 	var groups []model.DashboardGroup
 	sessions, _ := r.GetSessions(ctx, types.SessionQuery{Limit: 200})
 	for _, s := range sessions {
+		if !allowTalker(s.UserName) {
+			continue
+		}
 		if strings.HasSuffix(s.UserName, "@chatroom") {
 			groups = append(groups, model.DashboardGroup{
 				ChatRoomName: s.UserName,
@@ -1224,10 +1236,11 @@ func (r *Repository) fetchV4GlobalTexts(ctx context.Context, db *sql.DB, start, 
 		return nil
 	}
 	defer tables.Close()
+	allowTable := r.TableFilter(ctx, model.ModuleWordCloud)
 	var tableNames []string
 	for tables.Next() {
 		var name string
-		if tables.Scan(&name) == nil {
+		if tables.Scan(&name) == nil && allowTable(name) {
 			tableNames = append(tableNames, name)
 		}
 	}

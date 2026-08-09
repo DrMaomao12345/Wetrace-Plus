@@ -1,5 +1,5 @@
 import { request } from "@/lib/request"
-import type { Session, SessionParams } from "@/types"
+import type { Session, SessionParams, TalkerTag } from "@/types"
 
 interface SessionApiResponse {
   userName: string
@@ -8,6 +8,7 @@ interface SessionApiResponse {
   content: string
   nTime: string
   smallHeadURL: string
+  tag?: TalkerTag
 }
 
 function transformSession(apiData: SessionApiResponse): Session {
@@ -76,6 +77,7 @@ function transformSession(apiData: SessionApiResponse): Session {
     isMinimized: false,
     isChatRoom: isChatRoom,
     messageCount: 0,
+    tag: apiData.tag,
   }
 }
 

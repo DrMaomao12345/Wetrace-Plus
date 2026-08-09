@@ -27,10 +27,14 @@ func (r *Repository) GetNeedContactList(ctx context.Context, days int) ([]*model
 	// 2. 计算每个联系人的最后消息时间
 	lastContactMap := make(map[string]int64)
 
+	allowTalker := r.TalkerFilter(ctx, model.ModuleReminder)
 	for _, session := range sessions {
 		talker := session.UserName
 		// 排除群聊和公众号
 		if strings.HasSuffix(talker, "@chatroom") || strings.HasPrefix(talker, "gh_") {
+			continue
+		}
+		if !allowTalker(talker) {
 			continue
 		}
 

@@ -45,9 +45,10 @@ func (r *Repository) GetAnnualWordCounts(
 		return nil, err
 	}
 
+	allowTalker := r.TalkerFilter(ctx, model.ModuleReport)
 	for _, session := range sessions {
 		talker := session.UserName
-		if excludeSet[talker] {
+		if excludeSet[talker] || !allowTalker(talker) {
 			continue
 		}
 		targets := r.router.Resolve(yearStart, yearEnd, talker)

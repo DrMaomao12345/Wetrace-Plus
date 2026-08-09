@@ -210,7 +210,7 @@ func (r *Repository) GetAnnualReport(ctx context.Context, year int, defaultTzOff
 	// 2. 获取亲密度排行（用第一个 segment 的时区作为整体边界）
 	yearStart := segs[0].start
 	yearEnd := segs[len(segs)-1].end
-	topContacts, err := r.getAnnualTopContacts(ctx, yearStart, yearEnd, 20, excludeSet)
+	topContacts, err := r.getAnnualTopContacts(ctx, yearStart, yearEnd, 20, excludeSet, model.ModuleReport)
 	if err != nil {
 		log.Warn().Err(err).Msg("获取年度亲密度排行失败")
 	}
@@ -273,7 +273,7 @@ func (r *Repository) GetAnnualReportWithProgress(ctx context.Context, year int, 
 	}
 
 	// 2. 获取亲密度排行
-	topContacts, err := r.getAnnualTopContacts(ctx, yearStart, yearEnd, 20, excludeSet)
+	topContacts, err := r.getAnnualTopContacts(ctx, yearStart, yearEnd, 20, excludeSet, model.ModuleReport)
 	if err != nil {
 		log.Warn().Err(err).Msg("获取年度亲密度排行失败")
 	}

@@ -153,6 +153,15 @@ func (s *Service) setupRoutes() {
 			reportGroup.GET("/year_compare", s.api.GetYearCompare) // 功能7 年度对比
 		}
 
+		// 统计范围 / 会话类型标签路由
+		statsGroup := v1.Group("/stats")
+		{
+			statsGroup.GET("/scope", s.api.GetStatsScope)
+			statsGroup.POST("/scope", s.api.UpdateStatsScope)
+			statsGroup.GET("/talker_tags", s.api.GetTalkerTags)
+			statsGroup.POST("/talker_tags", s.api.UpdateTalkerTag)
+		}
+
 		// 关系星图路由
 		galaxyGroup := v1.Group("/galaxy")
 		{

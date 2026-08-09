@@ -12,3 +12,4 @@ export * from './sentiment';
 export * from './wordcloud';
 export * from './monitor';
 export * from './replay';
+export * from './statsScope';

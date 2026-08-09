@@ -52,6 +52,7 @@ type API struct {
 	Transcripts     *transcripts.Store
 	MobilePairings  *MobilePairingStore
 	ExcludeConfig   *ExcludeConfigStore
+	StatsScope      *StatsScopeStore
 	Accounts        *AccountStore
 	ReportCache     *ReportCache
 	mu                 sync.Mutex
@@ -108,6 +109,12 @@ func NewAPI(s store.Store, m *media.Service, conf *Config, staticFS fs.FS) *API 
 
 	// 初始化「排除联系人」配置 store（网页与移动端共用）
 	a.ExcludeConfig = NewExcludeConfigStore(conf.DataDir)
+
+	// 初始化「统计范围」配置 store，并把当前配置推给存储层
+	a.StatsScope = NewStatsScopeStore(conf.DataDir)
+	if s != nil {
+		s.SetStatsScope(a.StatsScope.Get())
+	}
 
 	// 初始化多账号管理 store
 	a.Accounts = NewAccountStore(conf.DataDir)

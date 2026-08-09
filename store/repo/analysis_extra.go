@@ -44,6 +44,7 @@ func (r *Repository) GetCalendarHeatmap(ctx context.Context, year, tzOffsetSec i
 	}
 	start, end, tzMod := segs[0].start, segs[len(segs)-1].end, segs[0].tzMod
 	daily := make(map[string]int)
+	allowTable := r.TableFilter(ctx, model.ModuleInsights)
 
 	for _, shard := range r.router.GetShards() {
 		db, err := r.pool.GetConnection(shard.FilePath)
@@ -58,6 +59,9 @@ func (r *Repository) GetCalendarHeatmap(ctx context.Context, year, tzOffsetSec i
 			continue
 		}
 		for _, tbl := range r.listMsgTables(ctx, db) {
+			if !allowTable(tbl) {
+				continue
+			}
 			q := fmt.Sprintf("SELECT strftime('%%Y-%%m-%%d', create_time, 'unixepoch', %s) d, COUNT(*) FROM %s WHERE create_time >= ? AND create_time <= ? AND (local_type & 4294967295)!=10000 GROUP BY d", tzMod, tbl)
 			if rows, err := db.QueryContext(ctx, q, start.Unix(), end.Unix()); err == nil {
 				scanDaily(rows, daily)
@@ -105,10 +109,14 @@ func (r *Repository) GetInteractionRatios(ctx context.Context, year, tzOffsetSec
 	}
 	acc := make(map[string]*agg)
 
+	allowTalker := r.TalkerFilter(ctx, model.ModuleInsights)
 	for _, s := range sessions {
 		talker := s.UserName
 		if strings.HasSuffix(talker, "@chatroom") {
 			continue // 双向比只针对一对一
+		}
+		if !allowTalker(talker) {
+			continue
 		}
 		a := &agg{}
 		tbl := v4TableName(talker)
@@ -192,9 +200,13 @@ func (r *Repository) GetReplySpeedRanking(ctx context.Context, year, tzOffsetSec
 	}
 	acc := make(map[string]*agg)
 
+	allowTalker := r.TalkerFilter(ctx, model.ModuleInsights)
 	for _, s := range sessions {
 		talker := s.UserName
 		if strings.HasSuffix(talker, "@chatroom") {
+			continue
+		}
+		if !allowTalker(talker) {
 			continue
 		}
 		a := &agg{myMin: 1 << 30}
@@ -293,8 +305,8 @@ func (r *Repository) GetYearCompare(ctx context.Context, yearA, yearB, tzOffsetS
 	segsB := buildSegments(yearB, tzOffsetSec, nil)
 
 	empty := map[string]bool{}
-	topA, _ := r.getAnnualTopContacts(ctx, segsA[0].start, segsA[len(segsA)-1].end, 100000, empty)
-	topB, _ := r.getAnnualTopContacts(ctx, segsB[0].start, segsB[len(segsB)-1].end, 100000, empty)
+	topA, _ := r.getAnnualTopContacts(ctx, segsA[0].start, segsA[len(segsA)-1].end, 100000, empty, model.ModuleInsights)
+	topB, _ := r.getAnnualTopContacts(ctx, segsB[0].start, segsB[len(segsB)-1].end, 100000, empty, model.ModuleInsights)
 
 	// 用 topContacts 汇总出轻量概览（避免 getAnnualOverview 的整段历史扫描，快很多）
 	buildOverview := func(year int, top []*model.PersonalTopContact) *model.AnnualOverview {

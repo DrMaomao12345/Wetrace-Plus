@@ -43,6 +43,11 @@ func (a *API) GetSessions(c *gin.Context) {
 		sessions = make([]*model.Session, 0)
 	}
 
+	// 给每个会话打上类型标签（手动覆盖优先），供前端显示徽章
+	for _, s := range sessions {
+		s.Tag = a.Store.TalkerTypeOf(c.Request.Context(), s.UserName)
+	}
+
 	// 4. 发送成功响应
 	transport.SendSuccess(c, sessions)
 }

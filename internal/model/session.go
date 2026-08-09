@@ -13,6 +13,8 @@ type Session struct {
 	NTime        time.Time `json:"nTime"`
 	SmallHeadURL string    `json:"smallHeadURL"`
 	BigHeadURL   string    `json:"bigHeadURL"`
+	// Tag 是会话类型标签（联系人/群聊/公众号…），由 API 层按需填充
+	Tag TalkerType `json:"tag,omitempty"`
 }
 
 // CREATE TABLE Session(
