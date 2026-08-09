@@ -11,6 +11,7 @@ import { DailyChart } from "./DailyChart";
 import { WeekdayChart } from "./WeekdayChart";
 import { MonthlyChart } from "./MonthlyChart";
 import { TypePieChart } from "./TypePieChart";
+import { TalkerExtras } from "./TalkerExtras";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { searchApi, type CallStats } from "@/api";
@@ -106,6 +107,9 @@ export function AnalysisPanel({ talker, onClose }: Props) {
                   </CardContent>
                 </Card>
               </div>
+
+              {/* 日历热力图 / 语音 / 互动与回复 */}
+              <TalkerExtras talker={talker} />
 
               {/* 通话统计 */}
               {calls.data && calls.data.total_calls > 0 && (

@@ -194,7 +194,7 @@ export function Sidebar() {
       disabled={item.disabled}
       title={item.disabled ? item.disabledReason : undefined}
       className={cn(
-        "w-full h-9 flex items-center gap-3 rounded-lg px-3 text-sm transition-colors",
+        "w-full h-9 shrink-0 flex items-center gap-3 rounded-lg px-3 text-sm transition-colors",
         indent && "pl-9",
         item.disabled
           ? "text-muted-foreground/35 cursor-not-allowed"
@@ -214,11 +214,11 @@ export function Sidebar() {
     const groupActive = isGroupActive(group)
 
     return (
-      <div key={group.key}>
+      <div key={group.key} className="shrink-0">
         <button
           onClick={() => toggleGroup(group.key)}
           className={cn(
-            "w-full h-9 flex items-center gap-3 rounded-lg px-3 text-sm transition-colors",
+            "w-full h-9 shrink-0 flex items-center gap-3 rounded-lg px-3 text-sm transition-colors",
             groupActive
               ? "text-primary font-medium"
               : "text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -236,7 +236,7 @@ export function Sidebar() {
         <div
           className={cn(
             "overflow-hidden transition-all duration-200",
-            expanded ? "max-h-[400px] opacity-100 mt-0.5" : "max-h-0 opacity-0"
+            expanded ? "max-h-[500px] opacity-100 mt-0.5" : "max-h-0 opacity-0"
           )}
         >
           <div className="flex flex-col gap-0.5">
@@ -261,7 +261,7 @@ export function Sidebar() {
       </div>
 
       {/* Main nav */}
-      <nav className="flex-1 overflow-y-auto px-2 flex flex-col gap-0.5">
+      <nav className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-2 flex flex-col gap-0.5">
         {navEntries.map((entry) =>
           isGroup(entry) ? renderNavGroup(entry) : renderNavItem(entry)
         )}
@@ -276,7 +276,7 @@ export function Sidebar() {
           className="text-[10px] text-muted-foreground/40 hover:text-muted-foreground text-center py-1 w-full transition-colors"
           title="查看更新日志"
         >
-          v2.2.1
+          v2.3.1
         </button>
 
         <div className="flex items-center gap-1 mt-1 px-1">
@@ -288,9 +288,17 @@ export function Sidebar() {
             <Key className="w-4 h-4" />
           </button>
           <button
-            onClick={handleFullCache}
-            className="flex-1 h-8 flex items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-            title="预加载全量图片"
+            onClick={() => { if (!isMac) handleFullCache() }}
+            disabled={isMac}
+            className={cn(
+              "flex-1 h-8 flex items-center justify-center rounded-lg transition-colors",
+              isMac
+                ? "text-muted-foreground/30 cursor-not-allowed"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground",
+            )}
+            title={isMac
+              ? "macOS 不可用：图片密钥无法提取，预加载出来也是空的"
+              : "预加载全量图片"}
           >
             <ImageIcon className="w-4 h-4" />
           </button>

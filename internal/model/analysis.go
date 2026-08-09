@@ -162,6 +162,8 @@ type AnnualReport struct {
 	HourlyDist          []*HourlyStat         `json:"hourly_distribution"`
 	MessageTypes        map[string]int        `json:"message_types"`
 	Highlights          AnnualHighlights      `json:"highlights"`
+	// Extras 只在单个联系人的年度报告里有值
+	Extras *TalkerExtras `json:"extras,omitempty"`
 }
 
 // AnnualOverview 年度概览

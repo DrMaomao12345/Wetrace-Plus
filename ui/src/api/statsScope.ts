@@ -9,6 +9,7 @@ export type StatsModule =
   | "dashboard"
   | "wordcloud"
   | "reminder"
+  | "biz"
 
 export interface StatsScope {
   /** 全局默认：哪些类型参与统计 */

@@ -108,6 +108,9 @@ func (r *Repository) GetTalkerAnnualReport(ctx context.Context, year int, talker
 		activeDaysLifetime = len(dailyCounts) // 兜底，避免历史拉取失败时显示 0
 	}
 
+	// 日历热力图 / 语音 / 互动与回复 —— 与聊天页数据分析面板同一套口径
+	report.Extras = r.GetTalkerExtras(ctx, talker, year, defaultTzOffset)
+
 	// 概览
 	report.Overview = model.AnnualOverview{
 		TotalMessages:    total,

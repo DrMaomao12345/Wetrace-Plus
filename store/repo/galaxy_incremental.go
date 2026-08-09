@@ -123,7 +123,7 @@ func (r *Repository) extractIncremental(ctx context.Context, tzOffsetSec int, ca
 
 // BuildGalaxyIncremental 增量重建:cached 非空则只重扫有新消息的人,否则全量。
 // 返回图 + 全量原始特征 DTO(供上层持久化到 raw_features.json)。
-func (r *Repository) BuildGalaxyIncremental(ctx context.Context, profile *model.UserProfile, tzOffsetSec, topN int, cached []model.GalaxyRawFeature, pinned []string) (*model.RelationshipGraph, []model.GalaxyRawFeature, error) {
+func (r *Repository) BuildGalaxyIncremental(ctx context.Context, profile *model.UserProfile, tzOffsetSec, topN int, cached []model.GalaxyRawFeature, overrides map[string]*model.ContactOverride) (*model.RelationshipGraph, []model.GalaxyRawFeature, error) {
 	var feats []*rawFeatures
 	var err error
 	if len(cached) > 0 {
@@ -134,7 +134,7 @@ func (r *Repository) BuildGalaxyIncremental(ctx context.Context, profile *model.
 	if err != nil {
 		return nil, nil, err
 	}
-	graph := assembleGalaxy(feats, profile, tzOffsetSec, topN, pinned)
+	graph := assembleGalaxy(feats, profile, tzOffsetSec, topN, overrides)
 
 	dtos := make([]model.GalaxyRawFeature, 0, len(feats))
 	for _, f := range feats {

@@ -189,23 +189,73 @@ function InteractionList({ year, onPick }: { year: number; onPick: (r: Interacti
 }
 
 // ── 功能5 回复速度 ──────────────────────────────────
+type ReplySortKey = 'name' | 'my_avg_reply_sec' | 'my_fastest_sec' | 'late_night_instant' | 'their_avg_reply_sec'
+
+const REPLY_COLUMNS: { key: ReplySortKey; label: string }[] = [
+  { key: 'name', label: '联系人' },
+  { key: 'my_avg_reply_sec', label: '你平均回复' },
+  { key: 'my_fastest_sec', label: '最快' },
+  { key: 'late_night_instant', label: '深夜秒回' },
+  { key: 'their_avg_reply_sec', label: 'ta 平均回复' },
+]
+
 function ReplySpeedList({ year }: { year: number }) {
   const { data, isLoading } = useQuery({
     queryKey: ['insights-replyspeed', year],
     queryFn: () => insightsApi.replySpeed(year),
   })
+  // 时延类默认升序（越快越靠前），次数类默认降序
+  const [sortKey, setSortKey] = useState<ReplySortKey>('my_avg_reply_sec')
+  const [asc, setAsc] = useState(true)
+
+  const clickHeader = (key: ReplySortKey) => {
+    if (key === sortKey) {
+      setAsc((v) => !v)
+    } else {
+      setSortKey(key)
+      setAsc(key === 'my_avg_reply_sec' || key === 'my_fastest_sec' || key === 'their_avg_reply_sec')
+    }
+  }
+
+  const rows = useMemo(() => {
+    const list = (data || []).filter((r: ReplySpeed) => r.my_reply_count >= 5)
+    const sorted = [...list].sort((a, b) => {
+      if (sortKey === 'name') return a.name.localeCompare(b.name, 'zh')
+      const av = a[sortKey] as number
+      const bv = b[sortKey] as number
+      // 0 表示没有数据，排序时一律沉底，别让它冒充「最快」
+      if (av === 0 && bv === 0) return 0
+      if (av === 0) return 1
+      if (bv === 0) return -1
+      return av - bv
+    })
+    if (!asc) sorted.reverse()
+    return sorted.slice(0, 30)
+  }, [data, sortKey, asc])
+
   if (isLoading) return <div className="text-sm text-muted-foreground">加载中…</div>
-  const rows = (data || []).filter((r: ReplySpeed) => r.my_reply_count >= 5).slice(0, 30)
+
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
           <tr className="text-left text-xs text-muted-foreground">
-            <th className="pb-2 font-normal">联系人</th>
-            <th className="pb-2 font-normal">你平均回复</th>
-            <th className="pb-2 font-normal">最快</th>
-            <th className="pb-2 font-normal">深夜秒回</th>
-            <th className="pb-2 font-normal">ta 平均回复</th>
+            {REPLY_COLUMNS.map((col) => (
+              <th key={col.key} className="pb-2 font-normal">
+                <button
+                  onClick={() => clickHeader(col.key)}
+                  className={`inline-flex items-center gap-0.5 transition-colors hover:text-foreground ${
+                    sortKey === col.key ? 'font-medium text-foreground' : ''
+                  }`}
+                  title="点击按此列排序"
+                >
+                  {col.label}
+                  <span className="text-[10px] opacity-60">
+                    {sortKey === col.key ? (asc ? '▲' : '▼') : '⇅'}
+                  </span>
+                </button>
+              </th>
+            ))}
           </tr>
         </thead>
         <tbody>
@@ -220,6 +270,9 @@ function ReplySpeedList({ year }: { year: number }) {
           ))}
         </tbody>
       </table>
+      <p className="mt-2 text-[11px] text-muted-foreground">
+        只统计回复次数 ≥ 5 的联系人，最多 30 条；通话期间的来回消息不计入。
+      </p>
     </div>
   )
 }

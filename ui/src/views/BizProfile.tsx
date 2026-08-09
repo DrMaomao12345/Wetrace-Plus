@@ -72,7 +72,7 @@ function AccountRow({ acc, max, showSilent }: { acc: BizAccount; max: number; sh
       ) : (
         <>
           <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
-            <div className="h-full rounded-full bg-primary/70" style={{ width: `${pct}%` }} />
+            <div className="h-full rounded-full bg-blue-500/80" style={{ width: `${pct}%` }} />
           </div>
           <div className="w-16 shrink-0 text-right text-sm tabular-nums">{acc.push_count}</div>
           <div className="w-20 shrink-0 text-right text-[11px] text-muted-foreground">
@@ -174,7 +174,7 @@ export default function BizProfileView() {
         </div>
 
         {/* 订阅号 vs 服务号 */}
-        <Card title="订阅号 vs 服务号" icon={<TrendingUp className="h-4 w-4 text-primary" />}>
+        <Card title="订阅号 vs 服务号" icon={<TrendingUp className="h-4 w-4 text-blue-500" />}>
           <div className="flex h-6 overflow-hidden rounded-lg">
             <div
               className="flex items-center justify-center bg-amber-500/80 text-[11px] text-white"
@@ -193,14 +193,14 @@ export default function BizProfileView() {
 
         {/* 月度趋势 */}
         {monthly.length > 0 && (
-          <Card title="推送月度趋势" icon={<TrendingUp className="h-4 w-4 text-primary" />}>
+          <Card title="推送月度趋势" icon={<TrendingUp className="h-4 w-4 text-blue-500" />}>
             <div className="flex h-36 gap-1">
               {monthly.map((m) => (
                 <div key={m.month} className="group flex h-full flex-1 flex-col items-center">
                   {/* 柱子的百分比高度要有一个确定高度的父容器才生效 */}
                   <div className="flex w-full flex-1 items-end">
                     <div
-                      className="w-full rounded-t bg-primary/60 transition-colors group-hover:bg-primary"
+                      className="w-full rounded-t bg-blue-500/70 transition-colors group-hover:bg-blue-500"
                       style={{ height: `${Math.max(2, (m.count / maxMonth) * 100)}%` }}
                       title={`${m.month}: ${m.count} 条`}
                     />
@@ -213,13 +213,13 @@ export default function BizProfileView() {
         )}
 
         {/* 小时分布 */}
-        <Card title="它们什么时候推给你" icon={<Clock className="h-4 w-4 text-primary" />}>
+        <Card title="它们什么时候推给你" icon={<Clock className="h-4 w-4 text-blue-500" />}>
           <div className="flex h-28 gap-0.5">
             {hourly.map((h) => (
               <div key={h.hour} className="flex h-full flex-1 flex-col items-center">
                 <div className="flex w-full flex-1 items-end">
                   <div
-                    className="w-full rounded-t bg-primary/50"
+                    className="w-full rounded-t bg-blue-500/60"
                     style={{ height: `${Math.max(2, (h.count / maxHour) * 100)}%` }}
                     title={`${h.hour}:00 — ${h.count} 条`}
                   />
@@ -235,7 +235,7 @@ export default function BizProfileView() {
         {/* 推送排行 */}
         <Card
           title="谁在轰炸你"
-          icon={<Newspaper className="h-4 w-4 text-primary" />}
+          icon={<Newspaper className="h-4 w-4 text-blue-500" />}
           extra={
             top.length > 15 && (
               <button
@@ -294,7 +294,7 @@ export default function BizProfileView() {
 
         {/* 标题关键词 */}
         {(data.title_keywords?.length ?? 0) > 0 && (
-          <Card title="推文标题里最常出现的词" icon={<Hash className="h-4 w-4 text-primary" />}>
+          <Card title="推文标题里最常出现的词" icon={<Hash className="h-4 w-4 text-blue-500" />}>
             <div className="flex flex-wrap gap-2">
               {data.title_keywords!.map((w) => {
                 const scale = 0.85 + (w.count / maxKw) * 0.9

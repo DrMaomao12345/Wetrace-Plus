@@ -112,12 +112,19 @@ func (s *StatsScope) Normalize() {
 }
 
 // EffectiveTypes 返回某模块实际生效的类型开关（模块覆盖优先，否则继承全局）。
+//
+// 公众号画像是个例外：它的统计对象本来就是订阅号和服务号，如果跟随全局，
+// 用户一旦在全局里关掉公众号（这恰恰是这个功能最常见的用法），整个页面就会
+// 变成一片零，看起来像坏了。所以它默认统计全部类型，除非用户显式给它单独设置。
 func (s *StatsScope) EffectiveTypes(m StatsModule) map[TalkerType]bool {
 	if s == nil {
 		return DefaultStatsScope().Global
 	}
 	if types, ok := s.Modules[m]; ok && types != nil {
 		return types
+	}
+	if m == ModuleBiz {
+		return DefaultStatsScope().Global // 全开
 	}
 	return s.Global
 }

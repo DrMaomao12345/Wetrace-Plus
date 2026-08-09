@@ -217,30 +217,37 @@ func (r *Repository) GetReplySpeedRanking(ctx context.Context, year, tzOffsetSec
 				continue
 			}
 			meExpr := "(m.status=2 OR m.real_sender_id=0 OR n.user_name != ?)"
+			// 通话期间的来回消息不是「回复」，会把平均回复时延严重拉快 —— 先取出
+			// 通话区间，再在下面的聚合里把与之重叠的间隔剔掉
+			callCTE, callCond, callArgs := callsCTE(r.callWindows(ctx, db, tbl, start, end))
+			// %[1]s=通话区间 CTE  %[2]s=判定自己发的表达式  %[3]s=消息表名
+			// %[4]s=时区修饰符      %[5]s=排除通话区间的条件
 			q := fmt.Sprintf(`
-				WITH o AS (
+				WITH %[1]s o AS (
 					SELECT m.create_time AS ct,
-						CASE WHEN %s THEN 1 ELSE 0 END AS is_me,
+						CASE WHEN %[2]s THEN 1 ELSE 0 END AS is_me,
 						LAG(m.create_time) OVER w AS pt,
-						LAG(CASE WHEN %s THEN 1 ELSE 0 END) OVER w AS pim,
-						LEAD(CASE WHEN %s THEN 1 ELSE 0 END) OVER w AS nim
-					FROM %s m LEFT JOIN Name2Id n ON m.real_sender_id = n.rowid
+						LAG(CASE WHEN %[2]s THEN 1 ELSE 0 END) OVER w AS pim,
+						LEAD(CASE WHEN %[2]s THEN 1 ELSE 0 END) OVER w AS nim
+					FROM %[3]s m LEFT JOIN Name2Id n ON m.real_sender_id = n.rowid
 					WHERE m.create_time >= ? AND m.create_time <= ? AND (m.local_type & 4294967295)!=10000
 					WINDOW w AS (ORDER BY m.create_time, m.local_id)
 				)
 				SELECT
-					COALESCE(SUM(CASE WHEN is_me=1 AND pim=0 AND ct-pt < ? THEN ct-pt END),0),
-					COALESCE(SUM(CASE WHEN is_me=1 AND pim=0 AND ct-pt < ? THEN 1 ELSE 0 END),0),
-					COALESCE(MIN(CASE WHEN is_me=1 AND pim=0 AND ct-pt < ? THEN ct-pt END),0),
-					COALESCE(MAX(CASE WHEN is_me=1 AND pim=0 AND ct-pt < ? THEN ct-pt END),0),
-					COALESCE(SUM(CASE WHEN is_me=0 AND pim=1 AND ct-pt < ? THEN ct-pt END),0),
-					COALESCE(SUM(CASE WHEN is_me=0 AND pim=1 AND ct-pt < ? THEN 1 ELSE 0 END),0),
-					COALESCE(SUM(CASE WHEN is_me=1 AND pim=0 AND ct-pt < 120 AND CAST(strftime('%%H', ct, 'unixepoch', %s) AS INTEGER) BETWEEN 0 AND 5 THEN 1 ELSE 0 END),0),
+					COALESCE(SUM(CASE WHEN is_me=1 AND pim=0 AND ct-pt < ?%[5]s THEN ct-pt END),0),
+					COALESCE(SUM(CASE WHEN is_me=1 AND pim=0 AND ct-pt < ?%[5]s THEN 1 ELSE 0 END),0),
+					COALESCE(MIN(CASE WHEN is_me=1 AND pim=0 AND ct-pt < ?%[5]s THEN ct-pt END),0),
+					COALESCE(MAX(CASE WHEN is_me=1 AND pim=0 AND ct-pt < ?%[5]s THEN ct-pt END),0),
+					COALESCE(SUM(CASE WHEN is_me=0 AND pim=1 AND ct-pt < ?%[5]s THEN ct-pt END),0),
+					COALESCE(SUM(CASE WHEN is_me=0 AND pim=1 AND ct-pt < ?%[5]s THEN 1 ELSE 0 END),0),
+					COALESCE(SUM(CASE WHEN is_me=1 AND pim=0 AND ct-pt < 120%[5]s AND CAST(strftime('%%H', ct, 'unixepoch', %[4]s) AS INTEGER) BETWEEN 0 AND 5 THEN 1 ELSE 0 END),0),
 					COALESCE(SUM(CASE WHEN is_me=0 AND (nim=0 OR nim IS NULL) THEN 1 ELSE 0 END),0)
-				FROM o`, meExpr, meExpr, meExpr, tbl, tzMod)
+				FROM o`, callCTE, meExpr, tbl, tzMod, callCond)
 			var mySum, myCnt, myMin, myMax, theirSum, theirCnt, late, ign sql.NullInt64
-			if err := db.QueryRowContext(ctx, q, talker, talker, talker,
-				start.Unix(), end.Unix(), cap, cap, cap, cap, cap, cap).
+			qArgs := append([]interface{}{}, callArgs...)
+			qArgs = append(qArgs, talker, talker, talker,
+				start.Unix(), end.Unix(), cap, cap, cap, cap, cap, cap)
+			if err := db.QueryRowContext(ctx, q, qArgs...).
 				Scan(&mySum, &myCnt, &myMin, &myMax, &theirSum, &theirCnt, &late, &ign); err == nil {
 				a.mySum += int(mySum.Int64)
 				a.myCnt += int(myCnt.Int64)

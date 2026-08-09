@@ -82,7 +82,7 @@ func (a *API) RebuildGalaxy(c *gin.Context) {
 	if c.Query("force") != "1" {
 		readJSONFile(galaxyPath("raw_features.json"), &cached) // §30 增量:复用未变联系人的特征
 	}
-	graph, feats, err := a.Store.BuildGalaxyIncremental(c.Request.Context(), &p, tzSec, topN, cached, pinnedContacts())
+	graph, feats, err := a.Store.BuildGalaxyIncremental(c.Request.Context(), &p, tzSec, topN, cached, loadOverrides())
 	if err != nil {
 		transport.InternalServerError(c, err.Error())
 		return
@@ -109,7 +109,7 @@ func (a *API) GetGalaxyGraph(c *gin.Context) {
 	tzSec := resolveTzMinutes(c) * 60
 	var cached []model.GalaxyRawFeature
 	readJSONFile(galaxyPath("raw_features.json"), &cached)
-	g, feats, err := a.Store.BuildGalaxyIncremental(c.Request.Context(), &p, tzSec, 50, cached, pinnedContacts())
+	g, feats, err := a.Store.BuildGalaxyIncremental(c.Request.Context(), &p, tzSec, 50, cached, loadOverrides())
 	if err != nil {
 		transport.InternalServerError(c, err.Error())
 		return
@@ -120,19 +120,15 @@ func (a *API) GetGalaxyGraph(c *gin.Context) {
 	transport.SendSuccess(c, g)
 }
 
-// pinnedContacts 读出被用户 pin 住的联系人 —— 建图时要保证他们不被 TopN 截断
-func pinnedContacts() []string {
+// loadOverrides 读出用户的手动修正。
+// 建图时就要拿到它 —— 关系类型和人生阶段决定节点落在星图的哪个扇区，
+// 只在建完之后改标签会让位置和标签对不上。
+func loadOverrides() map[string]*model.ContactOverride {
 	var ov model.GalaxyOverrides
 	if !readJSONFile(galaxyPath("overrides.json"), &ov) || len(ov.Contacts) == 0 {
-		return nil
+		return map[string]*model.ContactOverride{}
 	}
-	out := make([]string, 0, len(ov.Contacts))
-	for id, o := range ov.Contacts {
-		if o != nil && o.Pinned && !o.Hidden {
-			out = append(out, id)
-		}
-	}
-	return out
+	return ov.Contacts
 }
 
 // applyGalaxyOverrides 把 overrides.json 里的用户修正套到图上(不改缓存文件本身,
@@ -252,10 +248,8 @@ func (a *API) PatchGalaxyContact(c *gin.Context) {
 		transport.InternalServerError(c, "保存失败: "+err.Error())
 		return
 	}
-	// pin 变化会改变「哪些人进图」，缓存图里可能根本没有这个人 —— 作废缓存，
-	// 下次取图时按新的 pin 名单重建（走增量，很快）。
-	if body.Pinned != nil || body.Reset {
-		_ = os.Remove(galaxyPath("relationship_graph.json"))
-	}
+	// 任何修正都可能改变布局或入选名单（关系类型/人生阶段决定扇区，pin 决定是否
+	// 突破 TopN），所以一律作废缓存图，下次取图时重建（走增量，很快）。
+	_ = os.Remove(galaxyPath("relationship_graph.json"))
 	transport.SendSuccess(c, gin.H{"ok": true})
 }

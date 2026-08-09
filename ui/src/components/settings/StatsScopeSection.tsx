@@ -170,6 +170,10 @@ export function StatsScopeSection() {
           <p className="text-xs text-muted-foreground">
             默认所有模块跟随上面的全局设置。打开开关后,该模块使用自己的一套类型范围。
           </p>
+          <p className="text-xs text-muted-foreground">
+            例外:「公众号画像」默认统计全部公众号,不跟随全局 —— 否则你在全局里关掉
+            订阅号 / 服务号之后,这一页就会变成空的。
+          </p>
           <div className="space-y-2">
             {data.modules.map((m) => {
               const mod = m.key as StatsModule
@@ -180,7 +184,11 @@ export function StatsScopeSection() {
                     <span className="text-sm">{m.label}</span>
                     <div className="flex items-center gap-2">
                       <span className="text-xs text-muted-foreground">
-                        {override ? "单独设置" : "跟随全局"}
+                        {override
+                          ? "单独设置"
+                          : mod === "biz"
+                            ? "统计全部公众号"
+                            : "跟随全局"}
                       </span>
                       <Switch
                         checked={Boolean(override)}
