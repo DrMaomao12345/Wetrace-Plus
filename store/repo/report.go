@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/afumu/wetrace/internal/model"
@@ -207,41 +208,54 @@ func (r *Repository) GetAnnualReport(ctx context.Context, year int, defaultTzOff
 	// 排除名单与统计范围要贯穿报告的每一个分区，不能只作用于亲密度排行
 	allow := r.ReportTableFilter(ctx, excludeSet)
 
-	// 1. 获取概览数据
-	overview, err := r.getAnnualOverview(ctx, segs, allow)
-	if err != nil {
-		log.Warn().Err(err).Msg("获取年度概览失败")
-	}
-	report.Overview = overview
-
-	// 2. 获取亲密度排行（用第一个 segment 的时区作为整体边界）
 	yearStart := segs[0].start
 	yearEnd := segs[len(segs)-1].end
-	topContacts, err := r.getAnnualTopContacts(ctx, yearStart, yearEnd, 20, excludeSet, model.ModuleReport)
-	if err != nil {
-		log.Warn().Err(err).Msg("获取年度亲密度排行失败")
+
+	// 各分区互不依赖，且全是只读 SQLite 查询 —— 串行跑等于把每一趟全表扫描
+	// 的时间加起来。并行之后总耗时约等于最慢的那一个分区。
+	// （唯一的依赖：同比 delta 需要先有 overview，放在 Wait 之后算。）
+	var wg sync.WaitGroup
+	var overview model.AnnualOverview
+
+	run := func(name string, fn func()) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			defer func() {
+				if p := recover(); p != nil {
+					log.Warn().Interface("panic", p).Str("section", name).Msg("年度报告分区计算异常")
+				}
+			}()
+			fn()
+		}()
 	}
-	report.TopContacts = topContacts
 
-	// 3. 获取月度趋势
-	report.MonthlyTrend = r.getAnnualMonthlyTrend(ctx, segs, allow)
+	run("概览", func() {
+		ov, err := r.getAnnualOverview(ctx, segs, allow)
+		if err != nil {
+			log.Warn().Err(err).Msg("获取年度概览失败")
+		}
+		overview = ov
+	})
+	run("亲密度排行", func() {
+		tc, err := r.getAnnualTopContacts(ctx, yearStart, yearEnd, 20, excludeSet, model.ModuleReport)
+		if err != nil {
+			log.Warn().Err(err).Msg("获取年度亲密度排行失败")
+		}
+		report.TopContacts = tc
+	})
+	run("月度趋势", func() { report.MonthlyTrend = r.getAnnualMonthlyTrend(ctx, segs, allow) })
+	run("往年月均", func() {
+		report.PastYearsMonthlyAvg = r.computePastYearsMonthlyAvg(ctx, year, pastStartYear, defaultTzOffset)
+	})
+	run("星期分布", func() { report.WeekdayDist = r.getAnnualWeekdayDist(ctx, segs, allow) })
+	run("小时分布", func() { report.HourlyDist = r.getAnnualHourlyDist(ctx, segs, allow) })
+	run("类型分布", func() { report.MessageTypes = r.getAnnualMessageTypes(ctx, yearStart, yearEnd, allow) })
+	run("亮点", func() { report.Highlights = r.getAnnualHighlights(ctx, segs, allow) })
+	wg.Wait()
 
-	// 3.1 计算往年（不含当年）的月度趋势平均，用作参考线
-	report.PastYearsMonthlyAvg = r.computePastYearsMonthlyAvg(ctx, year, pastStartYear, defaultTzOffset)
-
-	// 4. 获取星期分布
-	report.WeekdayDist = r.getAnnualWeekdayDist(ctx, segs, allow)
-
-	// 5. 获取小时分布
-	report.HourlyDist = r.getAnnualHourlyDist(ctx, segs, allow)
-
-	// 6. 获取消息类型分布
-	report.MessageTypes = r.getAnnualMessageTypes(ctx, yearStart, yearEnd, allow)
-
-	// 7. 获取亮点数据
-	report.Highlights = r.getAnnualHighlights(ctx, segs, allow)
-
-	// 8. 计算往年同期 (YTD) 概览数据，再算 delta
+	report.Overview = overview
+	// 同比依赖 overview，必须等上面跑完
 	report.OverviewDeltas = r.computeOverviewDeltas(ctx, year, pastStartYear, defaultTzOffset, overview)
 
 	// 设置数据版本指纹（供前端缓存校验）

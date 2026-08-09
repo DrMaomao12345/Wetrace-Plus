@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"sync"
+	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -52,13 +53,21 @@ func (p *ConnectionPool) GetConnection(path string) (*sql.DB, error) {
 
 // openNewConnection 封装底层的 SQL 打开逻辑 (单一职责：创建)
 func (p *ConnectionPool) openNewConnection(path string) (*sql.DB, error) {
-	// 使用读写模式 (mode=rw) 和共享缓存 (cache=shared)
-	dsn := fmt.Sprintf("file:%s?mode=rw&cache=shared", path)
+	// 不要用 cache=shared —— 共享缓存模式下 SQLite 用表级锁把并发读也串行化了，
+	// 年度报告那种多个分区同时扫同一批表的场景会被卡成单线程。
+	// busy_timeout 让偶发的锁竞争自动重试，而不是立刻报 SQLITE_BUSY。
+	dsn := fmt.Sprintf("file:%s?mode=rw&_busy_timeout=5000", path)
 
 	db, err := sql.Open("sqlite3", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("无法打开数据库文件 %s: %w", path, err)
 	}
+
+	// 允许若干条并发读连接。默认不限反而容易在高并发下开出过多 fd，
+	// 这里给一个够用又克制的上限。
+	db.SetMaxOpenConns(8)
+	db.SetMaxIdleConns(4)
+	db.SetConnMaxIdleTime(5 * time.Minute)
 
 	if err := db.Ping(); err != nil {
 		_ = db.Close()

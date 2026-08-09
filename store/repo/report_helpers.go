@@ -47,28 +47,15 @@ func (r *Repository) getAnnualOverview(ctx context.Context, segs []reportSegment
 	// 之前是按 segs 范围（即一年）算，会让新会话显得只有几天活跃；
 	// 改成跨整段聊天历史统计 —— 用一份不限时间的额外 overview 扫描，
 	// 只取它的 daySet。其余字段（消息总数等）继续按 segs 内的来。
+	// 累计活跃天数只需要「有哪些日期」，早先却跑了一整趟完整概览扫描：
+	// 逐表算收发数、还为未知表做 COUNT(DISTINCT real_sender_id) 探测，
+	// 结果除 daySet 外全部丢弃。改成只查去重日期，省掉大部分 IO。
 	lifetimeDays := make(map[string]bool)
-	lifeStart := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
-	lifeEnd := time.Now().Add(24 * time.Hour).UTC()
 	lifeTz := ""
 	if len(segs) > 0 {
 		lifeTz = segs[0].tzMod
 	}
-	var lTotal, lSent, lRecv int
-	lContact := make(map[string]bool)
-	lChatroom := make(map[string]bool)
-	var lFirst, lLast string
-	for _, shard := range r.router.GetShards() {
-		db, err := r.pool.GetConnection(shard.FilePath)
-		if err != nil {
-			continue
-		}
-		if r.isTableExist(db, "MSG") {
-			r.overviewV3(ctx, db, lifeStart, lifeEnd, &lTotal, &lSent, &lRecv, lContact, lChatroom, lifetimeDays, &lFirst, &lLast, lifeTz)
-		} else {
-			r.overviewV4(ctx, db, lifeStart, lifeEnd, &lTotal, &lSent, &lRecv, lContact, lChatroom, lifetimeDays, &lFirst, &lLast, lifeTz, allow)
-		}
-	}
+	r.collectDistinctDays(ctx, lifetimeDays, lifeTz, allow)
 	// 当年活跃天数（同比用它）与累计活跃天数（单独展示）分开给
 	overview.ActiveDays = len(daySet)
 	overview.ActiveDaysLifetime = len(lifetimeDays)
@@ -103,6 +90,53 @@ func (r *Repository) getAnnualOverview(ctx context.Context, segs []reportSegment
 	overview.TotalChatrooms = totalChatrooms
 
 	return overview, nil
+}
+
+// collectDistinctDays 收集所有分片里出现过消息的日期（去重），用于「累计活跃天数」。
+// 只做一次 SELECT DISTINCT，不碰收发方向、不做发送者探测。
+func (r *Repository) collectDistinctDays(ctx context.Context, days map[string]bool, tzMod string, allow func(string) bool) {
+	if tzMod == "" {
+		tzMod = "'localtime'"
+	}
+	for _, shard := range r.router.GetShards() {
+		db, err := r.pool.GetConnection(shard.FilePath)
+		if err != nil {
+			continue
+		}
+		if r.isTableExist(db, "MSG") {
+			q := "SELECT DISTINCT strftime('%Y-%m-%d', CreateTime/1000, 'unixepoch', " + tzMod +
+				") FROM MSG WHERE COALESCE(Type,0) != 10000"
+			if rows, err := db.QueryContext(ctx, q); err == nil {
+				for rows.Next() {
+					var d string
+					if rows.Scan(&d) == nil && d != "" {
+						days[d] = true
+					}
+				}
+				rows.Close()
+			}
+			continue
+		}
+		for _, tbl := range r.listMsgTables(ctx, db) {
+			if !allow(tbl) {
+				continue
+			}
+			q := fmt.Sprintf(
+				"SELECT DISTINCT strftime('%%Y-%%m-%%d', create_time, 'unixepoch', %s) FROM %s "+
+					"WHERE (local_type & 4294967295) != 10000", tzMod, tbl)
+			rows, err := db.QueryContext(ctx, q)
+			if err != nil {
+				continue
+			}
+			for rows.Next() {
+				var d string
+				if rows.Scan(&d) == nil && d != "" {
+					days[d] = true
+				}
+			}
+			rows.Close()
+		}
+	}
 }
 
 func (r *Repository) overviewV3(ctx context.Context, db *sql.DB, start, end time.Time,
