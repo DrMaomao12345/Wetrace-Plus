@@ -214,9 +214,10 @@ func (r *Repository) GetAnnualReport(ctx context.Context, year int, defaultTzOff
 	// 各分区互不依赖，且全是只读 SQLite 查询 —— 串行跑等于把每一趟全表扫描
 	// 的时间加起来。并行之后总耗时约等于最慢的那一个分区。
 	// （唯一的依赖：同比 delta 需要先有 overview，放在 Wait 之后算。）
+	// 单趟扫描：每张消息表只发一条 SELECT，概览 / 月度 / 星期 / 小时 / 类型 /
+	// 亮点 / 累计活跃天全部在同一次遍历里累加完成。
+	// 只有亲密度排行与往年月均是独立的时间范围，仍单独跑，且与扫描并行。
 	var wg sync.WaitGroup
-	var overview model.AnnualOverview
-
 	run := func(name string, fn func()) {
 		wg.Add(1)
 		go func() {
@@ -230,13 +231,8 @@ func (r *Repository) GetAnnualReport(ctx context.Context, year int, defaultTzOff
 		}()
 	}
 
-	run("概览", func() {
-		ov, err := r.getAnnualOverview(ctx, segs, allow)
-		if err != nil {
-			log.Warn().Err(err).Msg("获取年度概览失败")
-		}
-		overview = ov
-	})
+	var acc *annualAccum
+	run("单趟扫描", func() { acc = r.scanAnnualSinglePass(ctx, segs, allow) })
 	run("亲密度排行", func() {
 		tc, err := r.getAnnualTopContacts(ctx, yearStart, yearEnd, 20, excludeSet, model.ModuleReport)
 		if err != nil {
@@ -244,15 +240,12 @@ func (r *Repository) GetAnnualReport(ctx context.Context, year int, defaultTzOff
 		}
 		report.TopContacts = tc
 	})
-	run("月度趋势", func() { report.MonthlyTrend = r.getAnnualMonthlyTrend(ctx, segs, allow) })
 	run("往年月均", func() {
 		report.PastYearsMonthlyAvg = r.computePastYearsMonthlyAvg(ctx, year, pastStartYear, defaultTzOffset)
 	})
-	run("星期分布", func() { report.WeekdayDist = r.getAnnualWeekdayDist(ctx, segs, allow) })
-	run("小时分布", func() { report.HourlyDist = r.getAnnualHourlyDist(ctx, segs, allow) })
-	run("类型分布", func() { report.MessageTypes = r.getAnnualMessageTypes(ctx, yearStart, yearEnd, allow) })
-	run("亮点", func() { report.Highlights = r.getAnnualHighlights(ctx, segs, allow) })
 	wg.Wait()
+
+	overview := r.buildAnnualFromAccum(ctx, acc, report, allow)
 
 	report.Overview = overview
 	// 同比依赖 overview，必须等上面跑完
@@ -286,58 +279,35 @@ func (r *Repository) GetAnnualReportWithProgress(ctx context.Context, year int, 
 	yearStart := segs[0].start
 	yearEnd := segs[len(segs)-1].end
 
-	// 1. 获取概览数据
-	overview, err := r.getAnnualOverview(ctx, segs, allow)
-	if err != nil {
-		log.Warn().Err(err).Msg("获取年度概览失败")
-	}
+	// 单趟扫描：一次遍历同时算出概览 / 月度 / 星期 / 小时 / 类型 / 亮点。
+	// 这几个分区一起就绪，但仍按原有的事件名逐个推给前端 —— 流式协议不变，
+	// 前端照旧增量渲染，只是它们几乎同时到达。
+	acc := r.scanAnnualSinglePass(ctx, segs, allow)
+	overview := r.buildAnnualFromAccum(ctx, acc, report, allow)
 	report.Overview = overview
 	if progressFn != nil {
 		progressFn("overview", 1, totalSteps, overview)
+		progressFn("monthly_trend", 2, totalSteps, report.MonthlyTrend)
+		progressFn("weekday_dist", 3, totalSteps, report.WeekdayDist)
+		progressFn("hourly_dist", 4, totalSteps, report.HourlyDist)
+		progressFn("message_types", 5, totalSteps, report.MessageTypes)
 	}
 
-	// 2. 获取亲密度排行
+	// 亲密度排行是独立的取数路径（按会话逐个算收发），单独一步
 	topContacts, err := r.getAnnualTopContacts(ctx, yearStart, yearEnd, 20, excludeSet, model.ModuleReport)
 	if err != nil {
 		log.Warn().Err(err).Msg("获取年度亲密度排行失败")
 	}
 	report.TopContacts = topContacts
 	if progressFn != nil {
-		progressFn("top_contacts", 2, totalSteps, topContacts)
+		progressFn("top_contacts", 6, totalSteps, topContacts)
 	}
 
-	// 3. 获取月度趋势
-	report.MonthlyTrend = r.getAnnualMonthlyTrend(ctx, segs, allow)
-	if progressFn != nil {
-		progressFn("monthly_trend", 3, totalSteps, report.MonthlyTrend)
-	}
-
-	// 4. 计算往年月度趋势平均
 	report.PastYearsMonthlyAvg = r.computePastYearsMonthlyAvg(ctx, year, pastStartYear, defaultTzOffset)
 	if progressFn != nil {
-		progressFn("past_years_avg", 4, totalSteps, report.PastYearsMonthlyAvg)
+		progressFn("past_years_avg", 7, totalSteps, report.PastYearsMonthlyAvg)
 	}
 
-	// 5. 获取星期分布
-	report.WeekdayDist = r.getAnnualWeekdayDist(ctx, segs, allow)
-	if progressFn != nil {
-		progressFn("weekday_dist", 5, totalSteps, report.WeekdayDist)
-	}
-
-	// 6. 获取小时分布
-	report.HourlyDist = r.getAnnualHourlyDist(ctx, segs, allow)
-	if progressFn != nil {
-		progressFn("hourly_dist", 6, totalSteps, report.HourlyDist)
-	}
-
-	// 7. 获取消息类型分布
-	report.MessageTypes = r.getAnnualMessageTypes(ctx, yearStart, yearEnd, allow)
-	if progressFn != nil {
-		progressFn("message_types", 7, totalSteps, report.MessageTypes)
-	}
-
-	// 8. 获取亮点数据 + 往年 delta
-	report.Highlights = r.getAnnualHighlights(ctx, segs, allow)
 	report.OverviewDeltas = r.computeOverviewDeltas(ctx, year, pastStartYear, defaultTzOffset, overview)
 	report.DataVersion = r.GetDataVersion()
 	if progressFn != nil {

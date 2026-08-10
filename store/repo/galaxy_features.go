@@ -18,11 +18,11 @@ type rawFeatures struct {
 	nickName  string
 	avatar    string
 
-	total, sent, recv int
-	firstTime, lastTime int64
-	activeDays          int
-	monthCounts         map[string]int // YYYY-MM -> 消息数
-	sessionCount        int
+	total, sent, recv             int
+	firstTime, lastTime           int64
+	activeDays                    int
+	monthCounts                   map[string]int // YYYY-MM -> 消息数
+	sessionCount                  int
 	recent30, recent90, recent365 int
 }
 

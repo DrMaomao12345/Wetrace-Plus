@@ -126,14 +126,14 @@ func ScoreGalaxy(feats []*rawFeatures, profile *model.UserProfile) []*model.Gala
 		conf := confidence(f, rtype, stageCount)
 
 		node := &model.GalaxyNode{
-			ContactID:         f.contactID,
-			DisplayName:       displayNameOf(f),
-			Avatar:            f.avatar,
-			RelationshipType:  rtype,
-			RelationshipLabel: label,
-			MainLifeStage:     mainStage,
-			LifeStageCount:    stageCount,
-			RelationshipDepth: clamp100(depth),
+			ContactID:          f.contactID,
+			DisplayName:        displayNameOf(f),
+			Avatar:             f.avatar,
+			RelationshipType:   rtype,
+			RelationshipLabel:  label,
+			MainLifeStage:      mainStage,
+			LifeStageCount:     stageCount,
+			RelationshipDepth:  clamp100(depth),
 			CurrentTemperature: clamp100(temp),
 			ContinuityScore:    clamp100(continuity),
 			ReciprocityScore:   clamp100(recip),
