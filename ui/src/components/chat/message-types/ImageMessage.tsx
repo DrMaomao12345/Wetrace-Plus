@@ -45,19 +45,22 @@ export function ImageMessage({ id, md5, path, content }: ImageMessageProps) {
       
       {error ? (
         imagesUnavailable ? (
-          // macOS 且拿不到图片密钥：失败的基本都是 2025 年 5 月之后的加密图片。
-          // 按微信原生的样子显示 [图片]，并说明原因，避免看起来像网络问题。
+          // 拿不到图片密钥时（推导失败等），加密图片确实解不开，
+          // 按微信原生的样子显示 [图片] 并说明原因。
           <div
             className="inline-flex items-center gap-1.5 rounded-lg bg-muted/60 px-2.5 py-1.5 text-muted-foreground"
-            title="这张图片由微信加密存储（2025 年 5 月后的新版格式），当前无法解出。此前的图片可以正常显示。"
+            title="图片密钥不可用，这张加密图片无法解出"
           >
             <ImageIcon className="h-3.5 w-3.5" />
             <span className="text-xs">[图片]</span>
           </div>
         ) : (
-          <div className="flex flex-col items-center justify-center w-32 h-32 bg-muted text-muted-foreground p-2 rounded-lg">
+          <div
+            className="flex flex-col items-center justify-center w-32 h-32 bg-muted text-muted-foreground p-2 rounded-lg"
+            title="本地没有这张图的文件 —— 微信只在你打开过时才下载原图"
+          >
             <ImageIcon className="w-8 h-8 mb-1" />
-            <span className="text-[10px]">加载失败</span>
+            <span className="text-[10px]">图片未下载</span>
           </div>
         )
       ) : (

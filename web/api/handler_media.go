@@ -215,8 +215,14 @@ func (a *API) GetImageList(c *gin.Context) {
 				continue
 			}
 		}
+		// 带上 path：hardlink 库里查不到这个 md5 时（相当一部分图片如此），
+		// 媒体接口可以靠 path 直接定位磁盘文件，否则会 404
 		thumbnailURL := fmt.Sprintf("/api/v1/media/image/%s?thumb=1", ref.MD5)
 		fullURL := fmt.Sprintf("/api/v1/media/image/%s", ref.MD5)
+		if ref.Path != "" {
+			thumbnailURL += "&path=" + url.QueryEscape(ref.Path)
+			fullURL += "?path=" + url.QueryEscape(ref.Path)
+		}
 		name := nameOf[ref.Talker]
 		if name == "" {
 			name = ref.Talker

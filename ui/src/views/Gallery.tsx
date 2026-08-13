@@ -232,10 +232,10 @@ function ImageGrid({
           {item.encrypted || failedKeys.has(item.key) ? (
             <div
               className="flex h-full w-full flex-col items-center justify-center gap-1 text-muted-foreground"
-              title="这张图片由微信加密存储（2025 年 5 月后的新版格式），当前无法解出"
+              title="这张图片本地没有文件 —— 微信只在你打开过时才把原图下载下来，没看过或已被清理的就取不到了"
             >
               <ImageOff className="h-6 w-6 opacity-40" />
-              <span className="text-[10px] opacity-60">加密图片</span>
+              <span className="text-[10px] opacity-60">图片未下载</span>
             </div>
           ) : (
             <img

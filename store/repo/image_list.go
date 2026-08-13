@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -28,6 +29,9 @@ type ImageRef struct {
 	MD5    string
 	Time   time.Time
 	Seq    int64
+	// Path 是磁盘相对路径。hardlink 库里查不到 MD5 时靠它兜底 ——
+	// 它由 packed_info_data 里的图片哈希拼出来，与聊天页用的是同一条路径。
+	Path string
 }
 
 // ListImageMessages 列出时间区间内的图片消息，按时间倒序。
@@ -59,11 +63,12 @@ func (r *Repository) ListImageMessages(ctx context.Context, talker string, start
 			if only == "" && !allow(tbl) {
 				continue
 			}
-			owner := md5Map[trimMsgPrefix(tbl)]
+			talkerMD5 := trimMsgPrefix(tbl)
+			owner := md5Map[talkerMD5]
 			if owner == "" {
 				owner = talker
 			}
-			out = append(out, r.listImagesV4Table(ctx, db, tbl, owner, start, end)...)
+			out = append(out, r.listImagesV4Table(ctx, db, tbl, owner, talkerMD5, start, end)...)
 		}
 	}
 
@@ -71,11 +76,11 @@ func (r *Repository) ListImageMessages(ctx context.Context, talker string, start
 	return out
 }
 
-func (r *Repository) listImagesV4Table(ctx context.Context, db *sql.DB, tbl, owner string,
+func (r *Repository) listImagesV4Table(ctx context.Context, db *sql.DB, tbl, owner, talkerMD5 string,
 	start, end time.Time) []*ImageRef {
 
 	rows, err := db.QueryContext(ctx, fmt.Sprintf(
-		`SELECT create_time, COALESCE(sort_seq,0), message_content FROM %s
+		`SELECT create_time, COALESCE(sort_seq,0), message_content, packed_info_data FROM %s
 		 WHERE (local_type & 4294967295) = 3 AND create_time >= ? AND create_time <= ?`, tbl),
 		start.Unix(), end.Unix())
 	if err != nil {
@@ -86,8 +91,8 @@ func (r *Repository) listImagesV4Table(ctx context.Context, db *sql.DB, tbl, own
 	var out []*ImageRef
 	for rows.Next() {
 		var ts, seq int64
-		var raw []byte
-		if rows.Scan(&ts, &seq, &raw) != nil {
+		var raw, packed []byte
+		if rows.Scan(&ts, &seq, &raw, &packed) != nil {
 			continue
 		}
 		content := raw
@@ -98,12 +103,18 @@ func (r *Repository) listImagesV4Table(ctx context.Context, db *sql.DB, tbl, own
 		if m == nil {
 			continue
 		}
-		out = append(out, &ImageRef{
+		when := time.Unix(ts, 0)
+		ref := &ImageRef{
 			Talker: owner,
 			MD5:    strings.ToLower(string(m[1])),
-			Time:   time.Unix(ts, 0),
+			Time:   when,
 			Seq:    seq,
-		})
+		}
+		// 与 MessageV4.Wrap 用同一套路径拼法，保证图库和聊天页取到同一个文件
+		if pi := model.ParsePackedInfo(packed); pi != nil && pi.Image != nil && pi.Image.Md5 != "" {
+			ref.Path = filepath.Join("msg", "attach", talkerMD5, when.Format("2006-01"), "Img", pi.Image.Md5)
+		}
+		out = append(out, ref)
 	}
 	return out
 }
