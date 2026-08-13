@@ -1,6 +1,7 @@
 package media
 
 import (
+	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/md5"
@@ -36,6 +37,8 @@ type Service struct {
 		Total     int32
 		Processed int32
 		Scope     string
+		Canceled  bool
+		cancel    context.CancelFunc // 供「中断」用
 	}
 }
 
@@ -55,12 +58,15 @@ type CacheStatus struct {
 	Total     int    `json:"total"`
 	Processed int    `json:"processed"`
 	Scope     string `json:"scope"`
+	// Canceled 表示上一次任务是被手动中断的（而不是跑完的）
+	Canceled bool `json:"canceled"`
 }
 
 func (s *Service) GetCacheStatus() CacheStatus {
 	s.cacheStatus.RLock()
 	defer s.cacheStatus.RUnlock()
 	return CacheStatus{
+		Canceled:  s.cacheStatus.Canceled,
 		IsRunning: s.cacheStatus.IsRunning,
 		Total:     int(s.cacheStatus.Total),
 		Processed: int(s.cacheStatus.Processed),
@@ -74,17 +80,33 @@ func (s *Service) StartCacheTask(scope string, talker string) error {
 		s.cacheStatus.Unlock()
 		return errors.New("已有任务正在运行中")
 	}
+	ctx, cancel := context.WithCancel(context.Background())
 	s.cacheStatus.IsRunning = true
 	s.cacheStatus.Total = 0
 	s.cacheStatus.Processed = 0
 	s.cacheStatus.Scope = scope
+	s.cacheStatus.Canceled = false
+	s.cacheStatus.cancel = cancel
 	s.cacheStatus.Unlock()
 
-	go s.runCacheTask(scope, talker)
+	go s.runCacheTask(ctx, scope, talker)
 	return nil
 }
 
-func (s *Service) runCacheTask(scope string, talker string) {
+// StopCacheTask 中断正在进行的图片预加载。已处理的部分保留在缓存里，
+// 下次再跑会跳过，不会白做。
+func (s *Service) StopCacheTask() error {
+	s.cacheStatus.Lock()
+	defer s.cacheStatus.Unlock()
+	if !s.cacheStatus.IsRunning || s.cacheStatus.cancel == nil {
+		return errors.New("当前没有正在运行的预加载任务")
+	}
+	s.cacheStatus.Canceled = true
+	s.cacheStatus.cancel()
+	return nil
+}
+
+func (s *Service) runCacheTask(ctx context.Context, scope string, talker string) {
 	defer func() {
 		s.cacheStatus.Lock()
 		s.cacheStatus.IsRunning = false
@@ -129,23 +151,39 @@ func (s *Service) runCacheTask(scope string, talker string) {
 		return
 	}
 
-	// 2. 并发解密 (限制并发数)
+	// 2. 并发解密：用固定几个 worker 从队列取活。
+	// 早先是给每个文件都起一个 goroutine（几万张图就是几万个 goroutine），
+	// 改成工作池之后既省资源，中断时也能立刻停下来。
+	const workers = 4
+	jobs := make(chan string)
 	var wg sync.WaitGroup
-	semaphore := make(chan struct{}, 4) // 限制 4 个并发
 
-	for _, path := range files {
+	for i := 0; i < workers; i++ {
 		wg.Add(1)
-		go func(p string) {
+		go func() {
 			defer wg.Done()
-			semaphore <- struct{}{}
-			defer func() { <-semaphore }()
-
-			// 检查缓存，如果不存在则解密（doPrepareFile 内部已包含此逻辑）
-			_ = s.doPrepareFile(p, false)
-			atomic.AddInt32(&s.cacheStatus.Processed, 1)
-		}(path)
+			for p := range jobs {
+				if ctx.Err() != nil {
+					return
+				}
+				// 缓存已存在时 doPrepareFile 内部会直接返回，不重复解密
+				_ = s.doPrepareFile(p, false)
+				atomic.AddInt32(&s.cacheStatus.Processed, 1)
+			}
+		}()
 	}
 
+	for _, path := range files {
+		select {
+		case jobs <- path:
+		case <-ctx.Done():
+			close(jobs)
+			wg.Wait()
+			log.Info().Int32("已处理", atomic.LoadInt32(&s.cacheStatus.Processed)).Msg("图片预加载已中断")
+			return
+		}
+	}
+	close(jobs)
 	wg.Wait()
 }
 

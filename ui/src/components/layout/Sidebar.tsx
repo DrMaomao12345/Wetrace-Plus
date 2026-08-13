@@ -12,6 +12,7 @@ import { toast } from "sonner"
 import { KeyManagerModal } from "./KeyManagerModal"
 import { usePlatform } from "@/hooks/usePlatform"
 import { ImageCacheManager } from "../chat/ImageCacheManager"
+import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 
 type NavItem = {
   key: string
@@ -43,6 +44,7 @@ export function Sidebar() {
   const [isSyncing, setIsSyncing] = useState(false)
   const [showKeyManager, setShowKeyManager] = useState(false)
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
+  const [confirmPreload, setConfirmPreload] = useState(false)
   // 图片相关入口是否可用 —— 与消息气泡共用同一份判断
   const { imagesUnavailable: isMac } = usePlatform()
 
@@ -278,7 +280,7 @@ export function Sidebar() {
             <Key className="w-4 h-4" />
           </button>
           <button
-            onClick={handleFullCache}
+            onClick={() => setConfirmPreload(true)}
             className="flex-1 h-8 flex items-center justify-center rounded-lg transition-colors text-muted-foreground hover:bg-muted hover:text-foreground"
             title={isMac
               ? "预加载全量图片（macOS 上 2025 年 5 月之后的加密图片会跳过）"
@@ -307,6 +309,24 @@ export function Sidebar() {
       {showKeyManager && (
         <KeyManagerModal onClose={() => setShowKeyManager(false)} />
       )}
+
+      <ConfirmDialog
+        open={confirmPreload}
+        title="预加载全部图片？"
+        description={
+          <>
+            会把所有聊天图片解密后写入本地缓存，图片多时可能跑很久、期间占用较多 CPU。
+            <br />
+            跑起来之后可以随时在右下角的进度条上中断；已处理的部分会保留，下次继续不会重来。
+          </>
+        }
+        confirmText="开始预加载"
+        onCancel={() => setConfirmPreload(false)}
+        onConfirm={() => {
+          setConfirmPreload(false)
+          handleFullCache()
+        }}
+      />
 
       <ImageCacheManager />
     </div>

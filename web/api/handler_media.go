@@ -78,6 +78,15 @@ func (a *API) GetEmoji(c *gin.Context) {
 }
 
 // HandleStartCache 启动图片缓存预加载任务
+// HandleStopCache 中断正在进行的图片预加载
+func (a *API) HandleStopCache(c *gin.Context) {
+	if err := a.Media.StopCacheTask(); err != nil {
+		transport.BadRequest(c, err.Error())
+		return
+	}
+	transport.SendSuccess(c, gin.H{"status": "stopping"})
+}
+
 func (a *API) HandleStartCache(c *gin.Context) {
 	var req struct {
 		Scope  string `json:"scope"`  // "all" 或 "session"

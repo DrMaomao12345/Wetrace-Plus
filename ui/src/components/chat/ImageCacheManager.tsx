@@ -3,16 +3,20 @@ import { mediaApi } from "@/api"
 import { ImageIcon, Loader2, CheckCircle2, X } from "lucide-react"
 import { Progress } from "@/components/ui/progress"
 import { Button } from "@/components/ui/button"
+import { ConfirmDialog } from "@/components/ui/confirm-dialog"
+import { toast } from "sonner"
 
 export function ImageCacheManager() {
   const [status, setStatus] = useState<{
     isRunning: boolean;
     total: number;
     processed: number;
+    canceled?: boolean;
     scope: string;
   } | null>(null)
   
   const [visible, setVisible] = useState(false)
+  const [confirmStop, setConfirmStop] = useState(false)
 
   const fetchStatus = useCallback(async (reason: string) => {
     console.log(`[ImageCache] Fetching status. Reason: ${reason}`)
@@ -80,18 +84,58 @@ export function ImageCacheManager() {
         )}
         <div className="flex-1 min-w-0">
           <h4 className="text-sm font-semibold truncate">
-            {status.isRunning ? "正在预加载图片..." : isFinished ? "预加载完成" : "任务已停止"}
+            {status.isRunning
+              ? "正在预加载图片..."
+              : isFinished
+                ? "预加载完成"
+                : status.canceled
+                  ? "已中断"
+                  : "任务已停止"}
           </h4>
           <p className="text-[10px] text-muted-foreground">
             {status.scope === 'all' ? '全局扫描' : '会话扫描'} • {status.processed} / {status.total}
           </p>
         </div>
-        {!status.isRunning && (
-            <Button variant="ghost" size="icon" className="w-6 h-6 rounded-full" onClick={() => setVisible(false)}>
-                <X className="w-4 h-4" />
-            </Button>
+        {status.isRunning ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-xs text-muted-foreground hover:text-destructive"
+            onClick={() => setConfirmStop(true)}
+          >
+            中断
+          </Button>
+        ) : (
+          <Button variant="ghost" size="icon" className="w-6 h-6 rounded-full" onClick={() => setVisible(false)}>
+            <X className="w-4 h-4" />
+          </Button>
         )}
       </div>
+
+      <ConfirmDialog
+        open={confirmStop}
+        danger
+        title="中断图片预加载？"
+        description={
+          <>
+            已经处理的 {status.processed} 张会保留在缓存里，下次再跑会跳过，不会白做。
+            <br />
+            剩余 {Math.max(0, status.total - status.processed)} 张这次就不处理了。
+          </>
+        }
+        confirmText="中断"
+        cancelText="继续跑"
+        onCancel={() => setConfirmStop(false)}
+        onConfirm={async () => {
+          setConfirmStop(false)
+          try {
+            await mediaApi.stopCache()
+            toast.info("正在中断预加载…")
+          } catch (e: any) {
+            toast.error(e?.message || "中断失败")
+          }
+        }}
+      />
 
       <Progress value={progress} className="h-1.5 mb-2" />
       

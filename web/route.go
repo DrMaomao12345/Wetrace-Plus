@@ -121,6 +121,7 @@ func (s *Service) setupRoutes() {
 		v1.GET("/media/:type/:key", s.api.GetMedia)
 		v1.GET("/media/emoji", s.api.GetEmoji)
 		v1.POST("/media/cache/start", s.api.HandleStartCache)
+		v1.POST("/media/cache/stop", s.api.HandleStopCache)
 		v1.GET("/media/cache/status", s.api.GetCacheStatus)
 		v1.POST("/media/voice/transcribe", s.api.TranscribeVoice)
 		v1.GET("/media/voice/transcript", s.api.GetVoiceTranscript)

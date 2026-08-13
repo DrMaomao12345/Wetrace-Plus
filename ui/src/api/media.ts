@@ -51,6 +51,10 @@ export const mediaApi = {
     return request.post('/api/v1/media/cache/start', { scope, talker })
   },
 
+  stopCache: () => {
+    return request.post('/api/v1/media/cache/stop', {})
+  },
+
   getCacheStatus: () => {
     return request.get('/api/v1/media/cache/status')
   },
