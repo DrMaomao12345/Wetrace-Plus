@@ -74,8 +74,9 @@ func (r *Repository) GetAnnualWordCounts(
 				s.sentCount += wc.sentCount
 				s.recvCount += wc.recvCount
 
-				// 语音转写出来的文字也算「说了多少字」。只有存在转写结果时才多跑这一次查询。
-				if tl != nil {
+				// 语音转写出来的文字也算「说了多少字」。
+				// 微信自带的转写随消息存着，永远要查；Whisper 缓存则可能为空。
+				{
 					vs, vr := r.queryVoiceTranscriptChars(ctx, db, tableName, talker, isGroup,
 						yearStart.Unix(), yearEnd.Unix(), tl)
 					s.sent += vs
@@ -196,13 +197,13 @@ func (r *Repository) queryVoiceTranscriptChars(ctx context.Context, db *sql.DB,
 	var args []interface{}
 	if isGroup {
 		query = fmt.Sprintf(`
-			SELECT m.server_id, (m.status = 2 OR m.real_sender_id = 0) AS is_self
+			SELECT m.server_id, (m.status = 2 OR m.real_sender_id = 0) AS is_self, m.packed_info_data
 			FROM %s m
 			WHERE (m.local_type & 4294967295) = 34 AND m.create_time >= ? AND m.create_time <= ?`, tableName)
 		args = []interface{}{startUnix, endUnix}
 	} else {
 		query = fmt.Sprintf(`
-			SELECT m.server_id, (m.status = 2 OR m.real_sender_id = 0 OR n.user_name != ?) AS is_self
+			SELECT m.server_id, (m.status = 2 OR m.real_sender_id = 0 OR n.user_name != ?) AS is_self, m.packed_info_data
 			FROM %s m LEFT JOIN Name2Id n ON m.real_sender_id = n.rowid
 			WHERE (m.local_type & 4294967295) = 34 AND m.create_time >= ? AND m.create_time <= ?`, tableName)
 		args = []interface{}{talker, startUnix, endUnix}
@@ -216,11 +217,16 @@ func (r *Repository) queryVoiceTranscriptChars(ctx context.Context, db *sql.DB,
 	for rows.Next() {
 		var serverID int64
 		var isSelf int
-		if rows.Scan(&serverID, &isSelf) != nil {
+		var packed []byte
+		if rows.Scan(&serverID, &isSelf, &packed) != nil {
 			continue
 		}
-		text, ok := tl.Get(strconv.FormatInt(serverID, 10))
-		if !ok || text == "" {
+		// 微信自己转好的优先 —— 它是用户在微信里看到的那份
+		text := model.ParseVoiceTranscript(packed)
+		if text == "" && tl != nil {
+			text, _ = tl.Get(strconv.FormatInt(serverID, 10))
+		}
+		if text == "" {
 			continue
 		}
 		n := len([]rune(text))

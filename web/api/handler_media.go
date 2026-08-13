@@ -560,6 +560,10 @@ func (a *API) runBatchTranscribe(talker string) {
 			if id == "" {
 				continue
 			}
+			// 微信自己已经转好的就别再跑一遍 Whisper 了
+			if t, ok := m.Contents["transcript"].(string); ok && t != "" {
+				continue
+			}
 			voices = append(voices, voiceItem{voiceID: id, msg: m})
 		}
 	}

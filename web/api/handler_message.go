@@ -102,8 +102,13 @@ func (a *API) attachVoiceTranscripts(messages []*model.Message) {
 		if !ok || id == "" {
 			continue
 		}
+		// 微信自带的转写在解析消息时就填好了，这里只补它没有的
+		if t, ok := m.Contents["transcript"].(string); ok && t != "" {
+			continue
+		}
 		if text, ok := a.Transcripts.Get(id); ok && text != "" {
 			m.Contents["transcript"] = text
+			m.Contents["transcript_source"] = "whisper"
 		}
 	}
 }

@@ -93,6 +93,12 @@ func (m *MessageV4) Wrap(talker string) *Message {
 		if len(m.CompressContent) > 0 {
 			_m.Contents["_raw_data"] = m.CompressContent
 		}
+		// 用户在微信里点过「转文字」的，识别结果就存在 packed_info_data 里。
+		// 直接用微信自己的结果，比本地再跑一遍 Whisper 又快又准。
+		if t := ParseVoiceTranscript(m.PackedInfoData); t != "" {
+			_m.Contents["transcript"] = t
+			_m.Contents["transcript_source"] = "wechat"
+		}
 	}
 
 	if len(m.PackedInfoData) != 0 {
