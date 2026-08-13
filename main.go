@@ -2,6 +2,8 @@ package main
 
 import (
 	"embed"
+	"fmt"
+	"github.com/afumu/wetrace/internal/wxkey"
 	"io/fs"
 	"log"
 	"os"
@@ -62,13 +64,26 @@ func main() {
 	}
 
 	imageKey := viper.GetString("IMAGE_KEY")
-	if imageKey == "" {
-		imageKey = ""
-	}
-
 	xorKey := viper.GetString("XOR_KEY")
-	if xorKey == "" {
-		xorKey = ""
+
+	// 没配就自己算：微信 4.x 的图片密钥可以从 uin + wxid 直接推出来，
+	//   xor_key = uin & 0xFF
+	//   aes_key = md5(uin + wxid)[:16]
+	// uin 取自微信自己的埋点文件名，账号目录的 4 位后缀正好是 md5(uin) 的前 4 位，
+	// 可据此校验配对是否正确。推不出来也不影响其它功能，只是加密图片显示不了。
+	srcPath := viper.GetString("WECHAT_DB_SRC_PATH")
+	if (imageKey == "" || xorKey == "") && srcPath != "" {
+		if keys, err := wxkey.DeriveImageKeys(srcPath); err == nil {
+			if imageKey == "" {
+				imageKey = keys.AESKey
+			}
+			if xorKey == "" {
+				xorKey = fmt.Sprintf("%02x", keys.XORKey) // SetV4XorKey 要纯 2 位十六进制
+			}
+			log.Printf("已自动推导图片密钥 (uin=%s)", keys.UIN)
+		} else {
+			log.Printf("图片密钥自动推导失败，加密图片将无法显示: %v", err)
+		}
 	}
 
 	log.Printf("使用工作目录: %s", workDir)

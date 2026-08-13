@@ -125,23 +125,6 @@ type imageListItem struct {
 	Encrypted bool `json:"encrypted"`
 }
 
-// isEncryptedKey 判断某个图片 key 是否属于「加密、当前解不开」那一类。
-// 查询表里没有这个 key 时返回 false —— 宁可让它去尝试加载，也不要凭空标成加密。
-func isEncryptedKey(m map[string]bool, key string) bool {
-	if plain, ok := m[key]; ok {
-		return !plain
-	}
-	// key 有时带 _t / _h 之类的变体后缀，去掉再试一次
-	for _, sfx := range []string{"_t", "_h", "_M"} {
-		if trimmed := strings.TrimSuffix(key, sfx); trimmed != key {
-			if plain, ok := m[trimmed]; ok {
-				return !plain
-			}
-		}
-	}
-	return false
-}
-
 // imageListResponse 图片列表响应
 type imageListResponse struct {
 	Total int              `json:"total"`
@@ -177,9 +160,6 @@ func (a *API) GetImageList(c *gin.Context) {
 		return
 	}
 
-	// key → 是否明文可读。查不到的 key 不做判断，按可读处理，避免误报成加密
-	plainMap := a.Store.ImageKeyPlaintext(c.Request.Context())
-
 	// 从消息中提取图片信息
 	allItems := make([]*imageListItem, 0, len(messages))
 	for _, msg := range messages {
@@ -214,7 +194,6 @@ func (a *API) GetImageList(c *gin.Context) {
 			ThumbnailURL: thumbnailURL,
 			FullURL:      fullURL,
 			Seq:          msg.Seq,
-			Encrypted:    isEncryptedKey(plainMap, key),
 		}
 		allItems = append(allItems, item)
 	}
