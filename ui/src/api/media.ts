@@ -105,4 +105,6 @@ export interface ImageListItem {
   thumbnailUrl: string;
   fullUrl: string;
   seq: number;
+  /** 该图片是加密存储、当前解不出来（macOS 上 2025-05 之后的图片） */
+  encrypted?: boolean;
 }

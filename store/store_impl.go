@@ -237,6 +237,10 @@ func (s *DefaultStore) GetTalkerExtras(ctx context.Context, talker string, year,
 	return s.repo.GetTalkerExtras(ctx, talker, year, tzOffsetSec)
 }
 
+func (s *DefaultStore) ImageKeyPlaintext(ctx context.Context) map[string]bool {
+	return s.repo.ImageKeyPlaintext(ctx)
+}
+
 func (s *DefaultStore) GetBizProfile(ctx context.Context, year, tzOffsetSec int, withTitles bool) *model.BizProfile {
 	return s.repo.GetBizProfile(ctx, year, tzOffsetSec, withTitles)
 }

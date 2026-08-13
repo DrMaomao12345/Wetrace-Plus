@@ -56,6 +56,9 @@ type Store interface {
 	// 单个联系人的扩展分析（日历热力图 / 语音 / 互动与回复）
 	GetTalkerExtras(ctx context.Context, talker string, year, tzOffsetSec int) *model.TalkerExtras
 
+	// 图片可用性：哪些图片是明文、能直接读出来
+	ImageKeyPlaintext(ctx context.Context) map[string]bool
+
 	// 公众号订阅画像
 	GetBizProfile(ctx context.Context, year, tzOffsetSec int, withTitles bool) *model.BizProfile
 

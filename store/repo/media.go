@@ -217,3 +217,50 @@ func (r *Repository) getVoice(ctx context.Context, key string) (*model.Media, er
 
 	return nil, fmt.Errorf("voice not found: %s", key)
 }
+
+// ImageKeyPlaintext 返回「这张图能否直接读出来」的查询表。
+//
+// 微信 4.x 在 2025 年 5 月前后改过图片存储：此前一律写成 `<md5>_M.dat`，
+// 内容就是明文 JPEG/PNG；此后改为加密容器（魔数 07085631/07085632），
+// 需要 16 字节 AES 密钥才能解，而那把密钥由微信自研加密处理、不经过系统
+// 加密接口，目前提取不到。
+//
+// 只看 hardlink 库里的文件名后缀就能分辨，不必去读每个文件的头几个字节。
+// 消息里引用图片的 key 有两种形态 —— 有时是 md5 列，有时是文件名去掉扩展名 ——
+// 两种都登记进来，调用方拿到哪种都能查到。查不到的 key 不做判断（返回 false, false）。
+func (r *Repository) ImageKeyPlaintext(ctx context.Context) map[string]bool {
+	out := map[string]bool{}
+
+	dbPath, err := r.router.GetMediaDBPath(strategy.Image)
+	if err != nil {
+		return out
+	}
+	db, err := r.pool.GetConnection(dbPath)
+	if err != nil {
+		return out
+	}
+	if !r.isTableExist(db, "image_hardlink_info_v4") {
+		return out // V3（Windows 旧版）不适用这条规律
+	}
+
+	rows, err := db.QueryContext(ctx, `SELECT md5, file_name FROM image_hardlink_info_v4`)
+	if err != nil {
+		return out
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var md5, name string
+		if rows.Scan(&md5, &name) != nil {
+			continue
+		}
+		stem := strings.TrimSuffix(name, ".dat")
+		plain := strings.HasSuffix(stem, "_M")
+		if md5 != "" {
+			out[md5] = plain
+		}
+		if stem != "" {
+			out[stem] = plain
+		}
+	}
+	return out
+}

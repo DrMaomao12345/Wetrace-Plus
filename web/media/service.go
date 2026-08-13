@@ -154,6 +154,11 @@ type PreparedMedia struct {
 	Content     []byte
 	ContentType string
 	Error       error
+	// Encrypted 表示文件确实存在，但内容是加密的且当前解不开。
+	// 与「文件缺失」「读取出错」区分开 —— 前端据此显示占位说明而不是报错。
+	Encrypted bool
+	// Reason 是给用户看的原因说明
+	Reason string
 }
 
 // DownloadAndDecryptEmoji 下载并解密表情包
@@ -329,12 +334,25 @@ func (s *Service) prepareImageWithFallback(relativePath string, isThumb bool) Pr
 		}
 	}
 
+	var encrypted *PreparedMedia
 	for _, c := range uniqueCandidates {
 		abs := filepath.Join(s.WechatDbSrcPath, c)
 		res := s.doPrepareFile(abs, false)
-		if res.Error == nil {
-			return res
+		if res.Error != nil {
+			continue
 		}
+		if res.Encrypted {
+			// 记下来但先别返回 —— 也许别的候选（比如明文的 _M.dat）能解出来
+			if encrypted == nil {
+				r := res
+				encrypted = &r
+			}
+			continue
+		}
+		return res
+	}
+	if encrypted != nil {
+		return *encrypted
 	}
 
 	return PreparedMedia{Error: fmt.Errorf("图片文件不存在 (磁盘及缓存均未找到): %s", relativePath)}
@@ -362,7 +380,9 @@ func (s *Service) doPrepareFile(absolutePath string, isVideo bool) PreparedMedia
 
 		if isDat {
 			cachePath := filepath.Join(s.DataDir, "cache", "images", relPath)
-			if cacheContent, err := os.ReadFile(cachePath); err == nil {
+			// 只认「确实是图片」的缓存。早期版本把解密失败的乱码也写进过缓存，
+			// 校验一下就能自动跳过那些坏条目，不用手动清理。
+			if cacheContent, err := os.ReadFile(cachePath); err == nil && looksLikeImage(cacheContent) {
 				return PreparedMedia{
 					Content:     cacheContent,
 					ContentType: detectContentType(cacheContent),
@@ -388,8 +408,8 @@ func (s *Service) doPrepareFile(absolutePath string, isVideo bool) PreparedMedia
 	var res PreparedMedia
 	if isDat {
 		res = s.prepareDatFile(absolutePath)
-		// 解密成功后，异步写入缓存
-		if res.Error == nil {
+		// 只缓存真正解出来的图片：解不开的（Encrypted）内容是空的，缓存了反而有害
+		if res.Error == nil && !res.Encrypted && len(res.Content) > 0 {
 			cachePath := filepath.Join(s.DataDir, "cache", "images", relPath)
 			go func(path string, content []byte) {
 				os.MkdirAll(filepath.Dir(path), 0755)
@@ -474,14 +494,57 @@ func (s *Service) prepareDatFile(path string) PreparedMedia {
 	_ = dat2img.SetV4XorKey(s.XorKey)
 
 	out, ext, err := dat2img.Dat2Image(b)
+
+	// 微信 4.x 的加密图片（魔数 07085631/07085632）需要 16 字节 AES 密钥，
+	// 该密钥由微信自研加密处理、不经过系统加密接口，目前提取不到。
+	// 用错误的密钥解 AES-ECB 不会报错，只会产出一堆乱码 —— 所以不能只看 err，
+	// 还要检查解出来的东西到底是不是图片。
+	if isWeChatV4Encrypted(b) && (err != nil || !looksLikeImage(out)) {
+		return PreparedMedia{
+			Encrypted: true,
+			Reason:    "这张图片由微信加密存储（2025 年 5 月后的新版格式），当前无法解出",
+		}
+	}
+
 	if err != nil {
-		// 如果解码失败，则回退到提供原始数据
 		log.Warn().Err(err).Str("path", path).Msg("解码 .dat 文件失败，提供原始数据。")
 		return PreparedMedia{Content: b, ContentType: "application/octet-stream"}
 	}
 
 	contentType := getMimeTypeByExtension(ext)
 	return PreparedMedia{Content: out, ContentType: contentType}
+}
+
+// looksLikeImage 检查一段数据是不是常见图片格式的开头。
+// 用来判断「解出来的到底是图片还是乱码」。
+func looksLikeImage(b []byte) bool {
+	if len(b) < 4 {
+		return false
+	}
+	switch {
+	case b[0] == 0xFF && b[1] == 0xD8 && b[2] == 0xFF: // JPEG
+		return true
+	case b[0] == 0x89 && b[1] == 'P' && b[2] == 'N' && b[3] == 'G': // PNG
+		return true
+	case b[0] == 'G' && b[1] == 'I' && b[2] == 'F': // GIF
+		return true
+	case b[0] == 'R' && b[1] == 'I' && b[2] == 'F' && b[3] == 'F': // WEBP
+		return true
+	case b[0] == 'B' && b[1] == 'M': // BMP
+		return true
+	case b[0] == 'w' && b[1] == 'x' && b[2] == 'g' && b[3] == 'f': // 微信 WXGF
+		return true
+	}
+	return false
+}
+
+// isWeChatV4Encrypted 判断是否是微信 4.x 的加密图片容器。
+// 头 4 字节为 0x07085631（V1）或 0x07085632（V2）。
+func isWeChatV4Encrypted(b []byte) bool {
+	if len(b) < 4 {
+		return false
+	}
+	return (b[0] == 0x07 && b[1] == 0x08 && b[2] == 0x56 && (b[3] == 0x31 || b[3] == 0x32))
 }
 
 func getMimeTypeByExtension(ext string) string {

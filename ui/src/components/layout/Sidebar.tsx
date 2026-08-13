@@ -50,11 +50,7 @@ export function Sidebar() {
     { key: 'chat', icon: MessageSquare, label: '聊天', path: '/chat' },
     { key: 'contacts', icon: Users, label: '联系人', path: '/contacts' },
     { key: 'contact-reminder', icon: Clock, label: '联系提醒', path: '/contact-reminder' },
-    {
-      key: 'gallery', icon: ImageIcon, label: '图片', path: '/gallery',
-      disabled: isMac,
-      disabledReason: 'macOS 暂不支持查看图片：微信 4.x 的图片密钥由自研加密处理，不经过系统加密接口，目前无法提取。文字消息的统计与分析不受影响。',
-    },
+    { key: 'gallery', icon: ImageIcon, label: '图片', path: '/gallery' },
     {
       key: 'analysis',
       icon: BarChart3,
@@ -270,7 +266,7 @@ export function Sidebar() {
           className="text-[10px] text-muted-foreground/40 hover:text-muted-foreground text-center py-1 w-full transition-colors"
           title="查看更新日志"
         >
-          v2.4.2
+          v2.5.0
         </button>
 
         <div className="flex items-center gap-1 mt-1 px-1">
@@ -282,16 +278,10 @@ export function Sidebar() {
             <Key className="w-4 h-4" />
           </button>
           <button
-            onClick={() => { if (!isMac) handleFullCache() }}
-            disabled={isMac}
-            className={cn(
-              "flex-1 h-8 flex items-center justify-center rounded-lg transition-colors",
-              isMac
-                ? "text-muted-foreground/30 cursor-not-allowed"
-                : "text-muted-foreground hover:bg-muted hover:text-foreground",
-            )}
+            onClick={handleFullCache}
+            className="flex-1 h-8 flex items-center justify-center rounded-lg transition-colors text-muted-foreground hover:bg-muted hover:text-foreground"
             title={isMac
-              ? "macOS 不可用：图片密钥无法提取，预加载出来也是空的"
+              ? "预加载全量图片（macOS 上 2025 年 5 月之后的加密图片会跳过）"
               : "预加载全量图片"}
           >
             <ImageIcon className="w-4 h-4" />

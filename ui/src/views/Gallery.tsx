@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import {
   ImageIcon,
+  ImageOff,
   X,
   ChevronLeft,
   ChevronRight,
@@ -16,6 +17,12 @@ export default function GalleryView() {
   const [talkerFilter, setTalkerFilter] = useState("")
   const [timeRange, setTimeRange] = useState("all")
   const [offset, setOffset] = useState(0)
+  // 实际加载失败的图片 —— 后端对解不开的图片返回 415，这里据此显示占位。
+  // 比在后端预判可靠：消息里引用的 key 未必能在 hardlink 库里查到。
+  const [failedKeys, setFailedKeys] = useState<Set<string>>(new Set())
+  const markFailed = (key: string) =>
+    setFailedKeys((prev) => (prev.has(key) ? prev : new Set(prev).add(key)))
+  const encryptedCount = failedKeys.size
   const [previewItem, setPreviewItem] = useState<ImageListItem | null>(null)
   const limit = 50
 
@@ -59,6 +66,14 @@ export default function GalleryView() {
         {data && (
           <div className="text-sm text-muted-foreground mb-4">
             共 <span className="font-bold text-foreground">{data.total}</span> 张图片
+            {encryptedCount > 0 && (
+              <span
+                className="ml-2 text-xs"
+                title="微信在 2025 年 5 月前后改了图片存储方式：此前是明文，可以正常显示；此后改为加密，需要的密钥由微信自研加密处理、不经过系统加密接口，目前提取不到。"
+              >
+                · 本页 {encryptedCount} 张为加密图片，无法显示
+              </span>
+            )}
           </div>
         )}
       </div>
@@ -67,6 +82,8 @@ export default function GalleryView() {
       <ScrollArea className="flex-1 px-6">
         <div className="max-w-5xl mx-auto w-full pb-20">
           <ImageGrid
+            failedKeys={failedKeys}
+            onFailed={markFailed}
             items={data?.items}
             isLoading={isLoading}
             onPreview={setPreviewItem}
@@ -175,10 +192,14 @@ function ImageGrid({
   items,
   isLoading,
   onPreview,
+  failedKeys,
+  onFailed,
 }: {
   items: ImageListItem[] | undefined
   isLoading: boolean
   onPreview: (item: ImageListItem) => void
+  failedKeys: Set<string>
+  onFailed: (key: string) => void
 }) {
   if (isLoading) {
     return (
@@ -208,12 +229,23 @@ function ImageGrid({
           className="group relative aspect-square rounded-lg overflow-hidden bg-muted cursor-pointer hover:ring-2 hover:ring-primary/40 transition-all"
           onClick={() => onPreview(item)}
         >
-          <img
-            src={item.thumbnailUrl}
-            alt=""
-            className="w-full h-full object-cover"
-            loading="lazy"
-          />
+          {item.encrypted || failedKeys.has(item.key) ? (
+            <div
+              className="flex h-full w-full flex-col items-center justify-center gap-1 text-muted-foreground"
+              title="这张图片由微信加密存储（2025 年 5 月后的新版格式），当前无法解出"
+            >
+              <ImageOff className="h-6 w-6 opacity-40" />
+              <span className="text-[10px] opacity-60">加密图片</span>
+            </div>
+          ) : (
+            <img
+              src={item.thumbnailUrl}
+              alt=""
+              className="w-full h-full object-cover"
+              loading="lazy"
+              onError={() => onFailed(item.key)}
+            />
+          )}
           <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent p-2 opacity-0 group-hover:opacity-100 transition-opacity">
             <p className="text-white text-[10px] truncate">{item.talkerName}</p>
             <p className="text-white/70 text-[10px]">

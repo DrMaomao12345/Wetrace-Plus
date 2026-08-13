@@ -26,6 +26,16 @@ func SendSuccess(c *gin.Context, data interface{}) {
 
 // SendMedia 使用准备好的媒体内容或错误进行响应。
 func SendMedia(c *gin.Context, pm media.PreparedMedia) {
+	// 文件存在但解不开：用 415 与「找不到」「服务器错误」区分开，
+	// 前端据此显示占位说明，而不是当成加载失败去重试。
+	if pm.Encrypted {
+		c.JSON(http.StatusUnsupportedMediaType, gin.H{
+			"success":   false,
+			"encrypted": true,
+			"message":   pm.Reason,
+		})
+		return
+	}
 	if pm.Error != nil {
 		if strings.Contains(pm.Error.Error(), "not found") || strings.Contains(pm.Error.Error(), "does not exist") {
 			NotFound(c, pm.Error.Error())
