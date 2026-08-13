@@ -144,14 +144,21 @@ func NewAPI(s store.Store, m *media.Service, conf *Config, staticFS fs.FS) *API 
 		s.SetDefaultTzModifier(buildTzModifier(off))
 	}
 
-	// 初始化语音转文字缓存
+	// 初始化语音转文字缓存，并接给存储层 —— 年度报告的字数统计要把
+	// 语音转写出来的文字也算进「说了多少字」。
 	if ts, err := transcripts.NewStore(conf.DataDir); err == nil {
 		a.Transcripts = ts
+		if s != nil {
+			s.SetTranscripts(ts)
+		}
 	}
 
 	// Initialize sync scheduler
 	syncFunc := func() error {
 		_, _, err := decrypt.RunTask(conf.WechatDbSrcPath, conf.WechatDbKey)
+		// 同步进来的新语音顺手转成文字（开关在设置里，默认关）。
+		// 放在 defer 里是为了无论解密结果如何都先把已有数据处理掉。
+		defer a.maybeAutoTranscribe()
 		if err != nil {
 			return err
 		}

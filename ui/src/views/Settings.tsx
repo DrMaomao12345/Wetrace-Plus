@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from "react"
 import { QRCodeSVG } from "qrcode.react"
 import { cn } from "@/lib/utils"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { systemApi, sessionApi } from "@/api"
+import { systemApi, sessionApi, mediaApi } from "@/api"
 import { toast } from "sonner"
 import type {
   AIConfigUpdate,
@@ -927,6 +927,7 @@ function TTSConfigSection() {
     local_mode: false,
     local_binary: "",
     local_model: "",
+    auto: false,
   })
 
   const { data: config, isLoading } = useQuery({
@@ -945,6 +946,7 @@ function TTSConfigSection() {
         local_mode: (config as any).local_mode || false,
         local_binary: (config as any).local_binary || "",
         local_model: (config as any).local_model || "",
+        auto: (config as any).auto || false,
       })
     }
   }, [config])
@@ -1010,6 +1012,44 @@ function TTSConfigSection() {
 
         {form.enabled && (
           <>
+            {/* 自动转写 */}
+            <div className="flex items-center justify-between">
+              <div>
+                <label className="text-sm font-medium leading-none">自动转文字</label>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  每次数据同步后自动把新语音转成文字；转出来的字数会计入年度报告
+                </p>
+              </div>
+              <Switch
+                checked={form.auto || false}
+                onCheckedChange={(v) => setForm((f) => ({ ...f, auto: v }))}
+              />
+            </div>
+
+            {/* 一次性把历史语音全部转写 */}
+            <div className="flex items-center justify-between rounded-md border border-input px-3 py-2">
+              <div>
+                <div className="text-sm">转写全部历史语音</div>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  扫描所有会话里尚未转写的语音，后台逐条处理，可在聊天页查看进度
+                </p>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={async () => {
+                  try {
+                    await mediaApi.transcribeSession("")
+                    toast.success("已开始转写全部语音，可在聊天页查看进度")
+                  } catch (e: any) {
+                    toast.error(e?.message || "启动失败")
+                  }
+                }}
+              >
+                开始
+              </Button>
+            </div>
+
             {/* 模式切换 */}
             <div className="flex items-center justify-between">
               <div>

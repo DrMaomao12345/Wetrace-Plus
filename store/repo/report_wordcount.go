@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/afumu/wetrace/internal/model"
@@ -34,6 +35,9 @@ func (r *Repository) GetAnnualWordCounts(
 		recv      int
 		sentCount int
 		recvCount int
+		// 语音转写贡献的字数，单独记一份，既并入总数也能单列展示
+		voiceSent int
+		voiceRecv int
 	}
 	agg := make(map[string]*stats)
 
@@ -44,6 +48,7 @@ func (r *Repository) GetAnnualWordCounts(
 	if err != nil {
 		return nil, err
 	}
+	tl := r.transcriptLookup() // 没有任何转写结果时为 nil，整段跳过
 
 	allowTalker := r.TalkerFilter(ctx, model.ModuleReport)
 	for _, session := range sessions {
@@ -68,6 +73,16 @@ func (r *Repository) GetAnnualWordCounts(
 				s.recv += wc.recv
 				s.sentCount += wc.sentCount
 				s.recvCount += wc.recvCount
+
+				// 语音转写出来的文字也算「说了多少字」。只有存在转写结果时才多跑这一次查询。
+				if tl != nil {
+					vs, vr := r.queryVoiceTranscriptChars(ctx, db, tableName, talker, isGroup,
+						yearStart.Unix(), yearEnd.Unix(), tl)
+					s.sent += vs
+					s.recv += vr
+					s.voiceSent += vs
+					s.voiceRecv += vr
+				}
 			} else {
 				wc := r.queryWordCountV3(ctx, db, target, yearStart.Unix()*1000, yearEnd.Unix()*1000)
 				s.sent += wc.sent
@@ -86,6 +101,7 @@ func (r *Repository) GetAnnualWordCounts(
 		result.SentChars += s.sent
 		result.RecvChars += s.recv
 		result.TotalChars += s.sent + s.recv
+		result.VoiceChars += s.voiceSent + s.voiceRecv
 		result.Contacts = append(result.Contacts, &model.ContactWordCountStat{
 			Talker:     talker,
 			SentChars:  s.sent,
@@ -94,6 +110,7 @@ func (r *Repository) GetAnnualWordCounts(
 			SentCount:  s.sentCount,
 			RecvCount:  s.recvCount,
 			TotalCount: s.sentCount + s.recvCount,
+			VoiceChars: s.voiceSent + s.voiceRecv,
 		})
 	}
 	return result, nil
@@ -164,4 +181,54 @@ func (r *Repository) queryWordCountV3(ctx context.Context, db *sql.DB, target bi
 		}
 	}
 	return wcResult{}
+}
+
+// queryVoiceTranscriptChars 统计某个会话在时间区间内、已转写成文字的语音消息字数。
+//
+// 转写文本按语音消息的 server_id 存放在 transcripts 里，SQL 侧无从 join，
+// 因此这里把区间内的语音消息列出来，再逐条查转写表累加字符数。
+// 只在确实存在转写结果时才会被调用。
+func (r *Repository) queryVoiceTranscriptChars(ctx context.Context, db *sql.DB,
+	tableName, talker string, isGroup bool, startUnix, endUnix int64,
+	tl TranscriptLookup) (sentChars, recvChars int) {
+
+	var query string
+	var args []interface{}
+	if isGroup {
+		query = fmt.Sprintf(`
+			SELECT m.server_id, (m.status = 2 OR m.real_sender_id = 0) AS is_self
+			FROM %s m
+			WHERE (m.local_type & 4294967295) = 34 AND m.create_time >= ? AND m.create_time <= ?`, tableName)
+		args = []interface{}{startUnix, endUnix}
+	} else {
+		query = fmt.Sprintf(`
+			SELECT m.server_id, (m.status = 2 OR m.real_sender_id = 0 OR n.user_name != ?) AS is_self
+			FROM %s m LEFT JOIN Name2Id n ON m.real_sender_id = n.rowid
+			WHERE (m.local_type & 4294967295) = 34 AND m.create_time >= ? AND m.create_time <= ?`, tableName)
+		args = []interface{}{talker, startUnix, endUnix}
+	}
+
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return 0, 0
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var serverID int64
+		var isSelf int
+		if rows.Scan(&serverID, &isSelf) != nil {
+			continue
+		}
+		text, ok := tl.Get(strconv.FormatInt(serverID, 10))
+		if !ok || text == "" {
+			continue
+		}
+		n := len([]rune(text))
+		if isSelf == 1 {
+			sentChars += n
+		} else {
+			recvChars += n
+		}
+	}
+	return sentChars, recvChars
 }

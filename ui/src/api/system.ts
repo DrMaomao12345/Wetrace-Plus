@@ -77,6 +77,8 @@ export interface BackupHistoryItem {
 
 export interface TTSConfig {
   enabled: boolean;
+  /** 每次数据同步后自动把新语音转成文字 */
+  auto?: boolean;
   provider: string;
   base_url: string;
   api_key_masked: string;
@@ -113,6 +115,7 @@ export interface TTSConfigUpdate {
   local_mode?: boolean;
   local_binary?: string;
   local_model?: string;
+  auto?: boolean;
 }
 
 export interface AIPromptsResponse {

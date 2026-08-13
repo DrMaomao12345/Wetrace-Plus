@@ -81,6 +81,29 @@ func (a *API) GetMessages(c *gin.Context) {
 		messages = make([]*model.Message, 0)
 	}
 
-	// 4. 发送成功响应
+	// 4. 把已有的语音转写文本一并带上，聊天界面无需再逐条点「转文字」
+	a.attachVoiceTranscripts(messages)
+
+	// 5. 发送成功响应
 	transport.SendSuccess(c, messages)
+}
+
+// attachVoiceTranscripts 给语音消息补上已转写好的文本（有才补，没有就不动）。
+// 转写按语音的 server_id 存放，消息里对应 Contents["voice"]。
+func (a *API) attachVoiceTranscripts(messages []*model.Message) {
+	if a.Transcripts == nil || a.Transcripts.Len() == 0 {
+		return
+	}
+	for _, m := range messages {
+		if m == nil || m.Contents == nil {
+			continue
+		}
+		id, ok := m.Contents["voice"].(string)
+		if !ok || id == "" {
+			continue
+		}
+		if text, ok := a.Transcripts.Get(id); ok && text != "" {
+			m.Contents["transcript"] = text
+		}
+	}
 }

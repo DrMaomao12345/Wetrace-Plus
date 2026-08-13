@@ -595,6 +595,7 @@ func (a *API) GetTTSConfig(c *gin.Context) {
 		"local_mode":     viper.GetBool("TTS_LOCAL_MODE"),
 		"local_binary":   viper.GetString("TTS_LOCAL_BINARY"),
 		"local_model":    viper.GetString("TTS_LOCAL_MODEL"),
+		"auto":           viper.GetBool("TTS_AUTO"),
 	})
 }
 
@@ -609,6 +610,8 @@ func (a *API) UpdateTTSConfig(c *gin.Context) {
 		LocalMode    bool   `json:"local_mode"`
 		LocalBinary  string `json:"local_binary"`
 		LocalModel   string `json:"local_model"`
+		// Auto 打开后，每次数据同步完成会自动把新语音转成文字
+		Auto bool `json:"auto"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		transport.BadRequest(c, "参数错误")
@@ -628,6 +631,7 @@ func (a *API) UpdateTTSConfig(c *gin.Context) {
 	viper.Set("TTS_LOCAL_MODE", req.LocalMode)
 	viper.Set("TTS_LOCAL_BINARY", req.LocalBinary)
 	viper.Set("TTS_LOCAL_MODEL", req.LocalModel)
+	viper.Set("TTS_AUTO", req.Auto)
 
 	if err := viper.WriteConfig(); err != nil {
 		transport.InternalServerError(c, "保存配置失败: "+err.Error())

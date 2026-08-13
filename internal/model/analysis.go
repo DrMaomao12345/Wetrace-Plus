@@ -125,6 +125,8 @@ type WordCountStat struct {
 	TotalChars int                     `json:"total_chars"`
 	SentChars  int                     `json:"sent_chars"`
 	RecvChars  int                     `json:"recv_chars"`
+	// VoiceChars 是上面总数里由语音转写贡献的部分（未转写的语音不计）
+	VoiceChars int `json:"voice_chars"`
 	Contacts   []*ContactWordCountStat `json:"contacts"` // 按 talker 分组
 }
 
@@ -134,6 +136,7 @@ type ContactWordCountStat struct {
 	SentChars  int    `json:"sentChars"`
 	RecvChars  int    `json:"recvChars"`
 	TotalChars int    `json:"totalChars"`
+	VoiceChars int    `json:"voiceChars"`
 	SentCount  int    `json:"sentCount"`  // 我发送的消息条数（不含系统消息）
 	RecvCount  int    `json:"recvCount"`  // 对方发送的消息条数
 	TotalCount int    `json:"totalCount"` // 总消息条数

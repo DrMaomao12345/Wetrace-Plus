@@ -18,6 +18,7 @@ import (
 	"github.com/afumu/wetrace/web/transport"
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog/log"
+	"github.com/spf13/viper"
 )
 
 // GetMedia 处理媒体文件（如图片、视频、语音等）的请求。
@@ -481,10 +482,11 @@ func (a *API) TranscribeVoice(c *gin.Context) {
 
 // TranscribeSession 启动后台任务：批量将会话中所有语音消息转文字并缓存
 func (a *API) TranscribeSession(c *gin.Context) {
+	// talker 留空表示「全部会话」—— 用于一次性把历史语音全部转写出来
 	var req struct {
-		Talker string `json:"talker" binding:"required"`
+		Talker string `json:"talker"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil || req.Talker == "" {
+	if err := c.ShouldBindJSON(&req); err != nil {
 		transport.BadRequest(c, "参数错误")
 		return
 	}
@@ -498,24 +500,54 @@ func (a *API) TranscribeSession(c *gin.Context) {
 	a.batchJob = &BatchTranscribeJob{Talker: req.Talker, Running: true}
 	a.mu.Unlock()
 
-	go func() {
-		ctx := context.Background()
+	go a.runBatchTranscribe(req.Talker)
+
+	transport.SendSuccess(c, gin.H{"message": "转文字任务已启动"})
+}
+
+// runBatchTranscribe 把指定会话（talker 为空表示全部会话）里尚未转写的语音
+// 逐条转成文字并落盘。调用方需要先把 batchJob 标记为 Running。
+func (a *API) runBatchTranscribe(talker string) {
+	ctx := context.Background()
+
+	// 没有配置识别服务就别往下走 —— 否则后面调用 Transcribe 会空指针
+	if a.TTS == nil {
+		a.mu.Lock()
+		if a.batchJob != nil {
+			a.batchJob.Running = false
+		}
+		a.mu.Unlock()
+		log.Warn().Msg("批量语音转文字：未配置识别服务，任务取消")
+		return
+	}
+
+	// talker 为空 → 把所有会话都扫一遍
+	talkers := []string{talker}
+	if talker == "" {
+		talkers = talkers[:0]
+		if sessions, err := a.Store.GetSessions(ctx, types.SessionQuery{Limit: 0}); err == nil {
+			for _, ss := range sessions {
+				talkers = append(talkers, ss.UserName)
+			}
+		}
+	}
+
+	type voiceItem struct {
+		voiceID string
+		msg     *model.Message
+	}
+	var voices []voiceItem
+	for _, tk := range talkers {
+		// 必须给时间范围：分片路由靠它挑选消息库，留空会一条都取不到
 		msgs, err := a.Store.GetMessages(ctx, types.MessageQuery{
-			Talker: req.Talker,
-			Limit:  100000,
+			Talker:    tk,
+			StartTime: time.Date(2009, 1, 1, 0, 0, 0, 0, time.UTC),
+			EndTime:   time.Now(),
+			Limit:     100000,
 		})
 		if err != nil {
-			a.mu.Lock()
-			a.batchJob.Running = false
-			a.mu.Unlock()
-			return
+			continue
 		}
-
-		type voiceItem struct {
-			voiceID string
-			msg     *model.Message
-		}
-		var voices []voiceItem
 		for _, m := range msgs {
 			if m.Type != 34 || m.Contents == nil {
 				continue
@@ -530,82 +562,80 @@ func (a *API) TranscribeSession(c *gin.Context) {
 			}
 			voices = append(voices, voiceItem{voiceID: id, msg: m})
 		}
+	}
 
-		a.mu.Lock()
-		a.batchJob.Total = len(voices)
-		a.mu.Unlock()
+	a.mu.Lock()
+	a.batchJob.Total = len(voices)
+	a.mu.Unlock()
 
-		for _, item := range voices {
-			// Already cached — count as done
-			if a.Transcripts != nil {
-				if _, ok := a.Transcripts.Get(item.voiceID); ok {
-					a.mu.Lock()
-					a.batchJob.Done++
-					a.mu.Unlock()
-					continue
-				}
-			}
-
-			if a.TTS == nil {
+	for _, item := range voices {
+		// Already cached — count as done
+		if a.Transcripts != nil {
+			if _, ok := a.Transcripts.Get(item.voiceID); ok {
 				a.mu.Lock()
-				a.batchJob.Errors++
 				a.batchJob.Done++
 				a.mu.Unlock()
 				continue
 			}
+		}
 
-			var mediaInfo *model.Media
-			if item.msg.Contents != nil {
-				if rawData, ok := item.msg.Contents["_raw_data"].([]byte); ok && len(rawData) > 0 {
-					mediaInfo = &model.Media{Type: "voice", Key: item.voiceID, Data: rawData}
-				}
-			}
-			if mediaInfo == nil {
-				var fetchErr error
-				mediaInfo, fetchErr = a.Store.GetMedia(ctx, "voice", item.voiceID)
-				if fetchErr != nil {
-					a.mu.Lock()
-					a.batchJob.Errors++
-					a.batchJob.Done++
-					a.mu.Unlock()
-					continue
-				}
-			}
-
-			prepared := a.Media.Prepare(mediaInfo, false)
-			if prepared.Error != nil || len(prepared.Content) == 0 {
-				a.mu.Lock()
-				a.batchJob.Errors++
-				a.batchJob.Done++
-				a.mu.Unlock()
-				continue
-			}
-
-			text, transcribeErr := a.TTS.Transcribe(prepared.Content, "voice.mp3")
-			if transcribeErr != nil {
-				log.Error().Err(transcribeErr).Str("id", item.voiceID).Msg("批量语音转文字失败")
-				a.mu.Lock()
-				a.batchJob.Errors++
-				a.batchJob.Done++
-				a.mu.Unlock()
-				continue
-			}
-
-			if a.Transcripts != nil {
-				_ = a.Transcripts.Set(item.voiceID, text)
-			}
-
+		if a.TTS == nil {
 			a.mu.Lock()
+			a.batchJob.Errors++
 			a.batchJob.Done++
 			a.mu.Unlock()
+			continue
+		}
+
+		var mediaInfo *model.Media
+		if item.msg.Contents != nil {
+			if rawData, ok := item.msg.Contents["_raw_data"].([]byte); ok && len(rawData) > 0 {
+				mediaInfo = &model.Media{Type: "voice", Key: item.voiceID, Data: rawData}
+			}
+		}
+		if mediaInfo == nil {
+			var fetchErr error
+			mediaInfo, fetchErr = a.Store.GetMedia(ctx, "voice", item.voiceID)
+			if fetchErr != nil {
+				a.mu.Lock()
+				a.batchJob.Errors++
+				a.batchJob.Done++
+				a.mu.Unlock()
+				continue
+			}
+		}
+
+		prepared := a.Media.Prepare(mediaInfo, false)
+		if prepared.Error != nil || len(prepared.Content) == 0 {
+			a.mu.Lock()
+			a.batchJob.Errors++
+			a.batchJob.Done++
+			a.mu.Unlock()
+			continue
+		}
+
+		text, transcribeErr := a.TTS.Transcribe(prepared.Content, "voice.mp3")
+		if transcribeErr != nil {
+			log.Error().Err(transcribeErr).Str("id", item.voiceID).Msg("批量语音转文字失败")
+			a.mu.Lock()
+			a.batchJob.Errors++
+			a.batchJob.Done++
+			a.mu.Unlock()
+			continue
+		}
+
+		if a.Transcripts != nil {
+			_ = a.Transcripts.Set(item.voiceID, text)
 		}
 
 		a.mu.Lock()
-		a.batchJob.Running = false
+		a.batchJob.Done++
 		a.mu.Unlock()
-	}()
+	}
 
-	transport.SendSuccess(c, gin.H{"message": "转文字任务已启动"})
+	a.mu.Lock()
+	a.batchJob.Running = false
+	a.mu.Unlock()
 }
 
 // GetTranscribeSessionStatus 查询批量转文字任务进度
@@ -791,4 +821,21 @@ func sanitizeFileName(name string) string {
 		result = result[:50]
 	}
 	return result
+}
+
+// maybeAutoTranscribe 在开启「自动转文字」且已配置识别服务时，
+// 后台把尚未转写的语音补齐。已在跑的任务不会被重复触发。
+func (a *API) maybeAutoTranscribe() {
+	if !viper.GetBool("TTS_AUTO") {
+		return
+	}
+	a.mu.Lock()
+	if a.TTS == nil || (a.batchJob != nil && a.batchJob.Running) {
+		a.mu.Unlock()
+		return
+	}
+	a.mu.Unlock()
+
+	log.Info().Msg("自动语音转文字：开始扫描未转写的语音")
+	a.runBatchTranscribe("")
 }

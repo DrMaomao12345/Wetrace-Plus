@@ -34,6 +34,13 @@ func (s *Store) Get(id string) (string, bool) {
 	return text, ok
 }
 
+// Len 返回已缓存的转写条数。统计侧用它判断「是否值得为语音字数多跑一趟查询」。
+func (s *Store) Len() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.data)
+}
+
 // Set 保存转文字结果并持久化
 func (s *Store) Set(id, text string) error {
 	s.mu.Lock()

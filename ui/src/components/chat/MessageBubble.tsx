@@ -59,7 +59,14 @@ export function MessageBubble({ message, showAvatar = true, showTime = false, sh
       case MessageType.Image:
         return <ImageMessage id={message.id || message.seq} md5={message.contents?.md5} path={message.contents?.path} content={message.content} />
       case MessageType.Voice:
-        return <VoiceMessage id={message.contents?.voice} isSelf={isSelf} duration={message.duration} />
+        return (
+          <VoiceMessage
+            id={message.contents?.voice}
+            isSelf={isSelf}
+            duration={message.duration}
+            transcript={message.contents?.transcript}
+          />
+        )
       case MessageType.Video:
         return <VideoMessage md5={message.contents?.md5} />
       case MessageType.Emoji:

@@ -21,8 +21,9 @@ type Repository struct {
 	tzMu       sync.RWMutex
 	defaultTzM string // SQLite strftime 修饰符，例如 'localtime' 或 '+28800 seconds'
 
-	tagCache   talkerTagCache // 会话类型自动分类缓存
-	scopeState scopeState     // 当前生效的统计范围配置
+	tagCache    talkerTagCache  // 会话类型自动分类缓存
+	scopeState  scopeState      // 当前生效的统计范围配置
+	transcripts transcriptState // 语音转写文本查询表
 }
 
 // New 创建一个新的 Repository

@@ -7,14 +7,16 @@ interface VoiceMessageProps {
   id: string
   isSelf?: boolean
   duration?: number
+  /** 后端已转写好的文本 —— 有就直接显示，不必再点一次「转文字」 */
+  transcript?: string
 }
 
-export function VoiceMessage({ id, isSelf, duration }: VoiceMessageProps) {
+export function VoiceMessage({ id, isSelf, duration, transcript }: VoiceMessageProps) {
   const [isPlaying, setIsPlaying] = useState(false)
   const [animationStep, setAnimationStep] = useState(3)
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const animationIntervalRef = useRef<number | null>(null)
-  const [transcribeText, setTranscribeText] = useState<string | null>(null)
+  const [transcribeText, setTranscribeText] = useState<string | null>(transcript ?? null)
   const [isTranscribing, setIsTranscribing] = useState(false)
 
   // 启动时自动加载已缓存的转文字结果
