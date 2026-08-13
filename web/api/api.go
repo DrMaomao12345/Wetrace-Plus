@@ -32,6 +32,13 @@ type BatchTranscribeJob struct {
 	Done    int
 	Errors  int
 	Running bool
+	// 当前正在转写谁、上一条转出了什么 —— 给界面显示用
+	CurrentTalker string
+	CurrentName   string
+	LastText      string
+	Skipped       int  // 微信自带转写 / 已缓存而跳过的
+	Canceled      bool // 是被手动中断的，不是跑完的
+	cancel        context.CancelFunc
 }
 
 // API 封装了 API 处理器所需的所有依赖。

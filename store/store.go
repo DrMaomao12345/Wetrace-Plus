@@ -60,6 +60,12 @@ type Store interface {
 	// 语音转写文本查询表（供字数统计把转写字数并进来）
 	SetTranscripts(t repo.TranscriptLookup)
 
+	// 批量转写：列出语音消息（含微信自带转写，talker 为空表示全部会话）
+	ListVoiceMessages(ctx context.Context, talker string) []*repo.VoiceRef
+
+	// 图库：按时间倒序列出图片消息（talker 为空表示全部会话）
+	ListImageMessages(ctx context.Context, talker string, start, end time.Time) []*repo.ImageRef
+
 	// 图片可用性：哪些图片是明文、能直接读出来
 	ImageKeyPlaintext(ctx context.Context) map[string]bool
 

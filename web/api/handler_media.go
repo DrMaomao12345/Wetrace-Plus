@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/afumu/wetrace/internal/model"
+	"github.com/afumu/wetrace/store/repo"
 	"github.com/afumu/wetrace/store/types"
 	"github.com/afumu/wetrace/web/transport"
 	"github.com/gin-gonic/gin"
@@ -134,6 +135,48 @@ type imageListItem struct {
 	Encrypted bool `json:"encrypted"`
 }
 
+// resolveTalkerFilter 把用户输入解析成「精确会话 ID」或「模糊名字过滤」。
+// 输入正好等于某个会话 ID 时走精确匹配，只扫那一张表；
+// 否则当作名字关键词，扫全部再按名字过滤。
+func resolveTalkerFilter(input string, nameOf map[string]string) (talker, nameFilter string) {
+	input = strings.TrimSpace(input)
+	if input == "" {
+		return "", ""
+	}
+	if _, ok := nameOf[input]; ok {
+		return input, ""
+	}
+	// 名字精确命中唯一一个会话时，也能走精确路径
+	var hit string
+	var n int
+	lower := strings.ToLower(input)
+	for id, name := range nameOf {
+		if strings.EqualFold(name, input) {
+			hit = id
+			n++
+		}
+	}
+	if n == 1 {
+		return hit, ""
+	}
+	return "", lower
+}
+
+// talkerNameMap 会话 ID → 展示名
+func (a *API) talkerNameMap(ctx context.Context) map[string]string {
+	out := map[string]string{}
+	sessions, err := a.Store.GetSessions(ctx, types.SessionQuery{Limit: 0})
+	if err != nil {
+		return out
+	}
+	for _, s := range sessions {
+		if s.NickName != "" {
+			out[s.UserName] = s.NickName
+		}
+	}
+	return out
+}
+
 // imageListResponse 图片列表响应
 type imageListResponse struct {
 	Total int              `json:"total"`
@@ -152,59 +195,41 @@ func (a *API) GetImageList(c *gin.Context) {
 	var startTime, endTime time.Time
 	startTime, endTime = parseImageTimeRange(q.TimeRange)
 
-	// 构建消息查询：MsgType=3 表示图片消息
-	msgQuery := types.MessageQuery{
-		Talker:    q.Talker,
-		MsgType:   model.MessageTypeImage,
-		StartTime: startTime,
-		EndTime:   endTime,
-		Limit:     200000,
-		Offset:    0,
-	}
+	// 直接扫消息表拿图片清单（按时间倒序）。
+	// 早先走 GetMessages：不传 talker 时它要求必须有 talker，于是返回空、
+	// 悄悄回退到「扫缓存目录」—— 结果列表变成缓存文件、时间成了文件修改时间，
+	// 时间筛选和排序全都失效。
+	nameOf := a.talkerNameMap(c.Request.Context())
 
-	messages, err := a.Store.GetMessages(c.Request.Context(), msgQuery)
-	if err != nil {
-		log.Error().Err(err).Msg("获取图片消息列表失败")
-		transport.InternalServerError(c, "获取图片列表失败。")
-		return
-	}
+	// 筛选框既接受会话 ID，也接受昵称/备注 —— 没人记得住 wxid。
+	// 能唯一定位到一个会话时按 ID 精确查（快），否则退化成对结果按名字过滤。
+	scanTalker, nameFilter := resolveTalkerFilter(q.Talker, nameOf)
 
-	// 从消息中提取图片信息
-	allItems := make([]*imageListItem, 0, len(messages))
-	for _, msg := range messages {
-		key := ""
-		if msg.Contents != nil {
-			if md5, ok := msg.Contents["md5"].(string); ok {
-				key = md5
+	refs := a.Store.ListImageMessages(c.Request.Context(), scanTalker, startTime, endTime)
+
+	allItems := make([]*imageListItem, 0, len(refs))
+	for _, ref := range refs {
+		if nameFilter != "" {
+			hay := strings.ToLower(nameOf[ref.Talker] + " " + ref.Talker)
+			if !strings.Contains(hay, nameFilter) {
+				continue
 			}
 		}
-		if key == "" {
-			continue
+		thumbnailURL := fmt.Sprintf("/api/v1/media/image/%s?thumb=1", ref.MD5)
+		fullURL := fmt.Sprintf("/api/v1/media/image/%s", ref.MD5)
+		name := nameOf[ref.Talker]
+		if name == "" {
+			name = ref.Talker
 		}
-
-		path := ""
-		if msg.Contents != nil {
-			if p, ok := msg.Contents["path"].(string); ok {
-				path = p
-			}
-		}
-		thumbnailURL := fmt.Sprintf("/api/v1/media/image/%s?thumb=1", key)
-		fullURL := fmt.Sprintf("/api/v1/media/image/%s", key)
-		if path != "" {
-			thumbnailURL += "&path=" + url.QueryEscape(path)
-			fullURL += "?path=" + url.QueryEscape(path)
-		}
-
-		item := &imageListItem{
-			Key:          key,
-			Talker:       msg.Talker,
-			TalkerName:   msg.TalkerName,
-			Time:         msg.Time.Format(time.RFC3339),
+		allItems = append(allItems, &imageListItem{
+			Key:          ref.MD5,
+			Talker:       ref.Talker,
+			TalkerName:   name,
+			Time:         ref.Time.Format(time.RFC3339),
 			ThumbnailURL: thumbnailURL,
 			FullURL:      fullURL,
-			Seq:          msg.Seq,
-		}
-		allItems = append(allItems, item)
+			Seq:          ref.Seq,
+		})
 	}
 
 	// 当数据库查询结果为空时，扫描本地缓存目录获取图片列表
@@ -485,149 +510,137 @@ func (a *API) TranscribeSession(c *gin.Context) {
 		transport.BadRequest(c, "已有转文字任务在进行中")
 		return
 	}
-	a.batchJob = &BatchTranscribeJob{Talker: req.Talker, Running: true}
+	ctx, cancel := context.WithCancel(context.Background())
+	a.batchJob = &BatchTranscribeJob{Talker: req.Talker, Running: true, cancel: cancel}
 	a.mu.Unlock()
 
-	go a.runBatchTranscribe(req.Talker)
+	go a.runBatchTranscribe(ctx, req.Talker)
 
 	transport.SendSuccess(c, gin.H{"message": "转文字任务已启动"})
 }
 
 // runBatchTranscribe 把指定会话（talker 为空表示全部会话）里尚未转写的语音
 // 逐条转成文字并落盘。调用方需要先把 batchJob 标记为 Running。
-func (a *API) runBatchTranscribe(talker string) {
-	ctx := context.Background()
-
-	// 没有配置识别服务就别往下走 —— 否则后面调用 Transcribe 会空指针
-	if a.TTS == nil {
+//
+// 内存上刻意做了约束：不再把每个会话的全部消息载入内存筛语音，
+// 而是直接扫消息表只取语音的 server_id（几万条也就几 MB）。
+// 每转完一条立刻落盘，中途被打断也不会丢进度。
+func (a *API) runBatchTranscribe(ctx context.Context, talker string) {
+	finish := func() {
 		a.mu.Lock()
 		if a.batchJob != nil {
 			a.batchJob.Running = false
+			a.batchJob.CurrentTalker = ""
+			a.batchJob.CurrentName = ""
 		}
 		a.mu.Unlock()
+	}
+
+	if a.TTS == nil {
 		log.Warn().Msg("批量语音转文字：未配置识别服务，任务取消")
+		finish()
 		return
 	}
 
-	// talker 为空 → 把所有会话都扫一遍
-	talkers := []string{talker}
-	if talker == "" {
-		talkers = talkers[:0]
-		if sessions, err := a.Store.GetSessions(ctx, types.SessionQuery{Limit: 0}); err == nil {
-			for _, ss := range sessions {
-				talkers = append(talkers, ss.UserName)
-			}
-		}
-	}
+	// 1. 枚举语音（直接扫表，不走 GetMessages）
+	refs := a.Store.ListVoiceMessages(ctx, talker)
 
-	type voiceItem struct {
-		voiceID string
-		msg     *model.Message
-	}
-	var voices []voiceItem
-	for _, tk := range talkers {
-		// 必须给时间范围：分片路由靠它挑选消息库，留空会一条都取不到
-		msgs, err := a.Store.GetMessages(ctx, types.MessageQuery{
-			Talker:    tk,
-			StartTime: time.Date(2009, 1, 1, 0, 0, 0, 0, time.UTC),
-			EndTime:   time.Now(),
-			Limit:     100000,
-		})
-		if err != nil {
+	// 2. 过滤掉不需要跑 Whisper 的：微信自带转写、已缓存
+	pending := make([]*repo.VoiceRef, 0, len(refs))
+	skipped := 0
+	for _, r := range refs {
+		if r.WeChatTx != "" {
+			skipped++
 			continue
 		}
-		for _, m := range msgs {
-			if m.Type != 34 || m.Contents == nil {
+		if a.Transcripts != nil {
+			if t, ok := a.Transcripts.Get(r.VoiceID); ok && t != "" {
+				skipped++
 				continue
 			}
-			v, ok := m.Contents["voice"]
-			if !ok {
-				continue
-			}
-			id := fmt.Sprint(v)
-			if id == "" {
-				continue
-			}
-			// 微信自己已经转好的就别再跑一遍 Whisper 了
-			if t, ok := m.Contents["transcript"].(string); ok && t != "" {
-				continue
-			}
-			voices = append(voices, voiceItem{voiceID: id, msg: m})
 		}
+		pending = append(pending, r)
 	}
+	refs = nil // 尽早释放
+
+	names := a.talkerNameMap(ctx)
 
 	a.mu.Lock()
-	a.batchJob.Total = len(voices)
+	if a.batchJob != nil {
+		a.batchJob.Total = len(pending)
+		a.batchJob.Skipped = skipped
+	}
 	a.mu.Unlock()
 
-	for _, item := range voices {
-		// Already cached — count as done
-		if a.Transcripts != nil {
-			if _, ok := a.Transcripts.Get(item.voiceID); ok {
-				a.mu.Lock()
-				a.batchJob.Done++
-				a.mu.Unlock()
-				continue
-			}
-		}
+	log.Info().Int("待转写", len(pending)).Int("已跳过", skipped).Msg("批量语音转文字开始")
 
-		if a.TTS == nil {
-			a.mu.Lock()
-			a.batchJob.Errors++
-			a.batchJob.Done++
-			a.mu.Unlock()
-			continue
-		}
-
-		var mediaInfo *model.Media
-		if item.msg.Contents != nil {
-			if rawData, ok := item.msg.Contents["_raw_data"].([]byte); ok && len(rawData) > 0 {
-				mediaInfo = &model.Media{Type: "voice", Key: item.voiceID, Data: rawData}
-			}
-		}
-		if mediaInfo == nil {
-			var fetchErr error
-			mediaInfo, fetchErr = a.Store.GetMedia(ctx, "voice", item.voiceID)
-			if fetchErr != nil {
-				a.mu.Lock()
-				a.batchJob.Errors++
-				a.batchJob.Done++
-				a.mu.Unlock()
-				continue
-			}
-		}
-
-		prepared := a.Media.Prepare(mediaInfo, false)
-		if prepared.Error != nil || len(prepared.Content) == 0 {
-			a.mu.Lock()
-			a.batchJob.Errors++
-			a.batchJob.Done++
-			a.mu.Unlock()
-			continue
-		}
-
-		text, transcribeErr := a.TTS.Transcribe(prepared.Content, "voice.mp3")
-		if transcribeErr != nil {
-			log.Error().Err(transcribeErr).Str("id", item.voiceID).Msg("批量语音转文字失败")
-			a.mu.Lock()
-			a.batchJob.Errors++
-			a.batchJob.Done++
-			a.mu.Unlock()
-			continue
-		}
-
-		if a.Transcripts != nil {
-			_ = a.Transcripts.Set(item.voiceID, text)
+	for _, item := range pending {
+		if ctx.Err() != nil {
+			log.Info().Msg("批量语音转文字：已中断，进度已保存")
+			finish()
+			return
 		}
 
 		a.mu.Lock()
-		a.batchJob.Done++
+		if a.batchJob != nil {
+			a.batchJob.CurrentTalker = item.Talker
+			a.batchJob.CurrentName = names[item.Talker]
+			if a.batchJob.CurrentName == "" {
+				a.batchJob.CurrentName = item.Talker
+			}
+		}
+		a.mu.Unlock()
+
+		text, err := a.transcribeOne(ctx, item.VoiceID)
+		a.mu.Lock()
+		if a.batchJob != nil {
+			if err != nil {
+				a.batchJob.Errors++
+			} else if text != "" {
+				a.batchJob.LastText = text
+			}
+			a.batchJob.Done++
+		}
 		a.mu.Unlock()
 	}
 
+	log.Info().Msg("批量语音转文字完成")
+	finish()
+}
+
+// transcribeOne 转写单条语音并落盘。每条都立即写文件，
+// 这样任务被中断或进程退出时已完成的部分都不会丢。
+func (a *API) transcribeOne(ctx context.Context, voiceID string) (string, error) {
+	mediaInfo, err := a.Store.GetMedia(ctx, "voice", voiceID)
+	if err != nil {
+		return "", err
+	}
+	prepared := a.Media.Prepare(mediaInfo, false)
+	if prepared.Error != nil || len(prepared.Content) == 0 {
+		return "", fmt.Errorf("读取语音失败")
+	}
+	text, err := a.TTS.Transcribe(prepared.Content, "voice.mp3")
+	if err != nil {
+		log.Error().Err(err).Str("id", voiceID).Msg("批量语音转文字失败")
+		return "", err
+	}
+	if a.Transcripts != nil {
+		_ = a.Transcripts.Set(voiceID, text)
+	}
+	return text, nil
+}
+
+// StopTranscribeSession 中断批量转写；已完成的部分已经落盘，不会丢。
+func (a *API) StopTranscribeSession(c *gin.Context) {
 	a.mu.Lock()
-	a.batchJob.Running = false
-	a.mu.Unlock()
+	defer a.mu.Unlock()
+	if a.batchJob == nil || !a.batchJob.Running || a.batchJob.cancel == nil {
+		transport.BadRequest(c, "当前没有正在进行的转写任务")
+		return
+	}
+	a.batchJob.Canceled = true
+	a.batchJob.cancel()
+	transport.SendSuccess(c, gin.H{"status": "stopping"})
 }
 
 // GetTranscribeSessionStatus 查询批量转文字任务进度
@@ -640,11 +653,16 @@ func (a *API) GetTranscribeSessionStatus(c *gin.Context) {
 		return
 	}
 	transport.SendSuccess(c, gin.H{
-		"running": a.batchJob.Running,
-		"total":   a.batchJob.Total,
-		"done":    a.batchJob.Done,
-		"errors":  a.batchJob.Errors,
-		"talker":  a.batchJob.Talker,
+		"running":        a.batchJob.Running,
+		"total":          a.batchJob.Total,
+		"done":           a.batchJob.Done,
+		"errors":         a.batchJob.Errors,
+		"talker":         a.batchJob.Talker,
+		"skipped":        a.batchJob.Skipped,
+		"canceled":       a.batchJob.Canceled,
+		"current_talker": a.batchJob.CurrentTalker,
+		"current_name":   a.batchJob.CurrentName,
+		"last_text":      a.batchJob.LastText,
 	})
 }
 
@@ -826,8 +844,10 @@ func (a *API) maybeAutoTranscribe() {
 		a.mu.Unlock()
 		return
 	}
+	ctx, cancel := context.WithCancel(context.Background())
+	a.batchJob = &BatchTranscribeJob{Running: true, cancel: cancel}
 	a.mu.Unlock()
 
 	log.Info().Msg("自动语音转文字：开始扫描未转写的语音")
-	a.runBatchTranscribe("")
+	a.runBatchTranscribe(ctx, "")
 }

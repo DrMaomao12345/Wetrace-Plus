@@ -84,7 +84,22 @@ export const mediaApi = {
   },
 
   transcribeSessionStatus: () => {
-    return request.get<{ running: boolean; total: number; done: number; errors: number; talker: string }>('/api/v1/media/voice/transcribe-session/status')
+    return request.get<{
+      running: boolean
+      total: number
+      done: number
+      errors: number
+      talker: string
+      skipped?: number
+      canceled?: boolean
+      current_talker?: string
+      current_name?: string
+      last_text?: string
+    }>('/api/v1/media/voice/transcribe-session/status')
+  },
+
+  stopTranscribeSession: () => {
+    return request.post('/api/v1/media/voice/transcribe-session/stop', {})
   },
 
   getExportVoicesUrl: (talker: string, name?: string): string => {

@@ -126,6 +126,7 @@ func (s *Service) setupRoutes() {
 		v1.POST("/media/voice/transcribe", s.api.TranscribeVoice)
 		v1.GET("/media/voice/transcript", s.api.GetVoiceTranscript)
 		v1.POST("/media/voice/transcribe-session", s.api.TranscribeSession)
+		v1.POST("/media/voice/transcribe-session/stop", s.api.StopTranscribeSession)
 		v1.GET("/media/voice/transcribe-session/status", s.api.GetTranscribeSessionStatus)
 
 		// 导出路由

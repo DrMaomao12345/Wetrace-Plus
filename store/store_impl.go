@@ -237,6 +237,14 @@ func (s *DefaultStore) GetTalkerExtras(ctx context.Context, talker string, year,
 	return s.repo.GetTalkerExtras(ctx, talker, year, tzOffsetSec)
 }
 
+func (s *DefaultStore) ListVoiceMessages(ctx context.Context, talker string) []*repo.VoiceRef {
+	return s.repo.ListVoiceMessages(ctx, talker)
+}
+
+func (s *DefaultStore) ListImageMessages(ctx context.Context, talker string, start, end time.Time) []*repo.ImageRef {
+	return s.repo.ListImageMessages(ctx, talker, start, end)
+}
+
 func (s *DefaultStore) SetTranscripts(t repo.TranscriptLookup) {
 	s.repo.SetTranscripts(t)
 }

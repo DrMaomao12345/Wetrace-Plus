@@ -12,6 +12,7 @@ import type {
   WhisperScanResult,
 } from "@/api/system"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { StatsScopeSection } from "@/components/settings/StatsScopeSection"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -1027,28 +1028,7 @@ function TTSConfigSection() {
             </div>
 
             {/* 一次性把历史语音全部转写 */}
-            <div className="flex items-center justify-between rounded-md border border-input px-3 py-2">
-              <div>
-                <div className="text-sm">转写全部历史语音</div>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  扫描所有会话里尚未转写的语音，后台逐条处理，可在聊天页查看进度
-                </p>
-              </div>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={async () => {
-                  try {
-                    await mediaApi.transcribeSession("")
-                    toast.success("已开始转写全部语音，可在聊天页查看进度")
-                  } catch (e: any) {
-                    toast.error(e?.message || "启动失败")
-                  }
-                }}
-              >
-                开始
-              </Button>
-            </div>
+            <BatchTranscribePanel />
 
             {/* 模式切换 */}
             <div className="flex items-center justify-between">
@@ -1657,5 +1637,141 @@ export default function SettingsView() {
         <BackupConfigSection />
       </div>
     </ScrollArea>
+  )
+}
+/* ============================================================
+ * 批量语音转写：进度、当前正在转谁、可中断
+ * ============================================================ */
+function BatchTranscribePanel() {
+  const [status, setStatus] = useState<Awaited<ReturnType<typeof mediaApi.transcribeSessionStatus>> | null>(null)
+  const [confirmStart, setConfirmStart] = useState(false)
+  const [confirmStop, setConfirmStop] = useState(false)
+
+  // 只在任务运行时轮询，闲置时降到低频，避免白占资源
+  useEffect(() => {
+    let timer: number | undefined
+    let alive = true
+    const tick = async () => {
+      try {
+        const s = await mediaApi.transcribeSessionStatus()
+        if (!alive) return
+        setStatus(s)
+        timer = window.setTimeout(tick, s.running ? 1000 : 10000)
+      } catch {
+        if (alive) timer = window.setTimeout(tick, 10000)
+      }
+    }
+    tick()
+    return () => {
+      alive = false
+      if (timer) window.clearTimeout(timer)
+    }
+  }, [])
+
+  const running = status?.running ?? false
+  const total = status?.total ?? 0
+  const done = status?.done ?? 0
+  const pct = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0
+
+  return (
+    <div className="rounded-md border border-input px-3 py-2 space-y-2">
+      <div className="flex items-center justify-between">
+        <div className="min-w-0">
+          <div className="text-sm">
+            转写全部历史语音
+            {running && <span className="ml-2 text-xs text-primary">正在转写…</span>}
+            {!running && status?.canceled && (
+              <span className="ml-2 text-xs text-muted-foreground">已中断</span>
+            )}
+          </div>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            扫描所有会话里尚未转写的语音，后台逐条处理。微信自己转过的会自动跳过。
+          </p>
+        </div>
+        {running ? (
+          <Button size="sm" variant="outline" onClick={() => setConfirmStop(true)}>
+            中断
+          </Button>
+        ) : (
+          <Button size="sm" variant="outline" onClick={() => setConfirmStart(true)}>
+            开始
+          </Button>
+        )}
+      </div>
+
+      {(running || done > 0) && (
+        <div className="space-y-1.5">
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+            <div
+              className="h-full rounded-full bg-primary transition-all duration-500"
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+          <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+            <span>
+              {done} / {total}（{pct}%）
+              {(status?.skipped ?? 0) > 0 && ` · 已跳过 ${status?.skipped}`}
+              {(status?.errors ?? 0) > 0 && ` · 失败 ${status?.errors}`}
+            </span>
+            {running && status?.current_name && (
+              <span className="truncate max-w-[45%]">正在转：{status.current_name}</span>
+            )}
+          </div>
+          {status?.last_text && (
+            <p className="truncate text-[11px] text-muted-foreground/80" title={status.last_text}>
+              最近一条：{status.last_text}
+            </p>
+          )}
+        </div>
+      )}
+
+      <ConfirmDialog
+        open={confirmStart}
+        title="转写全部历史语音？"
+        description={
+          <>
+            会把所有还没转写的语音逐条跑一遍本地识别，数量多时可能要跑很久、期间占用 CPU。
+            <br />
+            过程中可以随时中断，已转好的会保存下来，下次继续不会重来。
+          </>
+        }
+        confirmText="开始转写"
+        onCancel={() => setConfirmStart(false)}
+        onConfirm={async () => {
+          setConfirmStart(false)
+          try {
+            await mediaApi.transcribeSession("")
+            toast.success("已开始转写")
+          } catch (e: any) {
+            toast.error(e?.message || "启动失败")
+          }
+        }}
+      />
+
+      <ConfirmDialog
+        open={confirmStop}
+        danger
+        title="中断转写？"
+        description={
+          <>
+            已经转好的 {done} 条会保留，下次继续时自动跳过，不会白做。
+            <br />
+            剩余 {Math.max(0, total - done)} 条这次就不处理了。
+          </>
+        }
+        confirmText="中断"
+        cancelText="继续跑"
+        onCancel={() => setConfirmStop(false)}
+        onConfirm={async () => {
+          setConfirmStop(false)
+          try {
+            await mediaApi.stopTranscribeSession()
+            toast.info("正在中断…")
+          } catch (e: any) {
+            toast.error(e?.message || "中断失败")
+          }
+        }}
+      />
+    </div>
   )
 }
