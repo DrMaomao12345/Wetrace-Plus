@@ -66,9 +66,6 @@ type Store interface {
 	// 图库：按时间倒序列出图片消息（talker 为空表示全部会话）
 	ListImageMessages(ctx context.Context, talker string, start, end time.Time) []*repo.ImageRef
 
-	// 图片可用性：哪些图片是明文、能直接读出来
-	ImageKeyPlaintext(ctx context.Context) map[string]bool
-
 	// 公众号订阅画像
 	GetBizProfile(ctx context.Context, year, tzOffsetSec int, withTitles bool) *model.BizProfile
 

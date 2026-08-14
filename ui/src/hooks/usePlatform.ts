@@ -6,6 +6,10 @@ interface SystemStatus {
   config?: {
     has_image_key?: boolean
     has_wechat_db_key?: boolean
+    has_xor_key?: boolean
+    wechat_db_key_masked?: string
+    image_key_masked?: string
+    xor_key_masked?: string
   }
 }
 
@@ -24,11 +28,19 @@ export function usePlatform() {
 
   const platform = data?.platform ?? ""
   const hasImageKey = data?.config?.has_image_key ?? false
+  const hasDbKey = data?.config?.has_wechat_db_key ?? false
 
   return {
     platform,
     isMac: platform === "darwin",
     hasImageKey,
+    hasDbKey,
+    /** 脱敏后的密钥，供界面展示核对 */
+    maskedKeys: {
+      db: data?.config?.wechat_db_key_masked ?? "",
+      image: data?.config?.image_key_masked ?? "",
+      xor: data?.config?.xor_key_masked ?? "",
+    },
     /**
      * 加密图片是否解不出来。注意这不等于「所有图片都看不了」：
      * 2025 年 5 月之前的图片以明文 `_M.dat` 存放，可以正常显示；

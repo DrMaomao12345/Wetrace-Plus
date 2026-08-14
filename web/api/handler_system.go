@@ -114,11 +114,15 @@ func (a *API) GetSystemStatus(c *gin.Context) {
 		"store_initialized": true,
 		"platform":          runtime.GOOS,
 		"config": gin.H{
-			"has_wechat_db_key":  a.Conf.WechatDbKey != "",
-			"has_image_key":      a.Media.ImageKey != "",
-			"has_xor_key":        a.Media.XorKey != "",
-			"wechat_path":        a.Conf.WechatPath,
-			"wechat_db_src_path": a.Conf.WechatDbSrcPath,
+			"has_wechat_db_key": a.Conf.WechatDbKey != "",
+			"has_image_key":     a.Media.ImageKey != "",
+			"has_xor_key":       a.Media.XorKey != "",
+			// 只给脱敏值，明文密钥不出接口
+			"wechat_db_key_masked": maskSecret(a.Conf.WechatDbKey),
+			"image_key_masked":     maskSecret(a.Media.ImageKey),
+			"xor_key_masked":       a.Media.XorKey, // 单字节异或键，本身不算秘密
+			"wechat_path":          a.Conf.WechatPath,
+			"wechat_db_src_path":   a.Conf.WechatDbSrcPath,
 		},
 	}
 	transport.SendSuccess(c, status)
@@ -181,6 +185,18 @@ func (a *API) UpdateConfig(c *gin.Context) {
 }
 
 // maskAPIKey 对 API Key 做脱敏处理，仅显示前4位和后4位
+// maskSecret 只保留头尾各 4 位，中间打码 —— 用于把密钥展示给用户核对，
+// 但不把明文送出接口。
+func maskSecret(key string) string {
+	if key == "" {
+		return ""
+	}
+	if len(key) <= 8 {
+		return "••••"
+	}
+	return key[:4] + "••••••••" + key[len(key)-4:]
+}
+
 func maskAPIKey(key string) string {
 	if len(key) <= 8 {
 		return "****"
@@ -602,14 +618,14 @@ func (a *API) GetTTSConfig(c *gin.Context) {
 // UpdateTTSConfig 更新语音转文字配置
 func (a *API) UpdateTTSConfig(c *gin.Context) {
 	var req struct {
-		Enabled      bool   `json:"enabled"`
-		Provider     string `json:"provider"`
-		BaseURL      string `json:"base_url"`
-		APIKey       string `json:"api_key"`
-		Model        string `json:"model"`
-		LocalMode    bool   `json:"local_mode"`
-		LocalBinary  string `json:"local_binary"`
-		LocalModel   string `json:"local_model"`
+		Enabled     bool   `json:"enabled"`
+		Provider    string `json:"provider"`
+		BaseURL     string `json:"base_url"`
+		APIKey      string `json:"api_key"`
+		Model       string `json:"model"`
+		LocalMode   bool   `json:"local_mode"`
+		LocalBinary string `json:"local_binary"`
+		LocalModel  string `json:"local_model"`
 		// Auto 打开后，每次数据同步完成会自动把新语音转成文字
 		Auto bool `json:"auto"`
 	}

@@ -39,13 +39,13 @@ type AISentimentRequest struct {
 
 // AISentimentResponse AI 情感分析响应
 type AISentimentResponse struct {
-	OverallScore          float64                    `json:"overall_score"`
-	OverallLabel          string                     `json:"overall_label"`
-	RelationshipHealth    string                     `json:"relationship_health"`
-	Summary               string                     `json:"summary"`
-	EmotionTimeline       []EmotionTimelineItem      `json:"emotion_timeline"`
-	SentimentDistribution SentimentDistribution       `json:"sentiment_distribution"`
-	RelationshipIndicators RelationshipIndicators     `json:"relationship_indicators"`
+	OverallScore           float64                `json:"overall_score"`
+	OverallLabel           string                 `json:"overall_label"`
+	RelationshipHealth     string                 `json:"relationship_health"`
+	Summary                string                 `json:"summary"`
+	EmotionTimeline        []EmotionTimelineItem  `json:"emotion_timeline"`
+	SentimentDistribution  SentimentDistribution  `json:"sentiment_distribution"`
+	RelationshipIndicators RelationshipIndicators `json:"relationship_indicators"`
 }
 
 // EmotionTimelineItem 情绪时间线项

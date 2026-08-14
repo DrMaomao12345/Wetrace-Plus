@@ -46,7 +46,7 @@ export function Sidebar() {
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
   const [confirmPreload, setConfirmPreload] = useState(false)
   // 图片相关入口是否可用 —— 与消息气泡共用同一份判断
-  const { imagesUnavailable: isMac } = usePlatform()
+  const { imagesUnavailable: isMac, hasDbKey } = usePlatform()
 
   const navEntries: NavEntry[] = [
     { key: 'chat', icon: MessageSquare, label: '聊天', path: '/chat' },
@@ -274,10 +274,16 @@ export function Sidebar() {
         <div className="flex items-center gap-1 mt-1 px-1">
           <button
             onClick={() => setShowKeyManager(true)}
-            className="flex-1 h-8 flex items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-            title="获取微信密钥"
+            className={cn(
+              "flex-1 h-8 flex items-center justify-center gap-1 rounded-lg transition-colors",
+              hasDbKey
+                ? "text-emerald-500 hover:bg-emerald-500/10"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground",
+            )}
+            title={hasDbKey ? "密钥已获取，点击查看" : "获取微信密钥"}
           >
             <Key className="w-4 h-4" />
+            {hasDbKey && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />}
           </button>
           <button
             onClick={() => setConfirmPreload(true)}

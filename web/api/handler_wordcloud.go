@@ -43,8 +43,8 @@ func (a *API) buildNameStopwords(ctx context.Context) map[string]bool {
 
 // parseChunkParams 从 query 中解析分块参数（chunks / min_chunks）
 func parseChunkParams(c *gin.Context) (chunks, minChunks int) {
-	chunks = 5     // 默认分 5 段
-	minChunks = 2  // 默认要求至少出现在 2 段中
+	chunks = 5    // 默认分 5 段
+	minChunks = 2 // 默认要求至少出现在 2 段中
 	if v := c.Query("chunks"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n >= 1 && n <= 50 {
 			chunks = n
@@ -346,7 +346,7 @@ func (a *API) UpdateWordCloudDict(c *gin.Context) {
 	transport.SendSuccess(c, gin.H{
 		"type":  req.Type,
 		"words": updated,
-		"note":  func() string {
+		"note": func() string {
 			if req.Type == "dict" {
 				return "词典修改已保存，需重启应用后生效"
 			}

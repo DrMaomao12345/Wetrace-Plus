@@ -249,10 +249,6 @@ func (s *DefaultStore) SetTranscripts(t repo.TranscriptLookup) {
 	s.repo.SetTranscripts(t)
 }
 
-func (s *DefaultStore) ImageKeyPlaintext(ctx context.Context) map[string]bool {
-	return s.repo.ImageKeyPlaintext(ctx)
-}
-
 func (s *DefaultStore) GetBizProfile(ctx context.Context, year, tzOffsetSec int, withTitles bool) *model.BizProfile {
 	return s.repo.GetBizProfile(ctx, year, tzOffsetSec, withTitles)
 }

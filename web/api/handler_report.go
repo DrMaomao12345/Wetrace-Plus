@@ -21,11 +21,11 @@ type TZSegmentRequest struct {
 
 // AnnualReportRequest 年度报告请求体
 type AnnualReportRequest struct {
-	Year            int                `json:"year"`
-	TZSegments      []TZSegmentRequest `json:"tz_segments"`
-	DefaultTZ       *int               `json:"default_tz_offset"`
-	ExcludeTalkers  []string           `json:"exclude_talkers"`
-	Talker          string             `json:"talker"` // 非空时返回该联系人的年度报告
+	Year           int                `json:"year"`
+	TZSegments     []TZSegmentRequest `json:"tz_segments"`
+	DefaultTZ      *int               `json:"default_tz_offset"`
+	ExcludeTalkers []string           `json:"exclude_talkers"`
+	Talker         string             `json:"talker"` // 非空时返回该联系人的年度报告
 }
 
 // GetAnnualReport 获取年度报告（支持 GET 和 POST，POST 时可传多时区段）
@@ -156,10 +156,10 @@ func (a *API) GetReportBaseline(c *gin.Context) {
 	overviewAvg := a.Store.ComputePastOverviewAvg(c.Request.Context(), year, pastStartYear, tzOffsetSec)
 
 	transport.SendSuccess(c, gin.H{
-		"past_start_year":         pastStartYear,
-		"past_end_year":           pastEndYear,
-		"past_years_monthly_avg":  monthlyAvg,
-		"past_overview_avg":       overviewAvg,
+		"past_start_year":        pastStartYear,
+		"past_end_year":          pastEndYear,
+		"past_years_monthly_avg": monthlyAvg,
+		"past_overview_avg":      overviewAvg,
 	})
 }
 

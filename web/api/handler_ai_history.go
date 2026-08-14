@@ -21,7 +21,7 @@ type SummaryHistoryItem struct {
 	Summary    string    `json:"summary"`
 	Model      string    `json:"model"` // 生成该总结所用的 AI 模型
 	MsgCount   int       `json:"msg_count"`
-	Status     string    `json:"status"`      // "success" | "failed" | "cancelled"
+	Status     string    `json:"status"` // "success" | "failed" | "cancelled"
 	Error      string    `json:"error"`
 	RetryCount int       `json:"retry_count"` // 当前是第几次重试（0=首次）
 	RetryOf    string    `json:"retry_of"`    // 重试的原始失败记录 ID

@@ -13,8 +13,8 @@ import (
 	"github.com/afumu/wetrace/internal/ai"
 	"github.com/afumu/wetrace/internal/backup"
 	"github.com/afumu/wetrace/internal/monitor"
-	"github.com/afumu/wetrace/internal/telegram"
 	intsync "github.com/afumu/wetrace/internal/sync"
+	"github.com/afumu/wetrace/internal/telegram"
 	"github.com/afumu/wetrace/internal/transcripts"
 	"github.com/afumu/wetrace/internal/tts"
 	"github.com/afumu/wetrace/pkg/wordcloud"
@@ -44,30 +44,31 @@ type BatchTranscribeJob struct {
 
 // API 封装了 API 处理器所需的所有依赖。
 type API struct {
-	Store           store.Store
-	Media           *media.Service
-	Export          *export.Service
-	Conf            *Config
-	AI              *ai.Client
-	Password        *PasswordManager
-	SyncScheduler   *intsync.Scheduler
-	BackupScheduler *backup.Scheduler
-	Monitor         *monitor.Store
-	MonitorChecker  *monitor.Checker
-	TgBot           *telegram.Bot
-	tgBotMu         sync.Mutex
-	TTS             tts.Transcriber
-	Transcripts     *transcripts.Store
-	VoiceMissing    *transcripts.Store // 本地没有文件的语音，跳过以免每次重试
-	MobilePairings  *MobilePairingStore
-	ExcludeConfig   *ExcludeConfigStore
-	StatsScope      *StatsScopeStore
-	Accounts        *AccountStore
-	ReportCache     *ReportCache
-	mu                 sync.Mutex
-	summarizeCancel    context.CancelFunc
-	currentSummaryJob  *SummaryHistoryItem
-	batchJob           *BatchTranscribeJob
+	Store             store.Store
+	Media             *media.Service
+	Export            *export.Service
+	Conf              *Config
+	AI                *ai.Client
+	Password          *PasswordManager
+	SyncScheduler     *intsync.Scheduler
+	BackupScheduler   *backup.Scheduler
+	Monitor           *monitor.Store
+	MonitorChecker    *monitor.Checker
+	TgBot             *telegram.Bot
+	tgBotMu           sync.Mutex
+	TTS               tts.Transcriber
+	Transcripts       *transcripts.Store
+	VoiceMissing      *transcripts.Store // 本地没有文件的语音，跳过以免每次重试
+	MobilePairings    *MobilePairingStore
+	ExcludeConfig     *ExcludeConfigStore
+	StatsScope        *StatsScopeStore
+	Accounts          *AccountStore
+	ReportCache       *ReportCache
+	ImageList         *imageListCache // 图库清单缓存（枚举一次约 1.7s，翻页复用）
+	mu                sync.Mutex
+	summarizeCancel   context.CancelFunc
+	currentSummaryJob *SummaryHistoryItem
+	batchJob          *BatchTranscribeJob
 }
 
 type Config struct {
@@ -139,6 +140,7 @@ func NewAPI(s store.Store, m *media.Service, conf *Config, staticFS fs.FS) *API 
 
 	// 年度报告缓存（按数据指纹 + 参数键缓存）
 	a.ReportCache = NewReportCache()
+	a.ImageList = newImageListCache()
 
 	// 初始化移动端配对记录 store，并迁移旧的单 token
 	a.MobilePairings = NewMobilePairingStore(conf.DataDir)

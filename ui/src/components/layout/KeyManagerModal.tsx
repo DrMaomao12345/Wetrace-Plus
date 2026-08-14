@@ -3,12 +3,15 @@ import { X, Key, Image as ImageIcon, Copy, Check, Loader2, AlertCircle, FolderSe
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { systemApi } from "@/api"
+import { cn } from "@/lib/utils"
+import { usePlatform } from "@/hooks/usePlatform"
 
 interface Props {
   onClose: () => void
 }
 
 export function KeyManagerModal({ onClose }: Props) {
+  const { hasDbKey, maskedKeys } = usePlatform()
   const [dbKey, setDbKey] = useState<string | null>(null)
   const [imageKey, setImageKey] = useState<{ xor: string; aes: string } | null>(null)
   
@@ -429,8 +432,14 @@ export function KeyManagerModal({ onClose }: Props) {
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <h4 className="text-sm font-bold flex items-center gap-2">
-                <Key className="w-4 h-4 text-blue-500" />
+                <Key className={cn("w-4 h-4", hasDbKey ? "text-emerald-500" : "text-blue-500")} />
                 数据库解密密钥
+                {hasDbKey && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-normal text-emerald-600 dark:text-emerald-400">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                    已获取
+                  </span>
+                )}
               </h4>
               <Button
                 size="sm"
@@ -447,6 +456,24 @@ export function KeyManagerModal({ onClose }: Props) {
               </Button>
             </div>
             
+            {hasDbKey && maskedKeys.db && (
+              <div className="rounded-md border border-border bg-muted/40 px-3 py-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] text-muted-foreground">当前密钥</span>
+                  <code className="font-mono text-xs tracking-wider">{maskedKeys.db}</code>
+                </div>
+                {maskedKeys.image && (
+                  <div className="mt-1 flex items-center justify-between gap-2">
+                    <span className="text-[11px] text-muted-foreground">图片密钥</span>
+                    <code className="font-mono text-xs tracking-wider">{maskedKeys.image}</code>
+                  </div>
+                )}
+                <p className="mt-1.5 text-[10px] text-muted-foreground/70">
+                  出于安全考虑只显示头尾各 4 位，完整密钥保存在本地 .env，不经过接口返回
+                </p>
+              </div>
+            )}
+
             {isMac && loading === 'db' && (
               <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900 text-blue-800 dark:text-blue-300 p-3 rounded-xl text-xs space-y-1 animate-in slide-in-from-top-2">
                 <p className="font-bold">👉 正在监听密钥，请现在切换到「微信」操作：</p>

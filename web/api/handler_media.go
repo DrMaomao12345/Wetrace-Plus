@@ -206,16 +206,40 @@ func (a *API) GetImageList(c *gin.Context) {
 	// 能唯一定位到一个会话时按 ID 精确查（快），否则退化成对结果按名字过滤。
 	scanTalker, nameFilter := resolveTalkerFilter(q.Talker, nameOf)
 
-	refs := a.Store.ListImageMessages(c.Request.Context(), scanTalker, startTime, endTime)
+	refs := a.listImagesCached(c.Request.Context(), scanTalker, startTime, endTime)
 
-	allItems := make([]*imageListItem, 0, len(refs))
-	for _, ref := range refs {
-		if nameFilter != "" {
+	// 有名字关键词时先过滤，否则直接用整份清单 —— 3.5 万条不必重建一遍
+	if nameFilter != "" {
+		filtered := make([]*repo.ImageRef, 0, len(refs))
+		for _, ref := range refs {
 			hay := strings.ToLower(nameOf[ref.Talker] + " " + ref.Talker)
-			if !strings.Contains(hay, nameFilter) {
-				continue
+			if strings.Contains(hay, nameFilter) {
+				filtered = append(filtered, ref)
 			}
 		}
+		refs = filtered
+	}
+
+	// 注意：这里不要再加「查不到就扫缓存目录」的兜底。
+	// 那个兜底曾经让整个图库退化成列缓存文件 —— 时间变成文件修改时间、
+	// 筛选和排序全部失效，而且悄无声息。真没有图片就老实返回空。
+
+	total := len(refs)
+
+	// 先切出本页，再只为这几十条拼 URL —— 早先是把全部 3.5 万条都构造成
+	// 完整对象再切片，每次请求白做几万次字符串拼接。
+	// 分页
+	start := q.Offset
+	if start > total {
+		start = total
+	}
+	end := start + q.Limit
+	if end > total {
+		end = total
+	}
+	pageRefs := refs[start:end]
+	pageItems := make([]*imageListItem, 0, len(pageRefs))
+	for _, ref := range pageRefs {
 		// 带上 path：hardlink 库里查不到这个 md5 时（相当一部分图片如此），
 		// 媒体接口可以靠 path 直接定位磁盘文件，否则会 404
 		thumbnailURL := fmt.Sprintf("/api/v1/media/image/%s?thumb=1", ref.MD5)
@@ -228,7 +252,7 @@ func (a *API) GetImageList(c *gin.Context) {
 		if name == "" {
 			name = ref.Talker
 		}
-		allItems = append(allItems, &imageListItem{
+		pageItems = append(pageItems, &imageListItem{
 			Key:          ref.MD5,
 			Talker:       ref.Talker,
 			TalkerName:   name,
@@ -238,25 +262,6 @@ func (a *API) GetImageList(c *gin.Context) {
 			Seq:          ref.Seq,
 		})
 	}
-
-	// 当数据库查询结果为空时，扫描本地缓存目录获取图片列表
-	if len(allItems) == 0 {
-		cacheItems := a.scanCacheImages(q.Talker)
-		allItems = append(allItems, cacheItems...)
-	}
-
-	total := len(allItems)
-
-	// 分页
-	start := q.Offset
-	if start > total {
-		start = total
-	}
-	end := start + q.Limit
-	if end > total {
-		end = total
-	}
-	pageItems := allItems[start:end]
 
 	transport.SendSuccess(c, imageListResponse{
 		Total: total,
@@ -289,86 +294,6 @@ var cacheImageExtensions = map[string]bool{
 	".dat": true,
 	".jpg": true, ".jpeg": true, ".png": true,
 	".gif": true, ".bmp": true, ".webp": true,
-}
-
-// scanCacheImages 扫描本地缓存目录获取图片列表。
-// 当数据库中没有图片消息记录时，作为回退方案使用。
-func (a *API) scanCacheImages(talker string) []*imageListItem {
-	cacheBaseDir := filepath.Join(a.Media.DataDir, "cache", "images", "msg", "attach")
-
-	// 检查缓存目录是否存在
-	if _, err := os.Stat(cacheBaseDir); os.IsNotExist(err) {
-		log.Debug().Str("dir", cacheBaseDir).Msg("缓存图片目录不存在，跳过扫描")
-		return nil
-	}
-
-	// 确定要扫描的目录列表
-	scanDirs := a.getCacheScanDirs(cacheBaseDir, talker)
-	if len(scanDirs) == 0 {
-		return nil
-	}
-
-	// 遍历目录收集图片文件
-	var items []*imageListItem
-	for _, dir := range scanDirs {
-		dirItems := a.scanSingleCacheDir(dir, cacheBaseDir)
-		items = append(items, dirItems...)
-	}
-
-	log.Info().Int("count", len(items)).Msg("从缓存目录扫描到图片")
-	return items
-}
-
-// getCacheScanDirs 根据 talker 参数确定需要扫描的目录列表。
-func (a *API) getCacheScanDirs(cacheBaseDir, talker string) []string {
-	if talker != "" {
-		// 按会话筛选：计算 talker 的 md5 作为子目录名
-		h := fmt.Sprintf("%x", md5Sum([]byte(talker)))
-		targetDir := filepath.Join(cacheBaseDir, h)
-		if _, err := os.Stat(targetDir); os.IsNotExist(err) {
-			return nil
-		}
-		return []string{targetDir}
-	}
-
-	// 全量模式：扫描 attach 下所有子目录
-	entries, err := os.ReadDir(cacheBaseDir)
-	if err != nil {
-		log.Error().Err(err).Msg("读取缓存 attach 目录失败")
-		return nil
-	}
-
-	dirs := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		if entry.IsDir() {
-			dirs = append(dirs, filepath.Join(cacheBaseDir, entry.Name()))
-		}
-	}
-	return dirs
-}
-
-// scanSingleCacheDir 扫描单个缓存子目录中的图片文件。
-func (a *API) scanSingleCacheDir(dir, cacheBaseDir string) []*imageListItem {
-	var items []*imageListItem
-
-	_ = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() {
-			return nil
-		}
-
-		ext := strings.ToLower(filepath.Ext(path))
-		if !cacheImageExtensions[ext] {
-			return nil
-		}
-
-		item := a.buildCacheImageItem(path, cacheBaseDir, info)
-		if item != nil {
-			items = append(items, item)
-		}
-		return nil
-	})
-
-	return items
 }
 
 // buildCacheImageItem 根据缓存文件路径构造 imageListItem。
