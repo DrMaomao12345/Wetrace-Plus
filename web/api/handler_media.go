@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/md5"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -504,6 +505,8 @@ func (a *API) TranscribeSession(c *gin.Context) {
 	// talker 留空表示「全部会话」—— 用于一次性把历史语音全部转写出来
 	var req struct {
 		Talker string `json:"talker"`
+		// RetryMissing 为真时，连「本地没有文件」的那些也重试一遍
+		RetryMissing bool `json:"retry_missing"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		transport.BadRequest(c, "参数错误")
@@ -516,6 +519,22 @@ func (a *API) TranscribeSession(c *gin.Context) {
 		transport.BadRequest(c, "已有转文字任务在进行中")
 		return
 	}
+	a.mu.Unlock()
+
+	// 先算一遍还剩多少要转 —— 全都转完时直接告诉用户，
+	// 不起任务、不动模型，省得白转一圈进度条还从 0 跳到 0。
+	pending, skipped, missing := a.collectPendingVoices(c.Request.Context(), req.Talker, req.RetryMissing)
+	if len(pending) == 0 {
+		transport.SendSuccess(c, gin.H{
+			"status":  "nothing_to_do",
+			"skipped": skipped,
+			"missing": missing,
+			"message": nothingToDoMessage(skipped, missing),
+		})
+		return
+	}
+
+	a.mu.Lock()
 	ctx, cancel := context.WithCancel(context.Background())
 	a.batchJob = &BatchTranscribeJob{Talker: req.Talker, Running: true, cancel: cancel}
 	a.mu.Unlock()
@@ -523,6 +542,15 @@ func (a *API) TranscribeSession(c *gin.Context) {
 	go a.runBatchTranscribe(ctx, req.Talker)
 
 	transport.SendSuccess(c, gin.H{"message": "转文字任务已启动"})
+}
+
+// nothingToDoMessage 拼一句「没什么可转的」的说明
+func nothingToDoMessage(skipped, missing int) string {
+	msg := "全部语音都已转写完毕"
+	if missing > 0 {
+		msg += fmt.Sprintf("；另有 %d 条本地没有语音文件（微信没下载过），已跳过", missing)
+	}
+	return msg
 }
 
 // runBatchTranscribe 把指定会话（talker 为空表示全部会话）里尚未转写的语音
@@ -540,6 +568,10 @@ func (a *API) runBatchTranscribe(ctx context.Context, talker string) {
 			a.batchJob.CurrentName = ""
 		}
 		a.mu.Unlock()
+		// 转写字数计入年度报告，跑完（或中断）后让缓存立刻失效
+		if a.ReportCache != nil {
+			a.ReportCache.Invalidate()
+		}
 	}
 
 	if a.TTS == nil {
@@ -548,37 +580,19 @@ func (a *API) runBatchTranscribe(ctx context.Context, talker string) {
 		return
 	}
 
-	// 1. 枚举语音（直接扫表，不走 GetMessages）
-	refs := a.Store.ListVoiceMessages(ctx, talker)
-
-	// 2. 过滤掉不需要跑 Whisper 的：微信自带转写、已缓存
-	pending := make([]*repo.VoiceRef, 0, len(refs))
-	skipped := 0
-	for _, r := range refs {
-		if r.WeChatTx != "" {
-			skipped++
-			continue
-		}
-		if a.Transcripts != nil {
-			if t, ok := a.Transcripts.Get(r.VoiceID); ok && t != "" {
-				skipped++
-				continue
-			}
-		}
-		pending = append(pending, r)
-	}
-	refs = nil // 尽早释放
-
+	pending, skipped, missing := a.collectPendingVoices(ctx, talker, false)
 	names := a.talkerNameMap(ctx)
 
 	a.mu.Lock()
 	if a.batchJob != nil {
 		a.batchJob.Total = len(pending)
 		a.batchJob.Skipped = skipped
+		a.batchJob.Missing = missing
 	}
 	a.mu.Unlock()
 
-	log.Info().Int("待转写", len(pending)).Int("已跳过", skipped).Msg("批量语音转文字开始")
+	log.Info().Int("待转写", len(pending)).Int("已跳过", skipped).
+		Int("本地无文件", missing).Msg("批量语音转文字开始")
 
 	for _, item := range pending {
 		if ctx.Err() != nil {
@@ -600,9 +614,17 @@ func (a *API) runBatchTranscribe(ctx context.Context, talker string) {
 		text, err := a.transcribeOne(ctx, item.VoiceID)
 		a.mu.Lock()
 		if a.batchJob != nil {
-			if err != nil {
+			switch {
+			case errors.Is(err, errVoiceMissing):
+				// 本地没有这个语音文件（微信没下载过），不算识别失败。
+				// 记下来，下次重跑直接跳过，不再白试一遍。
+				a.batchJob.Missing++
+				if a.VoiceMissing != nil {
+					_ = a.VoiceMissing.Set(item.VoiceID, item.Talker)
+				}
+			case err != nil:
 				a.batchJob.Errors++
-			} else if text != "" {
+			case text != "":
 				a.batchJob.LastText = text
 			}
 			a.batchJob.Done++
@@ -614,16 +636,54 @@ func (a *API) runBatchTranscribe(ctx context.Context, talker string) {
 	finish()
 }
 
+// errVoiceMissing 表示语音文件本地不存在 —— 微信只在播放过时才把语音落到本地，
+// 这类不算识别失败，单独计数以免看起来像出了问题。
+var errVoiceMissing = errors.New("语音文件本地不存在")
+
+// collectPendingVoices 算出「这次真正需要跑识别的语音」。
+//
+// 三类会被排除：微信自己已经转好的、之前已经转过缓存下来的、
+// 以及本地根本没有文件的（微信只在播放过时才把语音落到本地，
+// 这类每次重试都必然失败，记下来直接跳过）。
+// retryMissing 为真时把最后一类重新纳入 —— 万一后来在微信里播放过、文件有了。
+func (a *API) collectPendingVoices(ctx context.Context, talker string, retryMissing bool) (
+	pending []*repo.VoiceRef, skipped, missing int) {
+
+	refs := a.Store.ListVoiceMessages(ctx, talker)
+	pending = make([]*repo.VoiceRef, 0, len(refs))
+
+	for _, r := range refs {
+		if r.WeChatTx != "" {
+			skipped++
+			continue
+		}
+		if a.Transcripts != nil {
+			if t, ok := a.Transcripts.Get(r.VoiceID); ok && t != "" {
+				skipped++
+				continue
+			}
+		}
+		if !retryMissing && a.VoiceMissing != nil {
+			if _, ok := a.VoiceMissing.Get(r.VoiceID); ok {
+				missing++
+				continue
+			}
+		}
+		pending = append(pending, r)
+	}
+	return pending, skipped, missing
+}
+
 // transcribeOne 转写单条语音并落盘。每条都立即写文件，
 // 这样任务被中断或进程退出时已完成的部分都不会丢。
 func (a *API) transcribeOne(ctx context.Context, voiceID string) (string, error) {
 	mediaInfo, err := a.Store.GetMedia(ctx, "voice", voiceID)
 	if err != nil {
-		return "", err
+		return "", errVoiceMissing
 	}
 	prepared := a.Media.Prepare(mediaInfo, false)
 	if prepared.Error != nil || len(prepared.Content) == 0 {
-		return "", fmt.Errorf("读取语音失败")
+		return "", errVoiceMissing
 	}
 	text, err := a.TTS.Transcribe(prepared.Content, "voice.mp3")
 	if err != nil {
@@ -663,6 +723,7 @@ func (a *API) GetTranscribeSessionStatus(c *gin.Context) {
 		"total":          a.batchJob.Total,
 		"done":           a.batchJob.Done,
 		"errors":         a.batchJob.Errors,
+		"missing":        a.batchJob.Missing,
 		"talker":         a.batchJob.Talker,
 		"skipped":        a.batchJob.Skipped,
 		"canceled":       a.batchJob.Canceled,

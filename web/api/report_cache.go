@@ -91,3 +91,16 @@ func AnnualReportKey(year, defaultTzOffset, pastStartYear int,
 func TalkerReportKey(year int, talker string, defaultTzOffset int) string {
 	return fmt.Sprintf("t|y=%d|talker=%s|tz=%d", year, talker, defaultTzOffset)
 }
+
+// reportDataVersion 是年度报告缓存用的数据指纹。
+//
+// 除了消息库文件本身，还要把「已转写的语音条数」算进去 —— 语音转写的字数会计入
+// 报告，但转写结果存在 voice_transcripts.json 里，不影响消息库的 mtime，
+// 只用 Store.GetDataVersion() 的话转写完报告还是旧数字。
+func (a *API) reportDataVersion() string {
+	v := a.Store.GetDataVersion()
+	if a.Transcripts != nil {
+		v = fmt.Sprintf("%s|tx:%d", v, a.Transcripts.Len())
+	}
+	return v
+}

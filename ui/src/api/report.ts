@@ -33,6 +33,8 @@ export interface WordCountStat {
   total_chars: number;
   sent_chars: number;
   recv_chars: number;
+  /** 上面总数里由语音转写贡献的字数 */
+  voice_chars?: number;
   contacts: ContactWordCountStat[] | null;
 }
 

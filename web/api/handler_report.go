@@ -65,7 +65,7 @@ func (a *API) GetAnnualReport(c *gin.Context) {
 
 	// 指定了 talker：返回该联系人的年度报告（在内存里聚合该 talker 的消息）
 	if req.Talker != "" {
-		version := a.Store.GetDataVersion()
+		version := a.reportDataVersion()
 		key := TalkerReportKey(req.Year, req.Talker, defaultTzOffset)
 		if cached := a.ReportCache.Get(version, key); cached != nil {
 			transport.SendSuccess(c, cached)
@@ -101,7 +101,7 @@ func (a *API) GetAnnualReport(c *gin.Context) {
 	excludeMerged := a.mergedExcludeTalkers(req.ExcludeTalkers)
 
 	// 数据指纹 + 参数键 命中缓存就直接返回，省下整份重算
-	version := a.Store.GetDataVersion()
+	version := a.reportDataVersion()
 	cacheKey := AnnualReportKey(req.Year, defaultTzOffset, pastStartYear, excludeMerged, req.TZSegments)
 	if cached := a.ReportCache.Get(version, cacheKey); cached != nil {
 		transport.SendSuccess(c, cached)

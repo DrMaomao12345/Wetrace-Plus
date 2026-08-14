@@ -878,6 +878,7 @@ function AnnualOverviewCards({
     icon: any
     color: string
     toggleable?: boolean
+    sub?: string
   }
   const stats: Stat[] = [
     {
@@ -887,6 +888,11 @@ function AnnualOverviewCards({
       delta: showCharsReady ? null : deltas?.total_messages,
       icon: MessageSquare, color: "text-pink-500",
       toggleable: true,
+      // 语音转写出来的字也算「说了多少字」，单独标出来有多少来自语音
+      sub:
+        showCharsReady && (wordCounts!.voice_chars ?? 0) > 0
+          ? `其中语音转写 ${formatNumber(wordCounts!.voice_chars!)} 字`
+          : undefined,
     },
     {
       label: showCharsReady ? "发送字数" : "发送消息",
@@ -933,6 +939,9 @@ function AnnualOverviewCards({
                 </>
               )}
             </div>
+            {s.sub && !charsLoading && (
+              <p className="mt-1 text-[11px] text-muted-foreground">{s.sub}</p>
+            )}
           </CardContent>
         </Card>
       ))}

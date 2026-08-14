@@ -1646,6 +1646,8 @@ function BatchTranscribePanel() {
   const [status, setStatus] = useState<Awaited<ReturnType<typeof mediaApi.transcribeSessionStatus>> | null>(null)
   const [confirmStart, setConfirmStart] = useState(false)
   const [confirmStop, setConfirmStop] = useState(false)
+  // 全部转完时的提示，以及可重试的「本地无文件」条数
+  const [allDone, setAllDone] = useState<{ missing: number } | null>(null)
 
   // 只在任务运行时轮询，闲置时降到低频，避免白占资源
   useEffect(() => {
@@ -1699,6 +1701,34 @@ function BatchTranscribePanel() {
         )}
       </div>
 
+      {allDone && !running && (
+        <p className="text-[11px] text-muted-foreground">
+          全部语音都已转写完毕。
+          {allDone.missing > 0 && (
+            <>
+              {` 另有 ${allDone.missing} 条本地没有语音文件（微信没下载过）已跳过，`}
+              <button
+                className="underline underline-offset-2 hover:text-foreground"
+                onClick={async () => {
+                  try {
+                    const r = await mediaApi.transcribeSession("", true)
+                    if (r?.status === "nothing_to_do") toast.info(r.message)
+                    else {
+                      setAllDone(null)
+                      toast.success("已开始重试")
+                    }
+                  } catch (e: any) {
+                    toast.error(e?.message || "启动失败")
+                  }
+                }}
+              >
+                重试这些
+              </button>
+            </>
+          )}
+        </p>
+      )}
+
       {(running || done > 0) && (
         <div className="space-y-1.5">
           <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
@@ -1711,6 +1741,7 @@ function BatchTranscribePanel() {
             <span>
               {done} / {total}（{pct}%）
               {(status?.skipped ?? 0) > 0 && ` · 已跳过 ${status?.skipped}`}
+              {(status?.missing ?? 0) > 0 && ` · 本地无文件 ${status?.missing}`}
               {(status?.errors ?? 0) > 0 && ` · 失败 ${status?.errors}`}
             </span>
             {running && status?.current_name && (
@@ -1740,8 +1771,14 @@ function BatchTranscribePanel() {
         onConfirm={async () => {
           setConfirmStart(false)
           try {
-            await mediaApi.transcribeSession("")
-            toast.success("已开始转写")
+            const r = await mediaApi.transcribeSession("")
+            if (r?.status === "nothing_to_do") {
+              setAllDone({ missing: r.missing ?? 0 })
+              toast.success(r.message || "全部语音都已转写完毕")
+            } else {
+              setAllDone(null)
+              toast.success("已开始转写")
+            }
           } catch (e: any) {
             toast.error(e?.message || "启动失败")
           }

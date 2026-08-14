@@ -37,7 +37,7 @@ func (a *API) PrewarmTopContacts() {
 		exclude := a.mergedExcludeTalkers(nil)
 
 		// 1) 全局年度报告
-		version := a.Store.GetDataVersion()
+		version := a.reportDataVersion()
 		gKey := AnnualReportKey(year, defaultTzSec, pastStartYear, exclude, nil)
 		if a.ReportCache.Get(version, gKey) == nil {
 			log.Info().Int("year", year).Msg("[prewarm] 计算全局年度报告")
@@ -53,7 +53,7 @@ func (a *API) PrewarmTopContacts() {
 		}
 
 		// 2) Top5 亲密度联系人各自的年度报告（串行，避免 DB 抢占）
-		global := a.ReportCache.Get(a.Store.GetDataVersion(), gKey)
+		global := a.ReportCache.Get(a.reportDataVersion(), gKey)
 		if global == nil {
 			return
 		}
@@ -65,7 +65,7 @@ func (a *API) PrewarmTopContacts() {
 			if ctx.Err() != nil {
 				return
 			}
-			ver := a.Store.GetDataVersion()
+			ver := a.reportDataVersion()
 			key := TalkerReportKey(year, tc.Talker, defaultTzSec)
 			if a.ReportCache.Get(ver, key) != nil {
 				continue

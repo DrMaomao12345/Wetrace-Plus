@@ -37,6 +37,7 @@ type BatchTranscribeJob struct {
 	CurrentName   string
 	LastText      string
 	Skipped       int  // 微信自带转写 / 已缓存而跳过的
+	Missing       int  // 语音文件本地没有（微信没下载过），不是识别失败
 	Canceled      bool // 是被手动中断的，不是跑完的
 	cancel        context.CancelFunc
 }
@@ -57,6 +58,7 @@ type API struct {
 	tgBotMu         sync.Mutex
 	TTS             tts.Transcriber
 	Transcripts     *transcripts.Store
+	VoiceMissing    *transcripts.Store // 本地没有文件的语音，跳过以免每次重试
 	MobilePairings  *MobilePairingStore
 	ExcludeConfig   *ExcludeConfigStore
 	StatsScope      *StatsScopeStore
@@ -158,6 +160,10 @@ func NewAPI(s store.Store, m *media.Service, conf *Config, staticFS fs.FS) *API 
 		if s != nil {
 			s.SetTranscripts(ts)
 		}
+	}
+	// 记住哪些语音本地根本没有文件（微信没下载过），下次批量转写直接跳过
+	if ms, err := transcripts.NewNamedStore(conf.DataDir, "voice_missing.json"); err == nil {
+		a.VoiceMissing = ms
 	}
 
 	// Initialize sync scheduler

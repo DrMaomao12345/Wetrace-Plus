@@ -79,8 +79,13 @@ export const mediaApi = {
     return request.get<{ text: string | null; cached: boolean }>('/api/v1/media/voice/transcript', { id })
   },
 
-  transcribeSession: (talker: string) => {
-    return request.post<{ message: string }>('/api/v1/media/voice/transcribe-session', { talker })
+  transcribeSession: (talker: string, retryMissing = false) => {
+    return request.post<{
+      message: string
+      status?: string
+      skipped?: number
+      missing?: number
+    }>('/api/v1/media/voice/transcribe-session', { talker, retry_missing: retryMissing })
   },
 
   transcribeSessionStatus: () => {
@@ -91,6 +96,7 @@ export const mediaApi = {
       errors: number
       talker: string
       skipped?: number
+      missing?: number
       canceled?: boolean
       current_talker?: string
       current_name?: string

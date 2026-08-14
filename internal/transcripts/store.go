@@ -16,8 +16,14 @@ type Store struct {
 
 // NewStore 从 dataDir 加载或创建转文字缓存
 func NewStore(dataDir string) (*Store, error) {
+	return NewNamedStore(dataDir, "voice_transcripts.json")
+}
+
+// NewNamedStore 同 NewStore，但可指定文件名。
+// 批量转写用它再开一份「本地无文件」的名单，避免每次重跑都去白试一遍。
+func NewNamedStore(dataDir, name string) (*Store, error) {
 	s := &Store{
-		path: filepath.Join(dataDir, "voice_transcripts.json"),
+		path: filepath.Join(dataDir, name),
 		data: make(map[string]string),
 	}
 	if err := s.load(); err != nil && !os.IsNotExist(err) {

@@ -777,11 +777,11 @@ func buildTzModifier(offsetMinutes int) string {
 	return fmt.Sprintf("'%+d seconds'", offsetMinutes*60)
 }
 
-// GetDataVersion 返回当前消息数据的指纹（DB 文件 path+size+mtime 的 md5）
-// 前端用它判断本地缓存的报告是否还有效
+// GetDataVersion 返回当前数据的指纹，前端用它判断本地缓存的报告是否还有效。
+// 指纹里除了消息库文件，还含已转写的语音条数 —— 转写字数会计入报告，
+// 但转写结果不在消息库里，只看消息库的话转写完前端还会拿旧缓存。
 func (a *API) GetDataVersion(c *gin.Context) {
-	v := a.Store.GetDataVersion()
-	transport.SendSuccess(c, gin.H{"version": v})
+	transport.SendSuccess(c, gin.H{"version": a.reportDataVersion()})
 }
 
 // GetChangelog 返回内嵌的 CHANGELOG.md 内容。
