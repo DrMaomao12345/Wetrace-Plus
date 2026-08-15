@@ -3,6 +3,7 @@ package main
 import (
 	"embed"
 	"fmt"
+	"github.com/afumu/wetrace/internal/envfile"
 	"github.com/afumu/wetrace/internal/wxkey"
 	"io/fs"
 	"log"
@@ -31,6 +32,17 @@ func main() {
 	viper.SetConfigFile(".env")
 	viper.SetConfigType("env")
 	viper.AutomaticEnv()
+
+	// 读完之后按字面值再覆盖一遍：viper 的 .env 解析器会对未加引号的值做
+	// `$` 变量展开，把 bcrypt 哈希、含 `$` 的 API Key 这类值悄悄改写。
+	// 详见 internal/envfile。
+	defer func() {
+		for k, v := range envfile.Load(".env") {
+			if viper.GetString(k) != v {
+				viper.Set(k, v)
+			}
+		}
+	}()
 
 	if err := viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
