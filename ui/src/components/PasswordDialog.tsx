@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { createPortal } from "react-dom"
 import { Lock } from "lucide-react"
 import { Button } from "./ui/button"
@@ -12,6 +12,18 @@ export function PasswordDialog({ onUnlocked }: PasswordDialogProps) {
   const [password, setPassword] = useState("")
   const [error, setError] = useState("")
   const [submitting, setSubmitting] = useState(false)
+
+  // 服务端如果压根没设密码，就别把人堵在这儿。
+  // 页面加载后密码被关掉（或本来就没开）时，这个弹窗会成为死胡同：
+  // 提示「未设置密码」却没有任何出路，只能手动刷新。
+  useEffect(() => {
+    systemApi
+      .getPasswordStatus()
+      .then((s) => {
+        if (!s.enabled) onUnlocked()
+      })
+      .catch(() => {})
+  }, [onUnlocked])
 
   const handleVerify = async () => {
     if (!password.trim()) {
@@ -27,7 +39,13 @@ export function PasswordDialog({ onUnlocked }: PasswordDialogProps) {
       }
       onUnlocked()
     } catch (err: any) {
-      setError(err?.message || "密码错误")
+      const msg = err?.message || "密码错误"
+      // 服务端说没设密码 → 直接放行，不要卡住
+      if (msg.includes("未设置密码")) {
+        onUnlocked()
+        return
+      }
+      setError(msg)
     } finally {
       setSubmitting(false)
     }
