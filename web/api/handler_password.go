@@ -2,7 +2,9 @@ package api
 
 import (
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
+	"strings"
 	"sync"
 
 	"github.com/afumu/wetrace/web/transport"
@@ -10,6 +12,44 @@ import (
 	"github.com/spf13/viper"
 	"golang.org/x/crypto/bcrypt"
 )
+
+// ── 密码哈希的存取 ──────────────────────────────────────────────
+//
+// bcrypt 哈希形如 `$2a$10$....`，而 viper 读 .env 用的 gotenv 会对未加引号的值
+// 做 `$` 变量展开 —— `$2`、`$10` 会被当成变量吃掉，于是写进文件的哈希和程序
+// 读出来的不是同一个值，bcrypt 比对永远失败、输什么密码都说错。
+//
+// 所以落盘时先做 base64（结果不含 `$`），读取时再解回来。
+// 旧的裸哈希也兼容读取，只是那种值多半已经被展开破坏、只能重设密码。
+
+const passwordHashKey = "PASSWORD_HASH"
+
+func savePasswordHash(hash []byte) {
+	viper.Set(passwordHashKey, "b64:"+base64.StdEncoding.EncodeToString(hash))
+}
+
+func loadPasswordHash() string {
+	raw := viper.GetString(passwordHashKey)
+	if raw == "" {
+		return ""
+	}
+	if strings.HasPrefix(raw, "b64:") {
+		if b, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(raw, "b64:")); err == nil {
+			return string(b)
+		}
+		return ""
+	}
+	// 旧格式：裸 bcrypt 哈希。没被 `$` 展开破坏的话仍然可用
+	return raw
+}
+
+// passwordConfigured 判断是否设过密码（用原始值判断，避免把损坏的旧值当成没设）
+func passwordConfigured() bool {
+	return viper.GetString(passwordHashKey) != ""
+}
+
+// PasswordConfigured 供中间件判断「是否启用了密码保护」
+func PasswordConfigured() bool { return passwordConfigured() }
 
 // PasswordManager 管理密码保护状态
 type PasswordManager struct {
@@ -56,8 +96,7 @@ func (pm *PasswordManager) ClearSessions() {
 
 // GetPasswordStatus 获取密码保护状态
 func (a *API) GetPasswordStatus(c *gin.Context) {
-	hash := viper.GetString("PASSWORD_HASH")
-	enabled := hash != ""
+	enabled := passwordConfigured()
 
 	isLocked := false
 	if enabled && a.Password != nil {
@@ -90,7 +129,7 @@ func (a *API) SetPassword(c *gin.Context) {
 		return
 	}
 
-	existingHash := viper.GetString("PASSWORD_HASH")
+	existingHash := loadPasswordHash()
 
 	// 如果已有密码，需要验证旧密码
 	if existingHash != "" {
@@ -107,7 +146,7 @@ func (a *API) SetPassword(c *gin.Context) {
 		return
 	}
 
-	viper.Set("PASSWORD_HASH", string(hash))
+	savePasswordHash(hash)
 	if err := viper.WriteConfig(); err != nil {
 		transport.InternalServerError(c, "保存配置失败: "+err.Error())
 		return
@@ -131,7 +170,7 @@ func (a *API) VerifyPassword(c *gin.Context) {
 		return
 	}
 
-	hash := viper.GetString("PASSWORD_HASH")
+	hash := loadPasswordHash()
 	if hash == "" {
 		transport.BadRequest(c, "未设置密码")
 		return
@@ -172,7 +211,7 @@ func (a *API) DisablePassword(c *gin.Context) {
 		return
 	}
 
-	hash := viper.GetString("PASSWORD_HASH")
+	hash := loadPasswordHash()
 	if hash == "" {
 		transport.BadRequest(c, "未设置密码")
 		return
@@ -184,7 +223,7 @@ func (a *API) DisablePassword(c *gin.Context) {
 	}
 
 	// 清除密码哈希
-	viper.Set("PASSWORD_HASH", "")
+	viper.Set(passwordHashKey, "")
 	if err := viper.WriteConfig(); err != nil {
 		transport.InternalServerError(c, "保存配置失败: "+err.Error())
 		return

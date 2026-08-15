@@ -7,7 +7,6 @@ import (
 
 	"github.com/afumu/wetrace/web/api"
 	"github.com/gin-gonic/gin"
-	"github.com/spf13/viper"
 )
 
 // isLoopbackRequest 判断请求是否来自本机（127.0.0.1 / ::1）。
@@ -31,11 +30,11 @@ func isLoopbackRequest(c *gin.Context) bool {
 //   - 其余 → 401
 func AuthMiddleware(a *api.API) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		hash := viper.GetString("PASSWORD_HASH")
+		hasPassword := api.PasswordConfigured()
 		hasMobilePairings := a.MobilePairings != nil && len(a.MobilePairings.List()) > 0
 
 		// 既没密码也没任何移动端配对 → 完全开放
-		if hash == "" && !hasMobilePairings {
+		if !hasPassword && !hasMobilePairings {
 			c.Next()
 			return
 		}
@@ -68,7 +67,7 @@ func AuthMiddleware(a *api.API) gin.HandlerFunc {
 		}
 
 		// 校验：Web 会话 token 或 某条移动端配对的 token
-		validWebSession := hash != "" && token != "" && a.Password.IsValidSession(token)
+		validWebSession := hasPassword && token != "" && a.Password.IsValidSession(token)
 		validMobile := a.MobilePairings != nil && a.MobilePairings.IsValidToken(token)
 		if validWebSession || validMobile {
 			if validMobile {
@@ -81,7 +80,7 @@ func AuthMiddleware(a *api.API) gin.HandlerFunc {
 		// 兜底：本机访问 + 没设密码 → 放行。
 		// 移动端 token 的目的是防"远程"访问；电脑端自己（localhost）始终可信，
 		// 否则生成移动端 token 后，本机 Web UI 没凭据会把自己锁死。
-		if hash == "" && isLoopbackRequest(c) {
+		if !hasPassword && isLoopbackRequest(c) {
 			c.Next()
 			return
 		}
