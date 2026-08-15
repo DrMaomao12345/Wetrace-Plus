@@ -11,7 +11,7 @@ interface Props {
 }
 
 export function KeyManagerModal({ onClose }: Props) {
-  const { hasDbKey, maskedKeys } = usePlatform()
+  const { hasDbKey, hasImageKey, maskedKeys } = usePlatform()
   const [dbKey, setDbKey] = useState<string | null>(null)
   const [imageKey, setImageKey] = useState<{ xor: string; aes: string } | null>(null)
   
@@ -443,6 +443,7 @@ export function KeyManagerModal({ onClose }: Props) {
               </h4>
               <Button
                 size="sm"
+                variant={hasDbKey ? "outline" : "default"}
                 onClick={handleGetDbKey}
                 disabled={!!loading}
                 className="rounded-full h-8 px-4"
@@ -452,7 +453,7 @@ export function KeyManagerModal({ onClose }: Props) {
                     <Loader2 className="w-3 h-3 mr-2 animate-spin" />
                     {dbCountdown > 0 ? `获取中 ${formatCountdown(dbCountdown)}` : '正在获取...'}
                   </>
-                ) : (dbKey ? "重新获取" : "点击获取")}
+                ) : (hasDbKey || dbKey ? "重新获取密钥" : "点击获取")}
               </Button>
             </div>
             
@@ -462,12 +463,6 @@ export function KeyManagerModal({ onClose }: Props) {
                   <span className="text-[11px] text-muted-foreground">当前密钥</span>
                   <code className="font-mono text-xs tracking-wider">{maskedKeys.db}</code>
                 </div>
-                {maskedKeys.image && (
-                  <div className="mt-1 flex items-center justify-between gap-2">
-                    <span className="text-[11px] text-muted-foreground">图片密钥</span>
-                    <code className="font-mono text-xs tracking-wider">{maskedKeys.image}</code>
-                  </div>
-                )}
                 <p className="mt-1.5 text-[10px] text-muted-foreground/70">
                   出于安全考虑只显示头尾各 4 位，完整密钥保存在本地 .env，不经过接口返回
                 </p>
@@ -495,6 +490,7 @@ export function KeyManagerModal({ onClose }: Props) {
               </div>
             )}
 
+            {!hasDbKey && (
             <div className="py-1 flex gap-2 items-start text-destructive dark:text-red-400">
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
               {isMac ? (
@@ -507,6 +503,7 @@ export function KeyManagerModal({ onClose }: Props) {
               </p>
               )}
             </div>
+            )}
           </div>
 
           <div className="border-t border-dashed" />
@@ -515,12 +512,18 @@ export function KeyManagerModal({ onClose }: Props) {
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <h4 className="text-sm font-bold flex items-center gap-2">
-                <ImageIcon className="w-4 h-4 text-emerald-500" />
+                <ImageIcon className={cn("w-4 h-4", hasImageKey ? "text-emerald-500" : "text-blue-500")} />
                 图片查看密钥
+                {hasImageKey && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-normal text-emerald-600 dark:text-emerald-400">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                    已获取
+                  </span>
+                )}
               </h4>
               <Button
                 size="sm"
-                variant="outline"
+                variant={hasImageKey ? "outline" : "default"}
                 onClick={handleGetImageKey}
                 disabled={!!loading}
                 className="rounded-full h-8 px-4"
@@ -530,9 +533,27 @@ export function KeyManagerModal({ onClose }: Props) {
                     <Loader2 className="w-3 h-3 mr-2 animate-spin" />
                     {imageCountdown > 0 ? `扫描中 ${formatCountdown(imageCountdown)}` : '扫描中...'}
                   </>
-                ) : (imageKey ? "重新获取" : "点击获取")}
+                ) : (hasImageKey || imageKey ? "重新获取密钥" : "点击获取")}
               </Button>
             </div>
+
+            {hasImageKey && maskedKeys.image && !imageKey && (
+              <div className="rounded-md border border-border bg-muted/40 px-3 py-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] text-muted-foreground">当前图片密钥</span>
+                  <code className="font-mono text-xs tracking-wider">{maskedKeys.image}</code>
+                </div>
+                {maskedKeys.xor && (
+                  <div className="mt-1 flex items-center justify-between gap-2">
+                    <span className="text-[11px] text-muted-foreground">异或密钥</span>
+                    <code className="font-mono text-xs tracking-wider">0x{maskedKeys.xor}</code>
+                  </div>
+                )}
+                <p className="mt-1.5 text-[10px] text-muted-foreground/70">
+                  这两把密钥由账号信息自动推导，无需手动获取
+                </p>
+              </div>
+            )}
 
             {imageKey && (
               <div className="space-y-2 animate-in slide-in-from-right-2">
@@ -562,12 +583,14 @@ export function KeyManagerModal({ onClose }: Props) {
                 </div>
               </div>
             )}
+            {!hasImageKey && (
             <div className="py-1 flex gap-2 items-start text-destructive dark:text-red-400">
               <ImageIcon className="w-4 h-4 shrink-0 mt-0.5" />
               <p className="text-xs font-medium leading-relaxed">
                 <span className="font-bold">提示：</span>点击扫描后，请在微信中<span className="font-bold underline">连续打开多张</span>聊天图片（或左右切换浏览），直到密钥显示。
               </p>
             </div>
+            )}
           </div>
         </div>
 
