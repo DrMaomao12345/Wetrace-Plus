@@ -19,6 +19,29 @@ type VoiceStats struct {
 	// WithoutDuration 是解析不出时长的条数（老消息或格式异常），
 	// 单独记着，免得平均时长被静默拉偏而用户不知道
 	WithoutDuration int `json:"without_duration"`
+
+	// ── 语音转写字数（微信自带 + 本地 Whisper 补转，按 rune 计）──
+	// TranscribedCount 是有转写文本的条数，与 TotalCount 一起看才知道覆盖率：
+	// 本地没存音频文件的语音永远转不出来，只报字数会让人以为漏算了。
+	TranscribedCount int `json:"transcribed_count"`
+	TranscribedChars int `json:"transcribed_chars"`
+	SentChars        int `json:"sent_chars"`
+	RecvChars        int `json:"recv_chars"`
+}
+
+// AddTranscript 累加一条语音的转写字数。text 为空表示这条没转写出来，不计数。
+func (v *VoiceStats) AddTranscript(isSelf bool, text string) {
+	if text == "" {
+		return
+	}
+	n := len([]rune(text))
+	v.TranscribedCount++
+	v.TranscribedChars += n
+	if isSelf {
+		v.SentChars += n
+	} else {
+		v.RecvChars += n
+	}
 }
 
 // Add 累加一条语音消息

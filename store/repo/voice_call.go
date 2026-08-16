@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/afumu/wetrace/internal/model"
@@ -91,23 +92,26 @@ func (r *Repository) GetVoiceStats(ctx context.Context, talker string, start, en
 	// 早先拿它和 talker 比，群聊里 talker 是 xxx@chatroom，永远不相等，
 	// 结果群里每条语音都被算成自己发的。
 	myWxid := r.getCurrentUserWxid(ctx)
+	// 转写表没启用 / 一条都没有时为 nil，据此整段跳过字数统计，不多查一列
+	tl := r.transcriptLookup()
 
 	for _, target := range targets {
 		db, err := r.pool.GetConnection(target.FilePath)
 		if err != nil || !r.isTableExist(db, tbl) {
 			continue
 		}
-		q := fmt.Sprintf(`SELECT create_time, status, real_sender_id, message_content
+		// server_id 就是转写表的键（见 model.message_v4 里 Contents["voice"] 的赋值）
+		q := fmt.Sprintf(`SELECT create_time, status, real_sender_id, message_content, server_id
 			FROM %s WHERE (local_type & 4294967295) = 34 AND create_time >= ? AND create_time <= ?`, tbl)
 		rows, err := db.QueryContext(ctx, q, start.Unix(), end.Unix())
 		if err != nil {
 			continue
 		}
 		for rows.Next() {
-			var ts, senderID int64
+			var ts, senderID, serverID int64
 			var status int
 			var raw []byte
-			if rows.Scan(&ts, &status, &senderID, &raw) != nil {
+			if rows.Scan(&ts, &status, &senderID, &raw, &serverID) != nil {
 				continue
 			}
 			content := stripGroupSenderPrefix(decodeV4Content(raw))
@@ -119,6 +123,12 @@ func (r *Repository) GetVoiceStats(ctx context.Context, talker string, start, en
 				isSelf = from == myWxid
 			}
 			st.Add(isSelf, dur, ts)
+
+			if tl != nil {
+				if text, ok := tl.Get(strconv.FormatInt(serverID, 10)); ok {
+					st.AddTranscript(isSelf, text)
+				}
+			}
 		}
 		rows.Close()
 	}

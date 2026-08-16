@@ -21,6 +21,11 @@ interface VoiceStats {
   longest_at: number
   longest_is_self: boolean
   without_duration: number
+  // 语音转写字数（微信自带 + 本地 Whisper 补转）
+  transcribed_count: number
+  transcribed_chars: number
+  sent_chars: number
+  recv_chars: number
 }
 
 interface TalkerExtrasData {
@@ -88,8 +93,16 @@ function Heatmap({ year, data }: { year: number; data: { date: string; count: nu
     return { cells, max, months }
   }, [data, year])
 
+  // 格距 / 格子边长。原来是 12/10，太小看不清一年的疏密，放大一档。
+  const PITCH = 16
+  const CELL = 14
+
   const color = (c: number) => {
-    if (c <= 0) return "var(--muted)"
+    // ⚠️ 原来写的是 `var(--muted)`，但 --muted 存的是 HSL 三元组（210 40% 96.1%）
+    // 不是颜色值 —— 少了 hsl() 包裹，这是**无效 CSS**，格子根本没背景，
+    // 直接透出卡片白底，看起来就是「空白天是白的」。
+    // 这里用固定的中性灰：白底上看得见，暗色主题下也不刺眼。
+    if (c <= 0) return "rgba(100,116,139,0.22)"
     const t = Math.min(1, Math.log(1 + c) / Math.log(1 + Math.max(1, max)))
     return `rgba(59,130,246,${0.15 + t * 0.85})` // 蓝色系，和其它图表一致
   }
@@ -97,25 +110,25 @@ function Heatmap({ year, data }: { year: number; data: { date: string; count: nu
 
   return (
     <div className="overflow-x-auto">
-      <div style={{ minWidth: weeks * 12 + 24 }}>
+      <div style={{ minWidth: weeks * PITCH + 24 }}>
         <div className="relative mb-1 h-3">
           {months.map((mo) => (
-            <span key={mo.label} className="absolute text-[9px] text-muted-foreground" style={{ left: mo.week * 12 }}>
+            <span key={mo.label} className="absolute text-[10px] text-muted-foreground" style={{ left: mo.week * PITCH }}>
               {mo.label}
             </span>
           ))}
         </div>
-        <div className="relative" style={{ height: 7 * 12 }}>
+        <div className="relative" style={{ height: 7 * PITCH }}>
           {cells.map((c) => (
             <div
               key={c.date}
               title={`${c.date}　${c.count} 条`}
-              className="absolute rounded-[2px]"
+              className="absolute rounded-[3px]"
               style={{
-                left: c.week * 12,
-                top: c.wd * 12,
-                width: 10,
-                height: 10,
+                left: c.week * PITCH,
+                top: c.wd * PITCH,
+                width: CELL,
+                height: CELL,
                 background: color(c.count),
               }}
             />
@@ -126,18 +139,49 @@ function Heatmap({ year, data }: { year: number; data: { date: string; count: nu
   )
 }
 
-function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
-  return (
-    <div className="rounded-lg border border-border p-3">
-      <div className="text-[11px] text-muted-foreground">{label}</div>
+function Stat({
+  label,
+  value,
+  sub,
+  onClick,
+  hint,
+}: {
+  label: string
+  value: string
+  sub?: string
+  /** 传了就变成可点的卡片（用于「条数 ↔ 字数」这类同位切换） */
+  onClick?: () => void
+  hint?: string
+}) {
+  const body = (
+    <>
+      <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
+        {label}
+        {onClick && <ArrowLeftRight className="h-3 w-3 opacity-60" />}
+      </div>
       <div className="mt-0.5 text-lg font-semibold tabular-nums">{value}</div>
       {sub && <div className="text-[10px] text-muted-foreground">{sub}</div>}
-    </div>
+    </>
+  )
+  if (!onClick) {
+    return <div className="rounded-lg border border-border p-3">{body}</div>
+  }
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={hint}
+      className="rounded-lg border border-border p-3 text-left transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+    >
+      {body}
+    </button>
   )
 }
 
 export function TalkerExtras({ talker }: { talker: string }) {
   const [year, setYear] = useState(CUR)
+  /** 语音卡片首格显示「条数」还是「转写字数」，点击切换 */
+  const [showChars, setShowChars] = useState(false)
 
   const { data, isLoading } = useQuery({
     queryKey: ["talker-extras", talker, year],
@@ -201,7 +245,24 @@ export function TalkerExtras({ talker }: { talker: string }) {
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-              <Stat label="总条数" value={`${v.total_count}`} sub={`我 ${v.sent_count} · ta ${v.recv_count}`} />
+              {/* 点一下在「条数」和「转写字数」之间切换 —— 两者同位，方便直接对比 */}
+              {showChars ? (
+                <Stat
+                  label="转写字数"
+                  value={`${v.transcribed_chars.toLocaleString()}`}
+                  sub={`我 ${v.sent_chars.toLocaleString()} · ta ${v.recv_chars.toLocaleString()}`}
+                  onClick={() => setShowChars(false)}
+                  hint="点击切回条数"
+                />
+              ) : (
+                <Stat
+                  label="总条数"
+                  value={`${v.total_count}`}
+                  sub={`我 ${v.sent_count} · ta ${v.recv_count}`}
+                  onClick={v.transcribed_count > 0 ? () => setShowChars(true) : undefined}
+                  hint="点击查看语音转写字数"
+                />
+              )}
               <Stat
                 label="总时长"
                 value={fmtDur(v.total_duration_ms)}
@@ -215,9 +276,22 @@ export function TalkerExtras({ talker }: { talker: string }) {
               <Stat
                 label="最长一条"
                 value={fmtDur(v.longest_duration_ms)}
-                sub={v.longest_at ? `${v.longest_is_self ? "我" : "ta"}发于 ${new Date(v.longest_at * 1000).toLocaleDateString()}` : undefined}
+                // 发送者要始终标出来 —— 没有时间戳时也得知道是谁发的
+                sub={
+                  v.longest_duration_ms > 0
+                    ? v.longest_at
+                      ? `${v.longest_is_self ? "我" : "ta"} 发于 ${new Date(v.longest_at * 1000).toLocaleDateString()}`
+                      : `${v.longest_is_self ? "我" : "ta"} 发的`
+                    : undefined
+                }
               />
             </div>
+            {showChars && (
+              <p className="text-[11px] text-muted-foreground">
+                {v.transcribed_count} / {v.total_count} 条已转写
+                {v.transcribed_count < v.total_count && "（未转写的多是本地没存音频文件的旧语音）"}
+              </p>
+            )}
             {v.without_duration > 0 && (
               <p className="text-[11px] text-muted-foreground">
                 其中 {v.without_duration} 条解析不出时长，未计入平均值。

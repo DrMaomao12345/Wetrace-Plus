@@ -25,6 +25,8 @@ import {
   ChevronDown,
   Search,
   X,
+  Eye,
+  EyeOff,
 } from "lucide-react"
 import { formatNumber } from "@/lib/utils"
 import { mediaApi } from "@/api/media"
@@ -125,6 +127,20 @@ function saveConfig(cfg: SavedConfig) {
   } catch {}
 }
 
+const PRIVACY_KEY = "annualReport.privacyMode"
+
+/**
+ * 私密模式下的姓名遮罩：保留首字，其余替换成圆点。
+ * 保留首字是为了自己还能认出是谁 —— 全遮住的话排行榜就没法读了。
+ * 圆点数量固定为 3，不随原名长度变化：长度本身也是识别信息
+ *（「无敌虚的老抖 M 鬻」和「妈」遮完若长度不同，等于没遮）。
+ */
+function maskName(name: string | undefined | null): string {
+  const s = (name ?? "").trim()
+  if (!s) return "???"
+  return Array.from(s)[0] + "•••"
+}
+
 export default function AnnualReportView() {
   const currentYear = new Date().getFullYear()
   const [inputYear, setInputYear] = useState(String(currentYear))
@@ -134,6 +150,15 @@ export default function AnnualReportView() {
   const [galaxy, setGalaxy] = useState<RelationshipGraph | null>(null)
   const [showReview, setShowReview] = useState(true)
   useEffect(() => { galaxyApi.getGraph().then(setGalaxy).catch(() => setGalaxy(null)) }, [])
+  // 私密模式：把联系人姓名和头像遮住，方便把报告截图/导 PDF 分享出去。
+  // 存 localStorage，下次打开保持 —— 一旦有人习惯开着，默认关掉会造成意外泄露。
+  const [privacyMode, setPrivacyMode] = useState(
+    () => localStorage.getItem(PRIVACY_KEY) === "1"
+  )
+  useEffect(() => {
+    localStorage.setItem(PRIVACY_KEY, privacyMode ? "1" : "0")
+  }, [privacyMode])
+
   const [showTzPanel, setShowTzPanel] = useState(false)
   const [showExcludePanel, setShowExcludePanel] = useState(false)
   const [excludeSearch, setExcludeSearch] = useState("")
@@ -455,6 +480,16 @@ export default function AnnualReportView() {
           关系回顾
         </label>
         <Button
+          variant={privacyMode ? "default" : "outline"}
+          size="sm"
+          className="gap-1"
+          onClick={() => setPrivacyMode(p => !p)}
+          title="遮住联系人姓名与头像，便于截图或导出 PDF 分享"
+        >
+          {privacyMode ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+          私密模式
+        </Button>
+        <Button
           variant="outline"
           size="sm"
           className="gap-1"
@@ -735,7 +770,7 @@ export default function AnnualReportView() {
                   <div key={l} className="rounded-xl bg-muted/40 p-3"><div className="text-2xl font-bold">{v}</div><div className="text-xs text-muted-foreground">{l}</div></div>
                 ))}
               </div>
-              <div className="mt-3 text-xs text-muted-foreground">这一年陪伴你最多：<span className="text-foreground">{rv.top.map((t) => t.name).join("、")}</span></div>
+              <div className="mt-3 text-xs text-muted-foreground">这一年陪伴你最多：<span className="text-foreground">{rv.top.map((t) => (privacyMode ? maskName(t.name) : t.name)).join("、")}</span></div>
               <div className="mt-1 text-xs text-muted-foreground">本年度活跃 {rv.activeMonths} 个月{rv.keywords.length ? " · 关键词：" + rv.keywords.join("、") : ""}</div>
             </div>
           )
@@ -785,6 +820,7 @@ export default function AnnualReportView() {
                 <SectionSkeleton title="亲密度排行 TOP 10" rows={5} cols={2} />
               ) : (
                 <TopContactsSection
+                  privacyMode={privacyMode}
                   contacts={data.top_contacts}
                   wordCounts={wordCounts}
                   onNeedChars={() => setTopRowsNeedChars(true)}
@@ -1080,10 +1116,13 @@ function TopContactsSection({
   contacts,
   wordCounts,
   onNeedChars,
+  privacyMode = false,
 }: {
   contacts: AnnualReport["top_contacts"]
   wordCounts?: WordCountStat
   onNeedChars?: () => void
+  /** 私密模式：遮住姓名与头像，便于分享 */
+  privacyMode?: boolean
 }) {
   const top10 = (contacts || []).slice(0, 10)
   const charMap = new Map<string, { sentChars: number; recvChars: number; totalChars: number }>()
@@ -1119,12 +1158,15 @@ function TopContactsSection({
                   {idx + 1}
                 </div>
                 <Avatar className="h-10 w-10 border shadow-sm">
-                  <AvatarImage src={contact.avatar && (contact.avatar.startsWith('http') ? contact.avatar : mediaApi.getAvatarUrl(`avatar/${contact.talker}`))} />
+                  {/* 私密模式下不加载头像 —— 只遮名字没意义，脸比名字更能认人 */}
+                  {!privacyMode && (
+                    <AvatarImage src={contact.avatar && (contact.avatar.startsWith('http') ? contact.avatar : mediaApi.getAvatarUrl(`avatar/${contact.talker}`))} />
+                  )}
                   <AvatarFallback>{contact.name?.substring(0, 1) || "?"}</AvatarFallback>
                 </Avatar>
                 <div className="flex-1 min-w-0">
                   <div className="font-medium text-sm truncate flex items-center gap-1.5">
-                    {contact.name}
+                    {privacyMode ? maskName(contact.name) : contact.name}
                     {contact.isGroup && (
                       <span className="text-[10px] bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded px-1 shrink-0">群聊</span>
                     )}
