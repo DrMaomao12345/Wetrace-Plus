@@ -54,8 +54,14 @@ func setupMockData(t *testing.T, dir string) {
 	db, _ := sql.Open("sqlite3", p)
 	defer db.Close()
 
-	db.Exec("CREATE TABLE contact (username TEXT, local_type INTEGER, alias TEXT, remark TEXT, nick_name TEXT)")
-	db.Exec("INSERT INTO contact VALUES (?, ?, ?, ?, ?)", "user1", 0, "alias1", "remark1", "nick1")
+	// 列必须与生产查询（repo/contact.go）对齐，缺列会报 no such column；
+	// COALESCE 只处理 NULL，兜不住列缺失
+	db.Exec(`CREATE TABLE contact (
+		username TEXT, local_type INTEGER, alias TEXT, remark TEXT, nick_name TEXT,
+		small_head_url TEXT, big_head_url TEXT
+	)`)
+	db.Exec("INSERT INTO contact VALUES (?, ?, ?, ?, ?, ?, ?)",
+		"user1", 0, "alias1", "remark1", "nick1", "", "")
 
 	db.Exec("CREATE TABLE chat_room (username TEXT, owner TEXT, ext_buffer BLOB)")
 	db.Exec("INSERT INTO chat_room VALUES (?, ?, ?)", "room1", "owner1", nil)
@@ -75,16 +81,17 @@ func setupMockData(t *testing.T, dir string) {
 
 	hash := md5.Sum([]byte("alice"))
 	tableName := "Msg_" + hex.EncodeToString(hash[:])
+	// 含 compress_content，与 repo/message.go 的查询对齐
 	db2.Exec(fmt.Sprintf(`CREATE TABLE %s (
 		sort_seq INTEGER, server_id INTEGER, local_type INTEGER, 
 		real_sender_id INTEGER, create_time INTEGER, 
-		message_content TEXT, packed_info_data BLOB, status INTEGER
+		message_content TEXT, compress_content BLOB, packed_info_data BLOB, status INTEGER
 	)`, tableName))
 
 	db2.Exec("CREATE TABLE Name2Id (user_name TEXT)")
 	db2.Exec("INSERT INTO Name2Id VALUES (?)", "alice")
 
 	db2.Exec(fmt.Sprintf(`INSERT INTO %s VALUES (
-		?, 1, 1, 1, ?, 'hello', NULL, 0
+		?, 1, 1, 1, ?, 'hello', NULL, NULL, 0
 	)`, tableName), 1672531200000, 1672531200)
 }

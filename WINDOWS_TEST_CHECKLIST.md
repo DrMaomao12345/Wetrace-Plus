@@ -76,10 +76,22 @@ npm run build # 产出 ui/dist，被 go:embed 打进二进制
   - Windows 走的是 DLL 注入（`web/api/handler_wxkey.go`，`//go:build windows`），
     与 macOS 的 lldb hook 完全不同 —— **这条是 Windows 独有路径，重点测**
   - 记录：是否需要微信正在运行？是否需要管理员权限？
-- [ ] **3.4** 解密数据库成功，`/api/v1/system/status` 返回 200
+- [ ] **3.4** 解密数据库成功
 
 ```powershell
 curl.exe -s http://127.0.0.1:5200/api/v1/system/status
+```
+
+⚠️ **不要只看 HTTP 200** —— 密钥没拿到、库没解密时这个接口照样返回 200，
+那个断言恒真、测不出任何东西。要判的是**返回体里的这两个字段**：
+
+- `data.config.has_wechat_db_key` == `true`
+- `data.store_initialized` == `true`
+
+再补一条实际取数的检查（返回非空才算真的通了）：
+
+```powershell
+curl.exe -s "http://127.0.0.1:5200/api/v1/sessions?limit=1&format=json"
 ```
 
 ---

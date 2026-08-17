@@ -5,6 +5,7 @@ package api
 import (
 	"fmt"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/afumu/wetrace/key/pkg/dllloader"
@@ -34,11 +35,30 @@ func (a *API) GetWeChatDbKey(c *gin.Context) {
 	if opts.DllPath == "" {
 		if path, err := wxkey.GetDllPath(); err == nil {
 			opts.DllPath = path
-			log.Info().Str("path", path).Msg("使用嵌入的 DLL")
+			log.Info().Str("path", path).Msg("找到 wx_key.dll")
 		} else {
-			log.Warn().Err(err).Msg("获取嵌入 DLL 失败，回退到默认路径")
-			opts.DllPath = "wxkey/wx_key.dll"
+			log.Warn().Err(err).Msg("未找到 wx_key.dll")
 		}
+	}
+
+	// ⚠️ DLL 不可用就必须在这里返回，**不能继续往下走**。
+	// 原实现只打一条 warn 就回退到 "wxkey/wx_key.dll"（一个同样不存在的路径），
+	// 然后照样把用户正在运行的微信杀掉重启 —— 用户点一次「获取密钥」＝
+	// 白丢一次微信会话，换一个必然失败的结果。
+	//
+	// 注意：wx_key.dll **不在仓库里**（.gitignore 排除了 *.dll，git 历史中从未有过），
+	// 也没有任何代码会生成它（wxkey/embed.go 名为 embed 却没有 //go:embed，
+	// WxKeyDll 声明后从未赋值）。所以全新 clone 必然走到这里。
+	// 需自行提供 DLL 并用 WXKEY_DLL_PATH 指定，或改用不依赖 DLL 的内存读取方案
+	// （internal/cl/wechat/key/windows 里已有实现，但目前无人调用）。
+	if _, err := os.Stat(opts.DllPath); opts.DllPath == "" || err != nil {
+		log.Error().Str("path", opts.DllPath).Msg("wx_key.dll 不可用，取消操作（未触碰微信进程）")
+		c.JSON(http.StatusPreconditionFailed, gin.H{
+			"success": false,
+			"message": "未找到 wx_key.dll，已取消操作（微信未被关闭）。" +
+				"请将 DLL 放到 wxkey/wx_key.dll，或在 .env 里用 WXKEY_DLL_PATH 指定其路径。",
+		})
+		return
 	}
 
 	pm := process.NewProcessManager()

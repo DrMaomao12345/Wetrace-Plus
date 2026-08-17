@@ -77,7 +77,7 @@ Wetrace 是一款专为 PC 端微信设计的聊天记录取证、备份与可�
 ##  开发者指南
 
 ### 后端 (Go)
-1. Go 1.24+
+1. Go 1.25+
 2. 安装 `gcc` 环境（`go-sqlite3` 需要 CGO）— Windows 推荐 [MSYS2](https://www.msys2.org/) + `mingw-w64-x86_64-gcc`
 3. 构建：
    ```bash

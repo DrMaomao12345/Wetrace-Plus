@@ -38,8 +38,10 @@ func TestRepo_GetContacts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetContacts 失败: %v", err)
 	}
+	// 必须 Fatalf：Errorf 不中断，下一行 contacts[0] 会 panic，
+	// 而 panic 会终止整个包的测试进程，掩盖后面所有用例
 	if len(contacts) != 1 {
-		t.Errorf("期望 1 个联系人, 实际得到 %d", len(contacts))
+		t.Fatalf("期望 1 个联系人, 实际得到 %d", len(contacts))
 	}
 	if contacts[0].UserName != "user1" {
 		t.Errorf("期望 user1, 实际得到 %s", contacts[0].UserName)
@@ -73,8 +75,9 @@ func TestRepo_GetMessages(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetMessages 失败: %v", err)
 	}
+	// 同上，必须 Fatalf
 	if len(msgs) != 1 {
-		t.Errorf("期望 1 条消息, 实际得到 %d", len(msgs))
+		t.Fatalf("期望 1 条消息, 实际得到 %d", len(msgs))
 	}
 	if msgs[0].Content != "hello" {
 		t.Errorf("期望 'hello', 实际得到 '%s'", msgs[0].Content)
@@ -94,11 +97,17 @@ func createContactDB(t *testing.T, path string) {
 	}
 	defer db.Close()
 
-	_, err = db.Exec("CREATE TABLE contact (username TEXT, local_type INTEGER, alias TEXT, remark TEXT, nick_name TEXT)")
+	// 列必须与生产查询（repo/contact.go）对齐 —— 少一列整条查询就报
+	// "no such column"，而 COALESCE 只处理 NULL，**列不存在照样报错**，兜不住。
+	_, err = db.Exec(`CREATE TABLE contact (
+		username TEXT, local_type INTEGER, alias TEXT, remark TEXT, nick_name TEXT,
+		small_head_url TEXT, big_head_url TEXT
+	)`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = db.Exec("INSERT INTO contact VALUES (?, ?, ?, ?, ?)", "user1", 0, "alias1", "remark1", "nick1")
+	_, err = db.Exec("INSERT INTO contact VALUES (?, ?, ?, ?, ?, ?, ?)",
+		"user1", 0, "alias1", "remark1", "nick1", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,12 +134,14 @@ func createMessageDB(t *testing.T, path string, startTime time.Time, user string
 	hash := md5.Sum([]byte(user))
 	tableName := "Msg_" + hex.EncodeToString(hash[:])
 
-	// sort_seq, server_id, local_type, real_sender_id, create_time, message_content, packed_info_data, status
+	// 列必须与生产查询（repo/message.go）对齐，含 compress_content —— 缺了它
+	// 查询会失败，而 message.go 的失败处理是「跳过整个分片只打一条 warn」，
+	// 对上层表现为「这个时间段没有消息」，很难查。
 	sqlStmt := fmt.Sprintf(`
 	CREATE TABLE %s (
 		sort_seq INTEGER, server_id INTEGER, local_type INTEGER, 
 		real_sender_id INTEGER, create_time INTEGER, 
-		message_content TEXT, packed_info_data BLOB, status INTEGER
+		message_content TEXT, compress_content BLOB, packed_info_data BLOB, status INTEGER
 	)`, tableName)
 	_, err = db.Exec(sqlStmt)
 	if err != nil {
@@ -143,7 +154,7 @@ func createMessageDB(t *testing.T, path string, startTime time.Time, user string
 
 	// 插入消息
 	_, err = db.Exec(fmt.Sprintf(`INSERT INTO %s VALUES (
-		?, 1, 1, 1, ?, 'hello', NULL, 0
+		?, 1, 1, 1, ?, 'hello', NULL, NULL, 0
 	)`, tableName), startTime.Unix()*1000, startTime.Unix())
 	if err != nil {
 		t.Fatalf("插入消息失败: %v", err)
