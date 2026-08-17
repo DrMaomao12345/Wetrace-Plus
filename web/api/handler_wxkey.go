@@ -8,6 +8,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/afumu/wetrace/internal/cl/winkey"
 	"github.com/afumu/wetrace/key/pkg/dllloader"
 	"github.com/afumu/wetrace/key/pkg/imagekey"
 	"github.com/afumu/wetrace/key/pkg/logger"
@@ -19,9 +20,41 @@ import (
 	"github.com/spf13/viper"
 )
 
-// GetWeChatDbKey 获取微信数据库密钥 (参考 CliController.Run 逻辑)
+// persistDbKey 把密钥写进 .env 并同步内存配置
+func (a *API) persistDbKey(key string) {
+	if err := updateEnv(map[string]string{"WECHAT_DB_KEY": key}); err != nil {
+		log.Error().Err(err).Msg("更新 .env 文件失败")
+		return
+	}
+	log.Info().Msg("已自动更新 .env 文件")
+	a.mu.Lock()
+	viper.Set("WECHAT_DB_KEY", key)
+	a.Conf.WechatDbKey = key
+	a.mu.Unlock()
+}
+
+// GetWeChatDbKey 获取微信数据库密钥。
+//
+// 两条路径，**优先内存读取**：
+//
+//  1. 直接读微信进程内存（internal/cl/winkey，OpenProcess + PROCESS_VM_READ）。
+//     不注入、不重启微信、不依赖任何外部二进制 —— 与 macOS 侧对称。
+//  2. 失败时回退到 DLL 注入（需要 wx_key.dll，且会强杀重启微信）。
+//     该 DLL 不随仓库分发，多数环境没有，所以只作兜底。
 func (a *API) GetWeChatDbKey(c *gin.Context) {
-	log.Info().Msg("开始获取微信数据库密钥 (强制重启模式)...")
+	log.Info().Msg("开始获取微信数据库密钥：优先直接读取进程内存...")
+
+	res, memErr := winkey.ExtractWeChatKey(c.Request.Context())
+	if memErr == nil && res != nil && res.DataKey != "" {
+		log.Info().Uint32("pid", res.PID).Msg("已从微信进程内存提取到密钥（未重启微信）")
+		a.persistDbKey(res.DataKey)
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"data":    gin.H{"pid": res.PID, "method": "memory"},
+		})
+		return
+	}
+	log.Warn().Err(memErr).Msg("内存读取未成功，尝试回退到 DLL 注入")
 
 	opts := options.CliOptions{
 		AutoMode:           true,
@@ -55,8 +88,12 @@ func (a *API) GetWeChatDbKey(c *gin.Context) {
 		log.Error().Str("path", opts.DllPath).Msg("wx_key.dll 不可用，取消操作（未触碰微信进程）")
 		c.JSON(http.StatusPreconditionFailed, gin.H{
 			"success": false,
-			"message": "未找到 wx_key.dll，已取消操作（微信未被关闭）。" +
-				"请将 DLL 放到 wxkey/wx_key.dll，或在 .env 里用 WXKEY_DLL_PATH 指定其路径。",
+			"message": fmt.Sprintf(
+				"取密钥失败，微信未被关闭。\n"+
+					"① 直接读取进程内存：%v\n"+
+					"② DLL 注入：未找到 wx_key.dll（该文件不随仓库分发）。\n"+
+					"通常按①的提示处理即可（确认微信已登录）；确需走②请把 DLL 放到 "+
+					"wxkey/wx_key.dll 或用 .env 的 WXKEY_DLL_PATH 指定。", memErr),
 		})
 		return
 	}
@@ -204,25 +241,11 @@ func (a *API) GetWeChatDbKey(c *gin.Context) {
 		return
 	}
 
-	// 写入 .env 文件并同步更新内存配置
-	updates := map[string]string{"WECHAT_DB_KEY": key}
-
-	if err := updateEnv(updates); err != nil {
-		log.Error().Err(err).Msg("更新 .env 文件失败")
-	} else {
-		log.Info().Msg("已自动更新 .env 文件")
-		// 同步更新内存中的配置和 viper 状态
-		a.mu.Lock()
-		viper.Set("WECHAT_DB_KEY", key)
-		a.Conf.WechatDbKey = key
-		a.mu.Unlock()
-	}
+	a.persistDbKey(key)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"data": gin.H{
-			"pid": pid,
-		},
+		"data":    gin.H{"pid": pid, "method": "dll"},
 	})
 }
 

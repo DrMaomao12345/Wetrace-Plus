@@ -73,9 +73,14 @@ npm run build # 产出 ui/dist，被 go:embed 打进二进制
 - [ ] **3.1** 服务起来了，控制台无 panic
 - [ ] **3.2** 浏览器打开 `http://127.0.0.1:5200`（或日志里打印的端口）能出界面
 - [ ] **3.3** 「获取密钥」流程能拿到 data key
-  - Windows 走的是 DLL 注入（`web/api/handler_wxkey.go`，`//go:build windows`），
-    与 macOS 的 lldb hook 完全不同 —— **这条是 Windows 独有路径，重点测**
-  - 记录：是否需要微信正在运行？是否需要管理员权限？
+  - **已改为「内存读取优先、DLL 兜底」**（上一轮反馈后重写）。正常路径是直接读
+    微信进程内存（`internal/cl/winkey`，OpenProcess + PROCESS_VM_READ），
+    **不注入、不重启微信、不需要 wx_key.dll**
+  - **前提：微信必须正在运行且已登录**（未登录时密钥不在内存里）
+  - 成功时返回体里 `data.method` == `"memory"`；若是 `"dll"` 说明走了兜底
+  - 两条路都失败时返回 **412**，错误信息里会同时给出两条路各自的原因，
+    且**不会关闭微信**
+  - 记录：是否需要管理员权限？（同用户进程通常不需要）
 - [ ] **3.4** 解密数据库成功
 
 ```powershell
