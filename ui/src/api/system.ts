@@ -141,7 +141,8 @@ export const systemApi = {
   // AI Config
   getAIConfig: () => request.get<AIConfig>("/api/v1/system/ai_config"),
   updateAIConfig: (data: AIConfigUpdate) => request.post("/api/v1/system/ai_config", data),
-  testAIConfig: () => request.post("/api/v1/ai/test"),
+  // 带上当前表单的配置，让后端测「屏幕上填的」而不是「上次保存的」
+  testAIConfig: (data?: AIConfigUpdate) => request.post("/api/v1/ai/test", data),
 
   // AI Prompts
   getAIPrompts: () => request.get<AIPromptsResponse>("/api/v1/system/ai_prompts"),

@@ -134,10 +134,14 @@ function AIConfigSection() {
   const handleTest = async () => {
     setTestStatus("testing")
     try {
-      await systemApi.testAIConfig()
+      // 把表单当前的值传过去测 —— 否则测的是上次保存的旧配置，
+      // 改了模型/Key 不先保存就点测试会一直失败，且看不出原因
+      await systemApi.testAIConfig(form)
       setTestStatus("success")
-    } catch {
+      toast.success("AI 连接测试成功")
+    } catch (err) {
       setTestStatus("error")
+      toast.error("连接失败: " + (err as Error).message)
     }
   }
 

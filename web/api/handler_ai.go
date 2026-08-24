@@ -15,6 +15,7 @@ import (
 	"github.com/afumu/wetrace/store/types"
 	"github.com/afumu/wetrace/web/transport"
 	"github.com/gin-gonic/gin"
+	"github.com/spf13/viper"
 )
 
 // AISummarizeRequest AI 总结请求
@@ -766,14 +767,57 @@ func extractJSON(raw string) string {
 	return ""
 }
 
-// AITestConnection 测试 AI 连接
+// AITestConnection 测试 AI 连接。
+//
+// 可选地接收一份「当前表单里的配置」并**用它**测试，而不是测已保存的配置。
+//
+// 为什么要这样：原实现只测 `a.AI`，而 `a.AI` 只在「保存配置」时才重建。
+// 于是用户改了模型或 Key、直接点旁边的「测试连接」，测的其实是**上一次保存的
+// 旧配置** —— 界面上看是「配置明明填对了却一直连不上」，极难自查。
+// 按钮就挨着表单，用户理所当然认为它测的是表单内容。
+//
+// 传了 model/base_url 就临时建一个客户端来测，**不写任何配置**；
+// api_key 留空时回退到该服务商已保存的 Key（用户没重输 Key 也能测）。
+// 完全不传 body 时保持旧行为，测已保存的配置。
 func (a *API) AITestConnection(c *gin.Context) {
-	if a.AI == nil {
-		transport.BadRequest(c, "AI 功能未启用")
+	var req struct {
+		Provider string `json:"provider"`
+		Model    string `json:"model"`
+		BaseURL  string `json:"base_url"`
+		APIKey   string `json:"api_key"`
+	}
+	_ = c.ShouldBindJSON(&req) // 无 body 时保持零值，走下面的已保存配置分支
+
+	if req.Model != "" && req.BaseURL != "" {
+		key := req.APIKey
+		if key == "" && req.Provider != "" {
+			key = viper.GetString(aiProviderViperKey(req.Provider))
+		}
+		if key == "" {
+			a.mu.Lock()
+			key = a.Conf.AIAPIKey
+			a.mu.Unlock()
+		}
+		if key == "" {
+			transport.BadRequest(c, "缺少 API Key：请在输入框里填入 Key 后再测试")
+			return
+		}
+		if err := ai.NewClient(key, req.BaseURL, req.Model).TestConnection(); err != nil {
+			transport.InternalServerError(c, err.Error())
+			return
+		}
+		transport.SendSuccess(c, "AI 连接测试成功")
 		return
 	}
 
-	if err := a.AI.TestConnection(); err != nil {
+	a.mu.Lock()
+	client := a.AI
+	a.mu.Unlock()
+	if client == nil {
+		transport.BadRequest(c, "AI 功能未启用")
+		return
+	}
+	if err := client.TestConnection(); err != nil {
 		transport.InternalServerError(c, err.Error())
 		return
 	}
