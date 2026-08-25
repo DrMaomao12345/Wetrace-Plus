@@ -38,7 +38,9 @@ function App() {
 
   useEffect(() => {
     // Check agreement status
-    const isAgreed = localStorage.getItem(AGREEMENT_KEY) === 'true'
+    // ⚠️ 临时：本地开发/联调时跳过「使用协议与隐私声明」弹窗。
+    // 原逻辑保留在下一行注释里，**对外分发前必须改回去**。
+    const isAgreed = true // localStorage.getItem(AGREEMENT_KEY) === 'true'
     setAgreed(isAgreed)
 
     // Check compliance status from backend
