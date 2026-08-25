@@ -37,7 +37,7 @@ func v4TableName(talker string) string {
 
 // ── 功能9 日历热力图 ───────────────────────────────────────────
 // GetCalendarHeatmap 返回某年内按天聚合的消息总数（含收发，排除系统消息）。
-func (r *Repository) GetCalendarHeatmap(ctx context.Context, year, tzOffsetSec int) []*model.DayHeat {
+func (r *Repository) GetCalendarHeatmap(ctx context.Context, year, tzOffsetSec int, exclude []string) []*model.DayHeat {
 	segs := buildSegments(year, tzOffsetSec, nil)
 	if len(segs) == 0 {
 		return nil
@@ -45,6 +45,15 @@ func (r *Repository) GetCalendarHeatmap(ctx context.Context, year, tzOffsetSec i
 	start, end, tzMod := segs[0].start, segs[len(segs)-1].end, segs[0].tzMod
 	daily := make(map[string]int)
 	allowTable := r.TableFilter(ctx, model.ModuleInsights)
+
+	// 「忽略的联系人」名单也要在这里生效，否则热力图格子算进了被忽略的人，
+	// 而悬停下钻的列表把他们滤掉了 —— 两个数字对不上，看着像 bug。
+	// 表名是 Msg_<md5(talker)>，只能正算 md5 反查。
+	excludedTable := make(map[string]bool, len(exclude))
+	for _, t := range exclude {
+		h := md5.Sum([]byte(t))
+		excludedTable["Msg_"+hex.EncodeToString(h[:])] = true
+	}
 
 	for _, shard := range r.router.GetShards() {
 		db, err := r.pool.GetConnection(shard.FilePath)
@@ -59,7 +68,7 @@ func (r *Repository) GetCalendarHeatmap(ctx context.Context, year, tzOffsetSec i
 			continue
 		}
 		for _, tbl := range r.listMsgTables(ctx, db) {
-			if !allowTable(tbl) {
+			if !allowTable(tbl) || excludedTable[tbl] {
 				continue
 			}
 			q := fmt.Sprintf("SELECT strftime('%%Y-%%m-%%d', create_time, 'unixepoch', %s) d, COUNT(*) FROM %s WHERE create_time >= ? AND create_time <= ? AND (local_type & 4294967295)!=10000 GROUP BY d", tzMod, tbl)
@@ -307,7 +316,7 @@ func (r *Repository) GetReplySpeedRanking(ctx context.Context, year, tzOffsetSec
 
 // ── 功能7 年度对比 ─────────────────────────────────────────────
 // GetYearCompare 对比两年的整体概览 + 每位联系人互动量的变化（淡出/新进/升/降）。
-func (r *Repository) GetYearCompare(ctx context.Context, yearA, yearB, tzOffsetSec int) (*model.YearCompare, error) {
+func (r *Repository) GetYearCompare(ctx context.Context, yearA, yearB, tzOffsetSec int, exclude []string) (*model.YearCompare, error) {
 	segsA := buildSegments(yearA, tzOffsetSec, nil)
 	segsB := buildSegments(yearB, tzOffsetSec, nil)
 
@@ -328,7 +337,8 @@ func (r *Repository) GetYearCompare(ctx context.Context, yearA, yearB, tzOffsetS
 				ov.ActiveContacts++
 			}
 		}
-		ov.ActiveDays = len(r.GetCalendarHeatmap(ctx, year, tzOffsetSec))
+		// 口径要与热力图一致，否则「活跃天数」会把被忽略的联系人算进去
+		ov.ActiveDays = len(r.GetCalendarHeatmap(ctx, year, tzOffsetSec, exclude))
 		return ov
 	}
 	ovA := buildOverview(yearA, topA)

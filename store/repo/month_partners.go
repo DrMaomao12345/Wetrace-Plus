@@ -22,7 +22,7 @@ import (
 // 而「这段时间有多少天在联系」更能反映陪伴密度 —— 这正是下钻想回答的问题。
 //
 // limit <= 0 表示不截断。TotalPeers 始终是截断前的真实会话数。
-func (r *Repository) GetHeatmapPartners(ctx context.Context, year, month, day, tzOffsetSec, limit int) *model.MonthPartners {
+func (r *Repository) GetHeatmapPartners(ctx context.Context, year, month, day, tzOffsetSec, limit int, exclude []string) *model.MonthPartners {
 	out := &model.MonthPartners{Year: year, Month: month, Day: day, Partners: []*model.MonthPartner{}}
 	if month < 1 || month > 12 {
 		return out
@@ -52,6 +52,13 @@ func (r *Repository) GetHeatmapPartners(ctx context.Context, year, month, day, t
 
 	allowTable := r.TableFilter(ctx, model.ModuleInsights)
 
+	// 「忽略的联系人」名单（设置页配置，网页与移动端共用）。
+	// 这与 TableFilter 是两回事：那个按**会话类型**过滤，这个按**具体的人**排除。
+	excluded := make(map[string]bool, len(exclude))
+	for _, t := range exclude {
+		excluded[t] = true
+	}
+
 	type agg struct {
 		days     map[string]struct{}
 		messages int
@@ -70,6 +77,9 @@ func (r *Repository) GetHeatmapPartners(ctx context.Context, year, month, day, t
 				continue
 			}
 			talker := md5ToTalker[strings.TrimPrefix(tbl, "Msg_")]
+			if excluded[talker] {
+				continue // 被用户忽略的联系人，连总数都不该算进去
+			}
 			if talker == "" {
 				// 联系人库里查不到的表（已删除的会话等），跳过而不是记成一个
 				// md5 乱码的「联系人」——那会在界面上显示成一串十六进制

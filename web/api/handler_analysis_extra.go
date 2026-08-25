@@ -31,7 +31,8 @@ func queryYear(c *gin.Context, key string) int {
 func (a *API) GetCalendarHeatmap(c *gin.Context) {
 	year := queryYear(c, "year")
 	tzSec := resolveTzMinutes(c) * 60
-	transport.SendSuccess(c, a.Store.GetCalendarHeatmap(c.Request.Context(), year, tzSec))
+	// 传 nil 即只取服务端持久化的「忽略的联系人」名单
+	transport.SendSuccess(c, a.Store.GetCalendarHeatmap(c.Request.Context(), year, tzSec, a.mergedExcludeTalkers(nil)))
 }
 
 // GetHeatmapPartners 日历热力图下钻：
@@ -59,7 +60,7 @@ func (a *API) GetHeatmapPartners(c *gin.Context) {
 	if v, err := strconv.Atoi(c.Query("limit")); err == nil && v > 0 && v <= 200 {
 		limit = v
 	}
-	transport.SendSuccess(c, a.Store.GetHeatmapPartners(c.Request.Context(), year, month, day, tzSec, limit))
+	transport.SendSuccess(c, a.Store.GetHeatmapPartners(c.Request.Context(), year, month, day, tzSec, limit, a.mergedExcludeTalkers(nil)))
 }
 
 // GetInteractionRatios 功能3：GET /api/v1/analysis/interaction_ratios?year=&tz_offset=&gap=&limit=
@@ -100,7 +101,7 @@ func (a *API) GetYearCompare(c *gin.Context) {
 	tzSec := resolveTzMinutes(c) * 60
 	ya := queryYear(c, "year_a")
 	yb := queryYear(c, "year_b")
-	data, err := a.Store.GetYearCompare(c.Request.Context(), ya, yb, tzSec)
+	data, err := a.Store.GetYearCompare(c.Request.Context(), ya, yb, tzSec, a.mergedExcludeTalkers(nil))
 	if err != nil {
 		transport.InternalServerError(c, err.Error())
 		return

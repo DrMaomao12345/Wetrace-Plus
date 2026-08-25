@@ -186,12 +186,12 @@ func (s *DefaultStore) ComputePastOverviewAvg(ctx context.Context, year, pastSta
 	return s.repo.ComputePastOverviewAvg(ctx, year, pastStartYear, defaultTzOffset)
 }
 
-func (s *DefaultStore) GetCalendarHeatmap(ctx context.Context, year, tzOffsetSec int) []*model.DayHeat {
-	return s.repo.GetCalendarHeatmap(ctx, year, tzOffsetSec)
+func (s *DefaultStore) GetCalendarHeatmap(ctx context.Context, year, tzOffsetSec int, exclude []string) []*model.DayHeat {
+	return s.repo.GetCalendarHeatmap(ctx, year, tzOffsetSec, exclude)
 }
 
-func (s *DefaultStore) GetHeatmapPartners(ctx context.Context, year, month, day, tzOffsetSec, limit int) *model.MonthPartners {
-	return s.repo.GetHeatmapPartners(ctx, year, month, day, tzOffsetSec, limit)
+func (s *DefaultStore) GetHeatmapPartners(ctx context.Context, year, month, day, tzOffsetSec, limit int, exclude []string) *model.MonthPartners {
+	return s.repo.GetHeatmapPartners(ctx, year, month, day, tzOffsetSec, limit, exclude)
 }
 
 func (s *DefaultStore) GetInteractionRatios(ctx context.Context, year, tzOffsetSec, gapSeconds, limit int) ([]*model.InteractionRatio, error) {
@@ -202,8 +202,8 @@ func (s *DefaultStore) GetReplySpeedRanking(ctx context.Context, year, tzOffsetS
 	return s.repo.GetReplySpeedRanking(ctx, year, tzOffsetSec, limit)
 }
 
-func (s *DefaultStore) GetYearCompare(ctx context.Context, yearA, yearB, tzOffsetSec int) (*model.YearCompare, error) {
-	return s.repo.GetYearCompare(ctx, yearA, yearB, tzOffsetSec)
+func (s *DefaultStore) GetYearCompare(ctx context.Context, yearA, yearB, tzOffsetSec int, exclude []string) (*model.YearCompare, error) {
+	return s.repo.GetYearCompare(ctx, yearA, yearB, tzOffsetSec, exclude)
 }
 
 func (s *DefaultStore) GetCommonGroups(ctx context.Context, wxid string) ([]*model.CommonGroup, error) {
