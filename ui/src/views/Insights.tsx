@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import { useMemo, useRef, useState, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { insightsApi, type CommonGroup, type InteractionRatio, type ReplySpeed } from '@/api/insights'
 import { CalendarDays, Users2, Clock, ArrowLeftRight, X } from 'lucide-react'
@@ -27,34 +27,65 @@ function Card({ title, icon, extra, children }: { title: string; icon?: ReactNod
 }
 
 // ── 功能9 日历热力图 ────────────────────────────────
-/** 月份悬浮卡片：显示该月和谁聊过、各聊了多少天。
- *  数据按需拉取（悬停到某个月才请求），react-query 会缓存，来回移不重复打接口。 */
-function MonthPartnersPopup({ year, month }: { year: number; month: number }) {
+/** 热力图悬浮卡片：显示这段时间和谁聊过、各聊了多少天。
+ *
+ *  三个要点：
+ *  - **fixed 定位**：热力图外层是 `overflow-x-auto`，absolute 会被裁掉。
+ *    用 fixed + 目标元素的 getBoundingClientRect 才能真正浮在最上层、冲出图表范围。
+ *  - **自身滚动 + overscroll-contain**：列表滚到底时不把滚动传给页面，
+ *    否则背后的热力图会跟着动。
+ *  - 数据按需拉取，react-query 缓存，来回移不重复打接口。
+ */
+function HeatmapPartnersPopup({
+  year, month, day, anchor,
+}: {
+  year: number
+  month: number
+  day?: number
+  anchor: { left: number; top: number }
+}) {
   const { data, isLoading } = useQuery({
-    queryKey: ['insights-month-partners', year, month],
-    queryFn: () => insightsApi.monthPartners(year, month),
+    queryKey: ['insights-heatmap-partners', year, month, day ?? 0],
+    queryFn: () => insightsApi.heatmapPartners(year, month, day),
     staleTime: 5 * 60 * 1000,
   })
 
+  const W = 300
+  // 贴着锚点下方弹出；靠近视口右缘/下缘时翻到另一侧，避免被窗口切掉
+  const left = Math.max(8, Math.min(anchor.left, window.innerWidth - W - 8))
+  const top = anchor.top + 6
+
   return (
-    <div className="w-72 rounded-xl border border-border bg-popover p-3 shadow-lg">
-      <div className="mb-2 flex items-baseline justify-between">
-        <span className="text-sm font-semibold">{year} 年 {month} 月</span>
+    <div
+      className="fixed z-50 rounded-xl border border-border bg-popover shadow-xl"
+      style={{ left, top, width: W, maxHeight: 340 }}
+    >
+      <div className="flex items-baseline justify-between border-b border-border px-3 py-2">
+        <span className="text-sm font-semibold">
+          {year} 年 {month} 月{day ? ` ${day} 日` : ''}
+        </span>
         {data && (
           <span className="text-[11px] text-muted-foreground">
-            {data.total_days} 天有记录 · {data.total_peers} 个会话
+            {day
+              ? `${data.total_msgs.toLocaleString()} 条 · ${data.total_peers} 个会话`
+              : `${data.total_days} 天有记录 · ${data.total_peers} 个会话`}
           </span>
         )}
       </div>
 
-      {isLoading && <div className="py-3 text-center text-xs text-muted-foreground">加载中…</div>}
+      {isLoading && <div className="py-4 text-center text-xs text-muted-foreground">加载中…</div>}
 
       {data && data.partners.length === 0 && (
-        <div className="py-3 text-center text-xs text-muted-foreground">这个月没有聊天记录</div>
+        <div className="py-4 text-center text-xs text-muted-foreground">
+          {day ? '这天没有聊天记录' : '这个月没有聊天记录'}
+        </div>
       )}
 
       {data && data.partners.length > 0 && (
-        <>
+        <div
+          className="overflow-y-auto px-3 py-2"
+          style={{ maxHeight: 268, overscrollBehavior: 'contain' }}
+        >
           <div className="space-y-1">
             {data.partners.map((p) => (
               <div key={p.username} className="flex items-center gap-2 text-xs">
@@ -62,9 +93,11 @@ function MonthPartnersPopup({ year, month }: { year: number; month: number }) {
                   {p.is_group && <span className="mr-1 text-muted-foreground">[群]</span>}
                   {p.name}
                 </span>
-                {/* 天数是主角，条数弱化 —— 这个下钻回答的是「聊了多少天」 */}
-                <span className="shrink-0 font-medium tabular-nums">{p.days} 天</span>
-                <span className="w-14 shrink-0 text-right tabular-nums text-muted-foreground">
+                {/* 看某一天时「1 天」没有信息量，条数才是主角 */}
+                {!day && <span className="shrink-0 font-medium tabular-nums">{p.days} 天</span>}
+                <span
+                  className={`w-16 shrink-0 text-right tabular-nums ${day ? 'font-medium' : 'text-muted-foreground'}`}
+                >
                   {p.messages.toLocaleString()} 条
                 </span>
               </div>
@@ -75,7 +108,7 @@ function MonthPartnersPopup({ year, month }: { year: number; month: number }) {
               仅显示前 {data.partners.length} 位，共 {data.total_peers} 个会话
             </div>
           )}
-        </>
+        </div>
       )}
     </div>
   )
@@ -119,31 +152,49 @@ function Heatmap({ year }: { year: number }) {
     const level = r > 0.66 ? 0.95 : r > 0.33 ? 0.7 : r > 0.1 ? 0.45 : 0.25
     return `rgba(236,72,153,${level})`
   }
-  const [hoverMonth, setHoverMonth] = useState<{ month: number; x: number } | null>(null)
+  // 悬停目标统一描述：day 为空=整月。anchor 是**屏幕坐标**（fixed 定位要用），
+  // 所以存的是 getBoundingClientRect 的结果，不是 SVG 内部坐标。
+  const [hover, setHover] = useState<
+    { month: number; day?: number; anchor: { left: number; top: number } } | null
+  >(null)
+  // 移出后延迟关闭，让鼠标能从标签移进弹窗而不中断
+  const closeTimer = useRef<number | null>(null)
+  const openHover = (h: { month: number; day?: number; anchor: { left: number; top: number } }) => {
+    if (closeTimer.current) { window.clearTimeout(closeTimer.current); closeTimer.current = null }
+    setHover(h)
+  }
+  const scheduleClose = () => {
+    if (closeTimer.current) window.clearTimeout(closeTimer.current)
+    closeTimer.current = window.setTimeout(() => setHover(null), 160)
+  }
   const CS = 12, GAP = 3
   const weeks = Math.max(...cells.map((c) => c.week)) + 1
   const total = (data || []).reduce((s, d) => s + d.count, 0)
 
   if (isLoading) return <div className="text-sm text-muted-foreground">加载中…</div>
   return (
-    <div className="relative overflow-x-auto">
+    <div className="overflow-x-auto">
       <div className="mb-1 text-xs text-muted-foreground">
         {year} 年共 {total.toLocaleString()} 条消息，{(data || []).length} 天有记录
-        <span className="ml-2 opacity-70">· 悬停月份看这个月和谁聊了多少天</span>
+        <span className="ml-2 opacity-70">· 悬停月份或某一天，看和谁聊了多少</span>
       </div>
       <svg width={weeks * (CS + GAP) + 30} height={7 * (CS + GAP) + 20}>
         {months.map((mo, i) => {
           const mx = 30 + mo.week * (CS + GAP)
+          const on = hover?.month === mo.month && !hover?.day
           return (
             <g key={i}
-              onMouseEnter={() => setHoverMonth({ month: mo.month, x: mx })}
-              onMouseLeave={() => setHoverMonth(null)}
+              onMouseEnter={(e) => {
+                const r = (e.currentTarget as SVGGElement).getBoundingClientRect()
+                openHover({ month: mo.month, anchor: { left: r.left, top: r.bottom } })
+              }}
+              onMouseLeave={scheduleClose}
               style={{ cursor: 'pointer' }}>
               {/* 透明热区：文字本身只有几像素高，直接挂 hover 很难对准 */}
               <rect x={mx - 4} y={0} width={30} height={16} fill="transparent" />
               <text x={mx} y={10}
-                className={hoverMonth?.month === mo.month ? 'fill-foreground' : 'fill-muted-foreground'}
-                style={{ fontSize: 10, fontWeight: hoverMonth?.month === mo.month ? 600 : 400 }}>
+                className={on ? 'fill-foreground' : 'fill-muted-foreground'}
+                style={{ fontSize: 10, fontWeight: on ? 600 : 400 }}>
                 {mo.label}
               </text>
             </g>
@@ -152,23 +203,37 @@ function Heatmap({ year }: { year: number }) {
         {['一', '三', '五'].map((w, i) => (
           <text key={w} x={0} y={20 + (i * 2 + 1) * (CS + GAP) + 9} className="fill-muted-foreground" style={{ fontSize: 9 }}>{w}</text>
         ))}
-        {cells.map((c) => (
-          <rect key={c.date} x={30 + c.week * (CS + GAP)} y={20 + c.wd * (CS + GAP)} width={CS} height={CS} rx={2}
-            fill={color(c.count)}>
-            <title>{c.date}: {c.count} 条</title>
-          </rect>
-        ))}
+        {cells.map((c) => {
+          const [, mm, dd] = c.date.split('-').map(Number)
+          const on = hover?.day === dd && hover?.month === mm
+          return (
+            <rect key={c.date}
+              x={30 + c.week * (CS + GAP)} y={20 + c.wd * (CS + GAP)}
+              width={CS} height={CS} rx={2}
+              fill={color(c.count)}
+              stroke={on ? 'currentColor' : 'none'} strokeWidth={on ? 1.5 : 0}
+              style={{ cursor: c.count > 0 ? 'pointer' : 'default' }}
+              onMouseEnter={(e) => {
+                if (c.count <= 0) return // 没消息的日子不弹空卡片
+                const r = (e.currentTarget as SVGRectElement).getBoundingClientRect()
+                openHover({ month: mm, day: dd, anchor: { left: r.left, top: r.bottom } })
+              }}
+              onMouseLeave={scheduleClose}>
+              {/* 保留原生 title 作兜底：弹窗加载中也能看到日期和条数 */}
+              <title>{c.date}: {c.count} 条</title>
+            </rect>
+          )
+        })}
       </svg>
 
-      {hoverMonth && (
-        <div
-          className="absolute z-20 pt-1"
-          // 贴着月份标签下方弹出；靠右的月份会超出容器，所以夹一下左边距
-          style={{ top: 34, left: Math.max(0, Math.min(hoverMonth.x - 20, weeks * (CS + GAP) + 30 - 288)) }}
-          onMouseEnter={() => setHoverMonth(hoverMonth)}
-          onMouseLeave={() => setHoverMonth(null)}
-        >
-          <MonthPartnersPopup year={year} month={hoverMonth.month} />
+      {hover && (
+        <div onMouseEnter={() => openHover(hover)} onMouseLeave={scheduleClose}>
+          <HeatmapPartnersPopup
+            year={year}
+            month={hover.month}
+            day={hover.day}
+            anchor={hover.anchor}
+          />
         </div>
       )}
     </div>

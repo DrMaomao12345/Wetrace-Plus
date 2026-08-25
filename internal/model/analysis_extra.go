@@ -80,8 +80,10 @@ type MonthPartner struct {
 
 // MonthPartners 某个月的下钻结果。
 type MonthPartners struct {
-	Year       int             `json:"year"`
+	Year int `json:"year"`
+	// Day <= 0 表示整月；>= 1 表示只统计那一天
 	Month      int             `json:"month"`
+	Day        int             `json:"day"`
 	TotalDays  int             `json:"total_days"`  // 该月有记录的天数（并集）
 	TotalMsgs  int             `json:"total_msgs"`  // 该月消息总数
 	TotalPeers int             `json:"total_peers"` // 该月互动过的会话总数（未被 limit 截断）

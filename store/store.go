@@ -78,7 +78,7 @@ type Store interface {
 
 	// 扩展分析（功能 9/3/5/7/4）
 	GetCalendarHeatmap(ctx context.Context, year, tzOffsetSec int) []*model.DayHeat
-	GetMonthPartners(ctx context.Context, year, month, tzOffsetSec, limit int) *model.MonthPartners
+	GetHeatmapPartners(ctx context.Context, year, month, day, tzOffsetSec, limit int) *model.MonthPartners
 	GetInteractionRatios(ctx context.Context, year, tzOffsetSec, gapSeconds, limit int) ([]*model.InteractionRatio, error)
 	GetReplySpeedRanking(ctx context.Context, year, tzOffsetSec, limit int) ([]*model.ReplySpeed, error)
 	GetYearCompare(ctx context.Context, yearA, yearB, tzOffsetSec int) (*model.YearCompare, error)

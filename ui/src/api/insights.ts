@@ -17,6 +17,8 @@ export interface MonthPartner {
 export interface MonthPartners {
   year: number
   month: number
+  /** <=0 表示整月；>=1 表示只统计那一天 */
+  day: number
   total_days: number
   total_msgs: number
   total_peers: number
@@ -53,8 +55,10 @@ export interface YearCompare {
 export const insightsApi = {
   calendarHeatmap: (year: number) =>
     request.get<DayHeat[]>('/api/v1/analysis/calendar_heatmap', { year, tz_offset: tz() }),
-  monthPartners: (year: number, month: number, limit = 12) =>
-    request.get<MonthPartners>('/api/v1/analysis/month_partners', { year, month, tz_offset: tz(), limit }),
+  /** 热力图下钻。day 省略=整月，给了就只看那一天 */
+  heatmapPartners: (year: number, month: number, day?: number, limit = 30) =>
+    request.get<MonthPartners>('/api/v1/analysis/heatmap_partners',
+      { year, month, ...(day ? { day } : {}), tz_offset: tz(), limit }),
   interactionRatios: (year: number, limit = 200) =>
     request.get<InteractionRatio[]>('/api/v1/analysis/interaction_ratios', { year, tz_offset: tz(), limit }),
   replySpeed: (year: number, limit = 200) =>

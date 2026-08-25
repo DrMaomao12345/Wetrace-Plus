@@ -12,24 +12,33 @@ import (
 	"github.com/afumu/wetrace/internal/model"
 )
 
-// ── 日历热力图月份下钻 ─────────────────────────────────────────
-// GetMonthPartners 统计某年某月里，你和每个会话**分别聊了多少天**。
+// ── 日历热力图下钻 ─────────────────────────────────────────────
+// GetHeatmapPartners 统计某个时间片里，你和每个会话**分别聊了多少天**。
 //
-// 为什么按「天数」而不是「条数」排：条数容易被一两次爆发式聊天带偏，
-// 而「这个月有多少天在联系」更能反映陪伴密度 —— 这也是这个下钻想回答的问题。
+// day <= 0 表示整月；day >= 1 表示只看那一天（此时每人的 Days 必然是 1，
+// 有意义的是条数，界面据此切换文案）。
+//
+// 为什么按「天数」排：条数容易被一两次爆发式聊天带偏，
+// 而「这段时间有多少天在联系」更能反映陪伴密度 —— 这正是下钻想回答的问题。
 //
 // limit <= 0 表示不截断。TotalPeers 始终是截断前的真实会话数。
-func (r *Repository) GetMonthPartners(ctx context.Context, year, month, tzOffsetSec, limit int) *model.MonthPartners {
-	out := &model.MonthPartners{Year: year, Month: month, Partners: []*model.MonthPartner{}}
+func (r *Repository) GetHeatmapPartners(ctx context.Context, year, month, day, tzOffsetSec, limit int) *model.MonthPartners {
+	out := &model.MonthPartners{Year: year, Month: month, Day: day, Partners: []*model.MonthPartner{}}
 	if month < 1 || month > 12 {
 		return out
 	}
 
-	// 月界必须按用户时区划，理由同 buildSegments 里对年界的处理：
-	// 用 UTC 划会把月初几小时算丢、又混进上个月的尾巴。
+	// 时间片边界必须按用户时区划，理由同 buildSegments 里对年界的处理：
+	// 用 UTC 划会把开头几小时算丢、又混进前一段的尾巴。
 	loc := time.FixedZone("tz", tzOffsetSec)
-	start := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, loc)
-	end := start.AddDate(0, 1, 0).Add(-time.Second)
+	var start, end time.Time
+	if day >= 1 {
+		start = time.Date(year, time.Month(month), day, 0, 0, 0, 0, loc)
+		end = start.AddDate(0, 0, 1).Add(-time.Second)
+	} else {
+		start = time.Date(year, time.Month(month), 1, 0, 0, 0, 0, loc)
+		end = start.AddDate(0, 1, 0).Add(-time.Second)
+	}
 	tzMod := tzModifier(loc)
 
 	// 表名是 Msg_<md5(talker)>，只能正向算 md5 再反查。
@@ -92,7 +101,7 @@ func (r *Repository) GetMonthPartners(ctx context.Context, year, month, tzOffset
 			}
 			rows.Close()
 			if len(a.days) == 0 {
-				delete(byTalker, talker) // 该月没有互动，别留一条全 0 的记录
+				delete(byTalker, talker) // 这段时间没有互动，别留一条全 0 的记录
 			}
 		}
 	}

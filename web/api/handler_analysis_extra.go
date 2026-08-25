@@ -34,22 +34,32 @@ func (a *API) GetCalendarHeatmap(c *gin.Context) {
 	transport.SendSuccess(c, a.Store.GetCalendarHeatmap(c.Request.Context(), year, tzSec))
 }
 
-// GetMonthPartners 日历热力图的月份下钻：
-// GET /api/v1/analysis/month_partners?year=&month=&tz_offset=&limit=
-// 返回该月和谁聊过、各聊了多少天。
-func (a *API) GetMonthPartners(c *gin.Context) {
+// GetHeatmapPartners 日历热力图下钻：
+// GET /api/v1/analysis/heatmap_partners?year=&month=&day=&tz_offset=&limit=
+// day 可省略（或 <=0）表示整月；给了 day 就只看那一天。
+// 返回这段时间和谁聊过、各聊了多少天。
+func (a *API) GetHeatmapPartners(c *gin.Context) {
 	year := queryYear(c, "year")
 	month, err := strconv.Atoi(c.Query("month"))
 	if err != nil || month < 1 || month > 12 {
 		transport.BadRequest(c, "month 需为 1-12")
 		return
 	}
+	day := 0
+	if v := c.Query("day"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 1 && n <= 31 {
+			day = n
+		} else {
+			transport.BadRequest(c, "day 需为 1-31")
+			return
+		}
+	}
 	tzSec := resolveTzMinutes(c) * 60
-	limit := 12 // 悬浮卡片放不下太多，默认取前 12 位
+	limit := 30 // 弹窗可滚动，给足条数；再多就没有阅读价值了
 	if v, err := strconv.Atoi(c.Query("limit")); err == nil && v > 0 && v <= 200 {
 		limit = v
 	}
-	transport.SendSuccess(c, a.Store.GetMonthPartners(c.Request.Context(), year, month, tzSec, limit))
+	transport.SendSuccess(c, a.Store.GetHeatmapPartners(c.Request.Context(), year, month, day, tzSec, limit))
 }
 
 // GetInteractionRatios 功能3：GET /api/v1/analysis/interaction_ratios?year=&tz_offset=&gap=&limit=
