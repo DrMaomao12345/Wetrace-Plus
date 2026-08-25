@@ -27,6 +27,60 @@ function Card({ title, icon, extra, children }: { title: string; icon?: ReactNod
 }
 
 // ── 功能9 日历热力图 ────────────────────────────────
+/** 月份悬浮卡片：显示该月和谁聊过、各聊了多少天。
+ *  数据按需拉取（悬停到某个月才请求），react-query 会缓存，来回移不重复打接口。 */
+function MonthPartnersPopup({ year, month }: { year: number; month: number }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ['insights-month-partners', year, month],
+    queryFn: () => insightsApi.monthPartners(year, month),
+    staleTime: 5 * 60 * 1000,
+  })
+
+  return (
+    <div className="w-72 rounded-xl border border-border bg-popover p-3 shadow-lg">
+      <div className="mb-2 flex items-baseline justify-between">
+        <span className="text-sm font-semibold">{year} 年 {month} 月</span>
+        {data && (
+          <span className="text-[11px] text-muted-foreground">
+            {data.total_days} 天有记录 · {data.total_peers} 个会话
+          </span>
+        )}
+      </div>
+
+      {isLoading && <div className="py-3 text-center text-xs text-muted-foreground">加载中…</div>}
+
+      {data && data.partners.length === 0 && (
+        <div className="py-3 text-center text-xs text-muted-foreground">这个月没有聊天记录</div>
+      )}
+
+      {data && data.partners.length > 0 && (
+        <>
+          <div className="space-y-1">
+            {data.partners.map((p) => (
+              <div key={p.username} className="flex items-center gap-2 text-xs">
+                <span className="flex-1 truncate" title={p.name}>
+                  {p.is_group && <span className="mr-1 text-muted-foreground">[群]</span>}
+                  {p.name}
+                </span>
+                {/* 天数是主角，条数弱化 —— 这个下钻回答的是「聊了多少天」 */}
+                <span className="shrink-0 font-medium tabular-nums">{p.days} 天</span>
+                <span className="w-14 shrink-0 text-right tabular-nums text-muted-foreground">
+                  {p.messages.toLocaleString()} 条
+                </span>
+              </div>
+            ))}
+          </div>
+          {data.total_peers > data.partners.length && (
+            <div className="mt-2 border-t border-border pt-1.5 text-[11px] text-muted-foreground">
+              仅显示前 {data.partners.length} 位，共 {data.total_peers} 个会话
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
 function Heatmap({ year }: { year: number }) {
   const { data, isLoading } = useQuery({
     queryKey: ['insights-heatmap', year],
@@ -43,7 +97,7 @@ function Heatmap({ year }: { year: number }) {
     const end = new Date(year, 11, 31)
     const firstOffset = start.getDay() // 周日=0
     const cells: { date: string; count: number; week: number; wd: number }[] = []
-    const months: { week: number; label: string }[] = []
+    const months: { week: number; label: string; month: number }[] = []
     let lastMonth = -1
     for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
       const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
@@ -52,7 +106,7 @@ function Heatmap({ year }: { year: number }) {
       const wd = d.getDay()
       cells.push({ date: iso, count: m.get(iso) || 0, week, wd })
       if (d.getMonth() !== lastMonth) {
-        months.push({ week, label: `${d.getMonth() + 1}月` })
+        months.push({ week, label: `${d.getMonth() + 1}月`, month: d.getMonth() + 1 })
         lastMonth = d.getMonth()
       }
     }
@@ -65,18 +119,36 @@ function Heatmap({ year }: { year: number }) {
     const level = r > 0.66 ? 0.95 : r > 0.33 ? 0.7 : r > 0.1 ? 0.45 : 0.25
     return `rgba(236,72,153,${level})`
   }
+  const [hoverMonth, setHoverMonth] = useState<{ month: number; x: number } | null>(null)
   const CS = 12, GAP = 3
   const weeks = Math.max(...cells.map((c) => c.week)) + 1
   const total = (data || []).reduce((s, d) => s + d.count, 0)
 
   if (isLoading) return <div className="text-sm text-muted-foreground">加载中…</div>
   return (
-    <div className="overflow-x-auto">
-      <div className="mb-1 text-xs text-muted-foreground">{year} 年共 {total.toLocaleString()} 条消息，{(data || []).length} 天有记录</div>
+    <div className="relative overflow-x-auto">
+      <div className="mb-1 text-xs text-muted-foreground">
+        {year} 年共 {total.toLocaleString()} 条消息，{(data || []).length} 天有记录
+        <span className="ml-2 opacity-70">· 悬停月份看这个月和谁聊了多少天</span>
+      </div>
       <svg width={weeks * (CS + GAP) + 30} height={7 * (CS + GAP) + 20}>
-        {months.map((mo, i) => (
-          <text key={i} x={30 + mo.week * (CS + GAP)} y={10} className="fill-muted-foreground" style={{ fontSize: 10 }}>{mo.label}</text>
-        ))}
+        {months.map((mo, i) => {
+          const mx = 30 + mo.week * (CS + GAP)
+          return (
+            <g key={i}
+              onMouseEnter={() => setHoverMonth({ month: mo.month, x: mx })}
+              onMouseLeave={() => setHoverMonth(null)}
+              style={{ cursor: 'pointer' }}>
+              {/* 透明热区：文字本身只有几像素高，直接挂 hover 很难对准 */}
+              <rect x={mx - 4} y={0} width={30} height={16} fill="transparent" />
+              <text x={mx} y={10}
+                className={hoverMonth?.month === mo.month ? 'fill-foreground' : 'fill-muted-foreground'}
+                style={{ fontSize: 10, fontWeight: hoverMonth?.month === mo.month ? 600 : 400 }}>
+                {mo.label}
+              </text>
+            </g>
+          )
+        })}
         {['一', '三', '五'].map((w, i) => (
           <text key={w} x={0} y={20 + (i * 2 + 1) * (CS + GAP) + 9} className="fill-muted-foreground" style={{ fontSize: 9 }}>{w}</text>
         ))}
@@ -87,6 +159,18 @@ function Heatmap({ year }: { year: number }) {
           </rect>
         ))}
       </svg>
+
+      {hoverMonth && (
+        <div
+          className="absolute z-20 pt-1"
+          // 贴着月份标签下方弹出；靠右的月份会超出容器，所以夹一下左边距
+          style={{ top: 34, left: Math.max(0, Math.min(hoverMonth.x - 20, weeks * (CS + GAP) + 30 - 288)) }}
+          onMouseEnter={() => setHoverMonth(hoverMonth)}
+          onMouseLeave={() => setHoverMonth(null)}
+        >
+          <MonthPartnersPopup year={year} month={hoverMonth.month} />
+        </div>
+      )}
     </div>
   )
 }

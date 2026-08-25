@@ -4,6 +4,24 @@ import { request } from '@/lib/request'
 const tz = () => -new Date().getTimezoneOffset()
 
 export interface DayHeat { date: string; count: number }
+
+/** 日历热力图月份下钻：该月和谁聊过、各聊了多少天 */
+export interface MonthPartner {
+  username: string
+  name: string
+  avatar: string
+  is_group: boolean
+  days: number
+  messages: number
+}
+export interface MonthPartners {
+  year: number
+  month: number
+  total_days: number
+  total_msgs: number
+  total_peers: number
+  partners: MonthPartner[]
+}
 export interface InteractionRatio {
   talker: string; name: string; avatar: string
   sent_count: number; recv_count: number
@@ -35,6 +53,8 @@ export interface YearCompare {
 export const insightsApi = {
   calendarHeatmap: (year: number) =>
     request.get<DayHeat[]>('/api/v1/analysis/calendar_heatmap', { year, tz_offset: tz() }),
+  monthPartners: (year: number, month: number, limit = 12) =>
+    request.get<MonthPartners>('/api/v1/analysis/month_partners', { year, month, tz_offset: tz(), limit }),
   interactionRatios: (year: number, limit = 200) =>
     request.get<InteractionRatio[]>('/api/v1/analysis/interaction_ratios', { year, tz_offset: tz(), limit }),
   replySpeed: (year: number, limit = 200) =>

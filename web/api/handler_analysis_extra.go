@@ -34,6 +34,24 @@ func (a *API) GetCalendarHeatmap(c *gin.Context) {
 	transport.SendSuccess(c, a.Store.GetCalendarHeatmap(c.Request.Context(), year, tzSec))
 }
 
+// GetMonthPartners 日历热力图的月份下钻：
+// GET /api/v1/analysis/month_partners?year=&month=&tz_offset=&limit=
+// 返回该月和谁聊过、各聊了多少天。
+func (a *API) GetMonthPartners(c *gin.Context) {
+	year := queryYear(c, "year")
+	month, err := strconv.Atoi(c.Query("month"))
+	if err != nil || month < 1 || month > 12 {
+		transport.BadRequest(c, "month 需为 1-12")
+		return
+	}
+	tzSec := resolveTzMinutes(c) * 60
+	limit := 12 // 悬浮卡片放不下太多，默认取前 12 位
+	if v, err := strconv.Atoi(c.Query("limit")); err == nil && v > 0 && v <= 200 {
+		limit = v
+	}
+	transport.SendSuccess(c, a.Store.GetMonthPartners(c.Request.Context(), year, month, tzSec, limit))
+}
+
 // GetInteractionRatios 功能3：GET /api/v1/analysis/interaction_ratios?year=&tz_offset=&gap=&limit=
 func (a *API) GetInteractionRatios(c *gin.Context) {
 	year := queryYear(c, "year")

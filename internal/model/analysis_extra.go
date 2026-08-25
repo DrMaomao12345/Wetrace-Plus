@@ -31,8 +31,8 @@ type ReplySpeed struct {
 	MyReplyCount     int    `json:"my_reply_count"`
 	TheirAvgReplySec int    `json:"their_avg_reply_sec"` // 对方回复你的平均秒数
 	TheirReplyCount  int    `json:"their_reply_count"`
-	LateNightInstant int    `json:"late_night_instant"`  // 深夜(0-5点)秒回(<2分钟)次数
-	IgnoredByThem    int    `json:"ignored_by_them"`     // 你发起后对方 >6h 未回（近似"已读不回"）
+	LateNightInstant int    `json:"late_night_instant"` // 深夜(0-5点)秒回(<2分钟)次数
+	IgnoredByThem    int    `json:"ignored_by_them"`    // 你发起后对方 >6h 未回（近似"已读不回"）
 }
 
 // ── 功能7 年度对比 ───────────────────────────────
@@ -63,4 +63,27 @@ type CommonGroup struct {
 	Name        string `json:"name"`
 	Avatar      string `json:"avatar"`
 	MemberCount int    `json:"member_count"`
+}
+
+// ── 日历热力图：月份下钻 ────────────────────────────────────────
+// MonthPartner 某个月里和某人的互动概况。
+// Days 是**有互动的天数**（去重后的日历天），不是消息条数 ——
+// 「聊了多少天」比「发了多少条」更能反映这段时间的陪伴密度。
+type MonthPartner struct {
+	Username string `json:"username"`
+	Name     string `json:"name"`
+	Avatar   string `json:"avatar"`
+	IsGroup  bool   `json:"is_group"`
+	Days     int    `json:"days"`     // 该月有互动的天数
+	Messages int    `json:"messages"` // 该月消息条数
+}
+
+// MonthPartners 某个月的下钻结果。
+type MonthPartners struct {
+	Year       int             `json:"year"`
+	Month      int             `json:"month"`
+	TotalDays  int             `json:"total_days"`  // 该月有记录的天数（并集）
+	TotalMsgs  int             `json:"total_msgs"`  // 该月消息总数
+	TotalPeers int             `json:"total_peers"` // 该月互动过的会话总数（未被 limit 截断）
+	Partners   []*MonthPartner `json:"partners"`
 }

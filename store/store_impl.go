@@ -190,6 +190,10 @@ func (s *DefaultStore) GetCalendarHeatmap(ctx context.Context, year, tzOffsetSec
 	return s.repo.GetCalendarHeatmap(ctx, year, tzOffsetSec)
 }
 
+func (s *DefaultStore) GetMonthPartners(ctx context.Context, year, month, tzOffsetSec, limit int) *model.MonthPartners {
+	return s.repo.GetMonthPartners(ctx, year, month, tzOffsetSec, limit)
+}
+
 func (s *DefaultStore) GetInteractionRatios(ctx context.Context, year, tzOffsetSec, gapSeconds, limit int) ([]*model.InteractionRatio, error) {
 	return s.repo.GetInteractionRatios(ctx, year, tzOffsetSec, gapSeconds, limit)
 }
