@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { insightsApi, type CommonGroup, type InteractionRatio, type ReplySpeed } from '@/api/insights'
-import { CalendarDays, Users2, Clock, ArrowLeftRight, X } from 'lucide-react'
+import { CalendarDays, Users2, Clock, ArrowLeftRight, X, Sun, Send, Inbox } from 'lucide-react'
 
 const CUR = new Date().getFullYear()
 const YEARS = Array.from({ length: CUR - 2021 }, (_, i) => CUR - i) // 当前年 → 2022
@@ -110,6 +110,149 @@ function HeatmapPartnersPopup({
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+/** 今日报告：当天的收发概况、时段分布、聊得最多的人。
+ *
+ *  方向判定（哪条是我发的）在后端逐字沿用年度报告那套，
+ *  所以这里的「发/收」与年度报告、日历热力图三处口径一致。
+ */
+function DailyReportCard() {
+  // 支持回看前几天 —— 0=今天，1=昨天…
+  const [back, setBack] = useState(0)
+  const date = useMemo(() => {
+    const d = new Date()
+    d.setDate(d.getDate() - back)
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  }, [back])
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['insights-daily-report', date],
+    queryFn: () => insightsApi.dailyReport(date),
+    staleTime: 60 * 1000,
+  })
+
+  const hhmm = (u: number) =>
+    u ? new Date(u * 1000).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }) : '—'
+  const label = back === 0 ? '今日报告' : back === 1 ? '昨日报告' : `${back} 天前`
+  const maxHour = data ? Math.max(1, ...data.hourly) : 1
+
+  return (
+    <Card
+      title={label}
+      icon={<Sun className="h-4 w-4 text-primary" />}
+      extra={
+        <div className="flex items-center gap-1.5">
+          <button
+            className="rounded-md border border-border px-2 py-0.5 text-xs hover:bg-accent disabled:opacity-40"
+            onClick={() => setBack((b) => b + 1)} disabled={back >= 30}>← 前一天</button>
+          <button
+            className="rounded-md border border-border px-2 py-0.5 text-xs hover:bg-accent disabled:opacity-40"
+            onClick={() => setBack((b) => Math.max(0, b - 1))} disabled={back === 0}>后一天 →</button>
+        </div>
+      }
+    >
+      {isLoading && <div className="py-6 text-center text-sm text-muted-foreground">加载中…</div>}
+
+      {data && data.total_messages === 0 && (
+        <div className="py-6 text-center text-sm text-muted-foreground">
+          {date} 没有聊天记录
+        </div>
+      )}
+
+      {data && data.total_messages > 0 && (
+        <div className="space-y-4">
+          {/* 概览数字 */}
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <Stat label="消息总数" value={data.total_messages.toLocaleString()} />
+            <Stat label="我发出" value={data.sent_messages.toLocaleString()}
+              icon={<Send className="h-3 w-3" />} />
+            <Stat label="我收到" value={data.recv_messages.toLocaleString()}
+              icon={<Inbox className="h-3 w-3" />} />
+            <Stat label="活跃会话"
+              value={`${data.total_peers}`}
+              sub={`${data.active_peers} 私聊 · ${data.active_groups} 群`} />
+          </div>
+
+          <div className="text-xs text-muted-foreground">
+            {hhmm(data.first_time)} 起，最后一条 {hhmm(data.last_time)}
+            {data.types.length > 0 && (
+              <span className="ml-2">
+                · {data.types.slice(0, 4).map((t) => `${t.name} ${t.count}`).join(' · ')}
+              </span>
+            )}
+          </div>
+
+          {/* 24 小时分布 */}
+          <div>
+            <div className="mb-1 text-xs text-muted-foreground">时段分布</div>
+            <div className="flex items-end gap-[2px]" style={{ height: 44 }}>
+              {data.hourly.map((n, h) => (
+                <div key={h} className="flex-1 rounded-sm"
+                  title={`${h}:00–${h}:59 · ${n} 条`}
+                  style={{
+                    height: `${Math.max(n > 0 ? 3 : 1, (n / maxHour) * 44)}px`,
+                    background: n > 0 ? 'hsl(var(--primary))' : 'rgba(100,116,139,0.22)',
+                    opacity: n > 0 ? 0.35 + 0.65 * (n / maxHour) : 1,
+                  }} />
+              ))}
+            </div>
+            <div className="mt-1 flex justify-between text-[10px] text-muted-foreground">
+              <span>0</span><span>6</span><span>12</span><span>18</span><span>23</span>
+            </div>
+          </div>
+
+          {/* 聊得最多 */}
+          <div>
+            <div className="mb-1.5 text-xs text-muted-foreground">聊得最多</div>
+            <div className="space-y-1">
+              {data.partners.slice(0, 8).map((p) => {
+                const pct = (p.messages / data.partners[0].messages) * 100
+                return (
+                  <div key={p.username} className="flex items-center gap-2 text-xs">
+                    <span className="w-40 shrink-0 truncate" title={p.name}>
+                      {p.is_group && <span className="mr-1 text-muted-foreground">[群]</span>}
+                      {p.name}
+                    </span>
+                    {/* 条形：让「谁聊得多」一眼可比，而不是逐个读数字 */}
+                    <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted/40">
+                      <div className="h-full rounded-full bg-primary/70" style={{ width: `${pct}%` }} />
+                    </div>
+                    <span className="w-24 shrink-0 text-right tabular-nums text-muted-foreground">
+                      发{p.sent} / 收{p.recv}
+                    </span>
+                    <span className="w-14 shrink-0 text-right font-medium tabular-nums">
+                      {p.messages} 条
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+            {data.total_peers > 8 && (
+              <div className="mt-1.5 text-[11px] text-muted-foreground">
+                仅显示前 8 位，共 {data.total_peers} 个会话
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </Card>
+  )
+}
+
+/** 概览小格子 */
+function Stat({ label, value, sub, icon }: {
+  label: string; value: string; sub?: string; icon?: ReactNode
+}) {
+  return (
+    <div className="rounded-lg border border-border bg-muted/20 px-3 py-2">
+      <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
+        {icon}{label}
+      </div>
+      <div className="text-lg font-semibold tabular-nums">{value}</div>
+      {sub && <div className="text-[10px] text-muted-foreground">{sub}</div>}
     </div>
   )
 }
@@ -471,6 +614,8 @@ export default function Insights() {
           {YEARS.map((y) => <option key={y} value={y}>{y} 年</option>)}
         </select>
       </div>
+
+      <DailyReportCard />
 
       <Card title="日历热力图" icon={<CalendarDays className="h-4 w-4 text-primary" />}>
         <Heatmap year={year} />

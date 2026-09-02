@@ -52,9 +52,39 @@ export interface YearCompare {
   rising: ContactYearDelta[]; falling: ContactYearDelta[]
 }
 
+export interface DailyPartner {
+  username: string
+  name: string
+  is_group: boolean
+  messages: number
+  sent: number
+  recv: number
+  last_time: number
+}
+
+export interface DailyReport {
+  date: string
+  total_messages: number
+  sent_messages: number
+  recv_messages: number
+  active_peers: number
+  active_groups: number
+  total_peers: number
+  first_time: number
+  last_time: number
+  hourly: number[]
+  partners: DailyPartner[]
+  types: { type: number; name: string; count: number }[]
+}
+
 export const insightsApi = {
   calendarHeatmap: (year: number) =>
     request.get<DayHeat[]>('/api/v1/analysis/calendar_heatmap', { year, tz_offset: tz() }),
+  /** 今日报告。date 省略=服务端按用户时区取今天 */
+  dailyReport: (date?: string, top = 20) =>
+    request.get<DailyReport>('/api/v1/analysis/daily_report',
+      { ...(date ? { date } : {}), tz_offset: tz(), top }),
+
   /** 热力图下钻。day 省略=整月，给了就只看那一天 */
   heatmapPartners: (year: number, month: number, day?: number, limit = 30) =>
     request.get<MonthPartners>('/api/v1/analysis/heatmap_partners',

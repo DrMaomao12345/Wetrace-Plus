@@ -89,3 +89,42 @@ type MonthPartners struct {
 	TotalPeers int             `json:"total_peers"` // 该月互动过的会话总数（未被 limit 截断）
 	Partners   []*MonthPartner `json:"partners"`
 }
+
+// ── 今日报告 ───────────────────────────────────────────────────
+
+// DailyPartner 当天与某个会话的往来概况
+type DailyPartner struct {
+	Username string `json:"username"`
+	Name     string `json:"name"`
+	IsGroup  bool   `json:"is_group"`
+	Messages int    `json:"messages"`
+	Sent     int    `json:"sent"`
+	Recv     int    `json:"recv"`
+	LastTime int64  `json:"last_time"`
+}
+
+// DailyTypeCount 当天的消息类型分布
+type DailyTypeCount struct {
+	Type  int    `json:"type"`
+	Name  string `json:"name"`
+	Count int    `json:"count"`
+}
+
+// DailyReport 今日报告
+type DailyReport struct {
+	Date          string `json:"date"`
+	TotalMessages int    `json:"total_messages"`
+	SentMessages  int    `json:"sent_messages"`
+	RecvMessages  int    `json:"recv_messages"`
+	// 当天有往来的私聊数 / 群聊数
+	ActivePeers  int `json:"active_peers"`
+	ActiveGroups int `json:"active_groups"`
+	// TotalPeers 是截断前的真实会话数，Partners 可能被 topN 截断
+	TotalPeers int `json:"total_peers"`
+	// 当天第一条 / 最后一条消息的 unix 秒
+	FirstTime int64             `json:"first_time"`
+	LastTime  int64             `json:"last_time"`
+	Hourly    []int             `json:"hourly"` // 24 个桶
+	Partners  []*DailyPartner   `json:"partners"`
+	Types     []*DailyTypeCount `json:"types"`
+}

@@ -35,6 +35,28 @@ func (a *API) GetCalendarHeatmap(c *gin.Context) {
 	transport.SendSuccess(c, a.Store.GetCalendarHeatmap(c.Request.Context(), year, tzSec, a.mergedExcludeTalkers(nil)))
 }
 
+// GetDailyReport 今日报告：
+// GET /api/v1/analysis/daily_report?date=YYYY-MM-DD&tz_offset=&top=
+// date 省略则取用户时区下的今天。
+func (a *API) GetDailyReport(c *gin.Context) {
+	tzSec := resolveTzMinutes(c) * 60
+	loc := time.FixedZone("tz", tzSec)
+
+	date := c.Query("date")
+	if date == "" {
+		date = time.Now().In(loc).Format("2006-01-02") // 「今天」按用户时区算
+	} else if _, err := time.ParseInLocation("2006-01-02", date, loc); err != nil {
+		transport.BadRequest(c, "date 需为 YYYY-MM-DD")
+		return
+	}
+
+	top := 20
+	if v, err := strconv.Atoi(c.Query("top")); err == nil && v > 0 && v <= 200 {
+		top = v
+	}
+	transport.SendSuccess(c, a.Store.GetDailyReport(c.Request.Context(), date, tzSec, top, a.mergedExcludeTalkers(nil)))
+}
+
 // GetHeatmapPartners 日历热力图下钻：
 // GET /api/v1/analysis/heatmap_partners?year=&month=&day=&tz_offset=&limit=
 // day 可省略（或 <=0）表示整月；给了 day 就只看那一天。

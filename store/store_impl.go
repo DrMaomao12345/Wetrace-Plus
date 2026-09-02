@@ -190,6 +190,10 @@ func (s *DefaultStore) GetCalendarHeatmap(ctx context.Context, year, tzOffsetSec
 	return s.repo.GetCalendarHeatmap(ctx, year, tzOffsetSec, exclude)
 }
 
+func (s *DefaultStore) GetDailyReport(ctx context.Context, date string, tzOffsetSec, topN int, exclude []string) *model.DailyReport {
+	return s.repo.GetDailyReport(ctx, date, tzOffsetSec, topN, exclude)
+}
+
 func (s *DefaultStore) GetHeatmapPartners(ctx context.Context, year, month, day, tzOffsetSec, limit int, exclude []string) *model.MonthPartners {
 	return s.repo.GetHeatmapPartners(ctx, year, month, day, tzOffsetSec, limit, exclude)
 }

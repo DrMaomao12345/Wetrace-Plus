@@ -211,6 +211,7 @@ func (s *Service) setupRoutes() {
 			analysisGroup.GET("/top_contacts_monthly_avg", s.api.GetTopContactsHistoricalMonthlyAvg)
 			analysisGroup.GET("/extras/:id", s.api.GetTalkerExtras)              // 单人热力图/语音/互动
 			analysisGroup.GET("/calendar_heatmap", s.api.GetCalendarHeatmap)     // 功能9
+			analysisGroup.GET("/daily_report", s.api.GetDailyReport)             // 今日报告
 			analysisGroup.GET("/heatmap_partners", s.api.GetHeatmapPartners)     // 功能9 热力图下钻（月/日）
 			analysisGroup.GET("/interaction_ratios", s.api.GetInteractionRatios) // 功能3
 			analysisGroup.GET("/reply_speed", s.api.GetReplySpeedRanking)        // 功能5
