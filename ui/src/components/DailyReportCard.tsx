@@ -54,7 +54,9 @@ export function DailyReportCard() {
   const maxHour = data ? Math.max(1, ...data.hourly) : 1
 
   return (
-    <div className="flex-shrink-0 border-b border-border bg-background">
+    // relative：展开的面板绝对定位挂在这层下方，浮在内容之上 ——
+    // 这样展开/收起都不会把下面的会话列表顶来顶去
+    <div className="relative z-30 flex-shrink-0 border-b border-border bg-background">
       <div className="flex items-center gap-2 px-4 py-2">
         <button onClick={toggle} className="flex items-center gap-1.5 text-sm font-semibold hover:text-primary">
           {open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
@@ -80,7 +82,12 @@ export function DailyReportCard() {
       </div>
 
       {open && (
-        <div className="px-4 pb-3">
+        // absolute + top-full：紧贴标题栏下沿浮出，不占文档流高度。
+        // 自带滚动 + overscroll-contain，列表滚到底不会把滚动链传给背后的会话列表。
+        <div
+          className="absolute inset-x-0 top-full overflow-y-auto border-b border-border bg-background px-4 pb-3 shadow-lg"
+          style={{ maxHeight: '70vh', overscrollBehavior: 'contain' }}
+        >
           {isLoading && <div className="py-4 text-center text-sm text-muted-foreground">加载中…</div>}
 
           {data && data.total_messages === 0 && (
