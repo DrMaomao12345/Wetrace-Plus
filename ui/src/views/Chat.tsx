@@ -2,6 +2,7 @@ import { SessionList } from "@/components/chat/SessionList"
 import { MessageList } from "@/components/chat/MessageList"
 import { useAppStore } from "@/stores/app"
 import { cn } from "@/lib/utils"
+import { DailyReportCard } from "@/components/DailyReportCard"
 import { useChat } from "@/hooks/useChat"
 import { RefreshCw, ArrowLeft, Smile, PlusCircle, Mic, Download, Sparkles, ImageIcon, Images, BrainCircuit, MessageSquareQuote, MoreHorizontal, Type } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -230,7 +231,11 @@ export default function Chat() {
   }
   
   return (
-    <div className="flex h-full w-full">
+    <div className="flex h-full w-full flex-col">
+      {/* 今日报告置顶。可折叠 —— 聊天页的主角是聊天，不该被报告长期占着高度 */}
+      <DailyReportCard />
+
+      <div className="flex min-h-0 flex-1 w-full">
       <div className={cn(
         "flex-shrink-0 border-r border-border bg-background transition-all duration-300", 
         isMobile 
@@ -495,5 +500,6 @@ export default function Chat() {
         />
       )}
     </div>
+      </div>
   )
 }
