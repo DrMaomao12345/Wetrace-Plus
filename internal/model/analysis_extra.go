@@ -101,6 +101,8 @@ type DailyPartner struct {
 	Sent     int    `json:"sent"`
 	Recv     int    `json:"recv"`
 	LastTime int64  `json:"last_time"`
+	// FirstBySelf 当天这个会话的第一条是不是我发的（谁先开的口）
+	FirstBySelf bool `json:"first_by_self"`
 }
 
 // DailyTypeCount 当天的消息类型分布
@@ -127,4 +129,25 @@ type DailyReport struct {
 	Hourly    []int             `json:"hourly"` // 24 个桶
 	Partners  []*DailyPartner   `json:"partners"`
 	Types     []*DailyTypeCount `json:"types"`
+
+	// 字数。口径与年度字数统计一致：文本算 message_content 长度（仅 local_type=1），
+	// 语音算转写文本的字数。VoiceChars 已含在 Sent/RecvChars 里，不要重复相加。
+	SentChars  int `json:"sent_chars"`
+	RecvChars  int `json:"recv_chars"`
+	VoiceChars int `json:"voice_chars"`
+
+	// 峰值时段
+	PeakHour      int `json:"peak_hour"`
+	PeakHourCount int `json:"peak_hour_count"`
+
+	// 谁先开口：当天每个会话的第一条消息由谁发出，汇总而来
+	InitiatedByMe   int `json:"initiated_by_me"`
+	InitiatedByThem int `json:"initiated_by_them"`
+
+	// 对比与连贯性
+	PrevDayTotal  int `json:"prev_day_total"`  // 前一天总条数
+	LastWeekTotal int `json:"last_week_total"` // 上周同一天总条数
+	StreakDays    int `json:"streak_days"`     // 截至当天的连续有记录天数
+	// StreakCapped 为真表示连续天数顶到了回看窗口上限，实际可能更长（显示成 "N+"）
+	StreakCapped bool `json:"streak_capped"`
 }

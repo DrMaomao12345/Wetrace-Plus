@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Sun, Send, Inbox, ChevronDown, ChevronRight } from 'lucide-react'
+import { Sun, Send, Inbox, Type, ChevronDown, ChevronRight } from 'lucide-react'
 import { insightsApi } from '@/api/insights'
 
 /** 今日报告：当天的收发概况、时段分布、聊得最多的人。
@@ -89,12 +89,34 @@ export function DailyReportCard() {
 
           {data && data.total_messages > 0 && (
             <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                <Stat label="消息总数" value={data.total_messages.toLocaleString()} />
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+                <Stat label="消息总数" value={data.total_messages.toLocaleString()}
+                  sub={<Delta cur={data.total_messages} prev={data.prev_day_total} unit="较昨天" />} />
                 <Stat label="我发出" value={data.sent_messages.toLocaleString()} icon={<Send className="h-3 w-3" />} />
                 <Stat label="我收到" value={data.recv_messages.toLocaleString()} icon={<Inbox className="h-3 w-3" />} />
+                <Stat label="今日字数" value={(data.sent_chars + data.recv_chars).toLocaleString()}
+                  icon={<Type className="h-3 w-3" />}
+                  sub={data.voice_chars > 0 ? `含语音转写 ${data.voice_chars.toLocaleString()}` : undefined} />
                 <Stat label="活跃会话" value={`${data.total_peers}`}
                   sub={`${data.active_peers} 私聊 · ${data.active_groups} 群`} />
+              </div>
+
+              {/* 一句话把最值得注意的三件事说完，省得逐个读图 */}
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg bg-muted/30 px-3 py-2 text-xs">
+                <span>
+                  最活跃 <b className="tabular-nums">{String(data.peak_hour).padStart(2, '0')}:00</b>
+                  <span className="text-muted-foreground">（{data.peak_hour_count} 条）</span>
+                </span>
+                <span>
+                  我主动开口 <b className="tabular-nums">{data.initiated_by_me}</b>
+                  <span className="text-muted-foreground"> / 对方先来 {data.initiated_by_them}</span>
+                </span>
+                <span>
+                  连续 <b className="tabular-nums">{data.streak_days}{data.streak_capped ? '+' : ''}</b> 天有记录
+                </span>
+                <span className="text-muted-foreground">
+                  上周同日 {data.last_week_total.toLocaleString()} 条
+                </span>
               </div>
 
               <div className="text-xs text-muted-foreground">
@@ -132,6 +154,11 @@ export function DailyReportCard() {
                         <span className="w-36 shrink-0 truncate" title={p.name}>
                           {p.is_group && <span className="mr-1 text-muted-foreground">[群]</span>}
                           {p.name}
+                          {/* 谁先开的口 —— 小箭头比多一列文字省地方 */}
+                          <span className="ml-1 text-[10px] text-muted-foreground"
+                            title={p.first_by_self ? '今天是我先开的口' : '今天是对方先来的'}>
+                            {p.first_by_self ? '↗' : '↘'}
+                          </span>
                         </span>
                         {/* 条形：让「谁聊得多」一眼可比，而不是逐个读数字 */}
                         <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted/40">
@@ -174,8 +201,21 @@ function hourColor(n: number, max: number) {
   return `rgba(236,72,153,${level})`
 }
 
+/** 与前一天的增减。没有前一天数据时不显示，避免「↑100%」这种噪声。 */
+function Delta({ cur, prev, unit }: { cur: number; prev: number; unit: string }) {
+  if (!prev) return null
+  const diff = cur - prev
+  if (diff === 0) return <span className="text-muted-foreground">{unit}持平</span>
+  const pct = Math.round((diff / prev) * 100)
+  return (
+    <span className={diff > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}>
+      {diff > 0 ? '↑' : '↓'}{Math.abs(pct)}% {unit}
+    </span>
+  )
+}
+
 /** 概览小格子 */
-function Stat({ label, value, sub, icon }: { label: string; value: string; sub?: string; icon?: ReactNode }) {
+function Stat({ label, value, sub, icon }: { label: string; value: string; sub?: ReactNode; icon?: ReactNode }) {
   return (
     <div className="rounded-lg border border-border bg-muted/20 px-3 py-2">
       <div className="flex items-center gap-1 text-[11px] text-muted-foreground">{icon}{label}</div>

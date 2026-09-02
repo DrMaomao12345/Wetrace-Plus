@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -44,10 +45,14 @@ func (r *Repository) GetDailyReport(ctx context.Context, date string, tzOffsetSe
 
 	myWxid := r.getCurrentUserWxid(ctx)
 	md5ToTalker := r.getTalkerMD5Map(ctx)
+	tl := r.transcriptLookup() // 没有任何转写结果时为 nil
 
 	type agg struct {
 		sent, recv int
 		lastUnix   int64
+		// 当天最早一条及其方向 —— 用来判断这个会话是谁先开的口
+		firstUnix   int64
+		firstIsSelf bool
 	}
 	byTalker := map[string]*agg{}
 	typeCount := map[int]int{}
@@ -91,9 +96,14 @@ func (r *Repository) GetDailyReport(ctx context.Context, date string, tzOffsetSe
 			}
 			isGroup := isChatroomTalker(talker)
 
+			// 字数口径与 report_wordcount 保持一致：文本只算 local_type=1 的
+			// message_content 长度（SQLite 的 length() 对 TEXT 数的是字符不是字节），
+			// 语音另算转写文本的 rune 数。
 			rows, err := db.QueryContext(ctx, fmt.Sprintf(
 				"SELECT COALESCE(create_time,0), COALESCE(local_type,0) & 4294967295, "+
-					"COALESCE(status,0), COALESCE(real_sender_id,0) FROM %s "+
+					"COALESCE(status,0), COALESCE(real_sender_id,0), COALESCE(server_id,0), "+
+					"CASE WHEN (local_type & 4294967295) = 1 "+
+					"THEN length(CAST(message_content AS TEXT)) ELSE 0 END, packed_info_data FROM %s "+
 					"WHERE create_time >= ? AND create_time <= ? AND (local_type & 4294967295) != 10000",
 				tbl), start.Unix(), end.Unix())
 			if err != nil {
@@ -101,9 +111,10 @@ func (r *Repository) GetDailyReport(ctx context.Context, date string, tzOffsetSe
 			}
 			for rows.Next() {
 				var ts int64
-				var localType, status int
-				var senderID int64
-				if rows.Scan(&ts, &localType, &status, &senderID) != nil {
+				var localType, status, textLen int
+				var senderID, serverID int64
+				var packed []byte
+				if rows.Scan(&ts, &localType, &status, &senderID, &serverID, &textLen, &packed) != nil {
 					continue
 				}
 				// 与 scanAnnualV4 完全一致的方向判定
@@ -132,8 +143,31 @@ func (r *Repository) GetDailyReport(ctx context.Context, date string, tzOffsetSe
 				if ts > a.lastUnix {
 					a.lastUnix = ts
 				}
+				if a.firstUnix == 0 || ts < a.firstUnix {
+					a.firstUnix = ts
+					a.firstIsSelf = isSelf
+				}
 				out.TotalMessages++
 				typeCount[localType]++
+
+				// 字数：文本直接用 SQL 算好的长度；语音取转写文本
+				chars := textLen
+				if localType == 34 {
+					text := model.ParseVoiceTranscript(packed) // 微信自己转的优先
+					if text == "" && tl != nil {
+						text, _ = tl.Get(strconv.FormatInt(serverID, 10))
+					}
+					if text != "" {
+						n := len([]rune(text))
+						chars = n
+						out.VoiceChars += n
+					}
+				}
+				if isSelf {
+					out.SentChars += chars
+				} else {
+					out.RecvChars += chars
+				}
 
 				t := time.Unix(ts, 0).In(loc)
 				out.Hourly[t.Hour()]++
@@ -167,14 +201,20 @@ func (r *Repository) GetDailyReport(ctx context.Context, date string, tzOffsetSe
 		} else {
 			out.ActivePeers++
 		}
+		if a.firstIsSelf {
+			out.InitiatedByMe++
+		} else {
+			out.InitiatedByThem++
+		}
 		out.Partners = append(out.Partners, &model.DailyPartner{
-			Username: talker,
-			Name:     name,
-			IsGroup:  isGroup,
-			Messages: total,
-			Sent:     a.sent,
-			Recv:     a.recv,
-			LastTime: a.lastUnix,
+			Username:    talker,
+			Name:        name,
+			IsGroup:     isGroup,
+			Messages:    total,
+			Sent:        a.sent,
+			Recv:        a.recv,
+			LastTime:    a.lastUnix,
+			FirstBySelf: a.firstIsSelf,
 		})
 	}
 
@@ -194,6 +234,29 @@ func (r *Repository) GetDailyReport(ctx context.Context, date string, tzOffsetSe
 			Type: t, Name: dailyTypeLabel(t), Count: c,
 		})
 	}
+	// 峰值时段
+	for h, n := range out.Hourly {
+		if n > out.PeakHourCount {
+			out.PeakHourCount, out.PeakHour = n, h
+		}
+	}
+
+	// 与昨天 / 上周同日对比，以及连续活跃天数。
+	// 一次取回窗口内的每日总数，三个指标共用，省得分别扫。
+	const streakWindow = 365
+	daily := r.dailyTotals(ctx, day.AddDate(0, 0, -(streakWindow-1)), end, loc, allowTable, excluded)
+	out.PrevDayTotal = daily[day.AddDate(0, 0, -1).Format("2006-01-02")]
+	out.LastWeekTotal = daily[day.AddDate(0, 0, -7).Format("2006-01-02")]
+	for i := 0; i < streakWindow; i++ {
+		if daily[day.AddDate(0, 0, -i).Format("2006-01-02")] > 0 {
+			out.StreakDays++
+		} else {
+			break
+		}
+	}
+	// 顶到窗口边界说明实际还更长，界面要显示成「365+ 天」而不是恰好 365
+	out.StreakCapped = out.StreakDays >= streakWindow
+
 	sort.Slice(out.Types, func(i, j int) bool {
 		if out.Types[i].Count != out.Types[j].Count {
 			return out.Types[i].Count > out.Types[j].Count
@@ -227,4 +290,48 @@ func dailyTypeLabel(t int) string {
 	default:
 		return fmt.Sprintf("类型 %d", t)
 	}
+}
+
+// dailyTotals 取一段日期内每天的消息总数（口径与日历热力图一致）。
+// 供「与昨天对比」「与上周同日对比」「连续活跃天数」三个指标共用。
+func (r *Repository) dailyTotals(ctx context.Context, start, end time.Time,
+	loc *time.Location, allowTable func(string) bool, excluded map[string]bool) map[string]int {
+
+	out := map[string]int{}
+	tzMod := tzModifier(loc)
+	md5ToTalker := r.getTalkerMD5Map(ctx)
+
+	for _, shard := range r.router.GetShards() {
+		if !shard.StartTime.IsZero() && shard.StartTime.After(end) {
+			continue
+		}
+		if !shard.EndTime.IsZero() && shard.EndTime.Before(start) {
+			continue
+		}
+		db, err := r.pool.GetConnection(shard.FilePath)
+		if err != nil {
+			continue
+		}
+		for _, tbl := range r.listMsgTables(ctx, db) {
+			if !allowTable(tbl) || excluded[md5ToTalker[strings.TrimPrefix(tbl, "Msg_")]] {
+				continue
+			}
+			q := fmt.Sprintf("SELECT strftime('%%Y-%%m-%%d', create_time, 'unixepoch', %s) d, COUNT(*) "+
+				"FROM %s WHERE create_time >= ? AND create_time <= ? "+
+				"AND (local_type & 4294967295) != 10000 GROUP BY d", tzMod, tbl)
+			rows, err := db.QueryContext(ctx, q, start.Unix(), end.Unix())
+			if err != nil {
+				continue
+			}
+			for rows.Next() {
+				var d string
+				var n int
+				if rows.Scan(&d, &n) == nil {
+					out[d] += n
+				}
+			}
+			rows.Close()
+		}
+	}
+	return out
 }

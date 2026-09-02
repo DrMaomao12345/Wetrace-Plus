@@ -60,6 +60,7 @@ export interface DailyPartner {
   sent: number
   recv: number
   last_time: number
+  first_by_self: boolean
 }
 
 export interface DailyReport {
@@ -75,6 +76,17 @@ export interface DailyReport {
   hourly: number[]
   partners: DailyPartner[]
   types: { type: number; name: string; count: number }[]
+  sent_chars: number
+  recv_chars: number
+  voice_chars: number
+  peak_hour: number
+  peak_hour_count: number
+  initiated_by_me: number
+  initiated_by_them: number
+  prev_day_total: number
+  last_week_total: number
+  streak_days: number
+  streak_capped: boolean
 }
 
 export const insightsApi = {
