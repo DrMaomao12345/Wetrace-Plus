@@ -28,7 +28,7 @@ import {
   Eye,
   EyeOff,
 } from "lucide-react"
-import { formatNumber } from "@/lib/utils"
+import { formatNumber, cn } from "@/lib/utils"
 import { mediaApi } from "@/api/media"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import {
@@ -139,6 +139,89 @@ function maskName(name: string | undefined | null): string {
   const s = (name ?? "").trim()
   if (!s) return "???"
   return Array.from(s)[0] + "•••"
+}
+
+/**
+ * 关系回顾四宫格 —— 悬浮在数字上时把「具体是谁」列出来。
+ *
+ * 这四个数字本身没什么信息量（「9 个逐渐淡出」淡出的是谁？），名单一直都在
+ * computeYearReview 的返回里，只是没往外露。
+ *
+ * 弹层用 fixed + getBoundingClientRect 定位，不用 absolute：报告整体在一个
+ * 滚动容器里，绝对定位会被祖先裁掉（和 Insights 的热力图弹窗同一套处理）。
+ * 名单可能有三十几个人，所以弹层自己能滚，并且鼠标移上去不关 —— 关闭延迟
+ * 120ms 就是留给「从格子挪到弹层」这段路的。
+ */
+function ReviewQuad({ items, privacyMode }: {
+  /** [标题, 这一类的人名] × 4 */
+  items: [string, string[]][]
+  privacyMode: boolean
+}) {
+  const [hover, setHover] = useState<{ i: number; left: number; top: number } | null>(null)
+  const closeTimer = useRef<number | null>(null)
+
+  const cancelClose = () => {
+    if (closeTimer.current !== null) { window.clearTimeout(closeTimer.current); closeTimer.current = null }
+  }
+  const open = (i: number, el: HTMLElement) => {
+    cancelClose()
+    const r = el.getBoundingClientRect()
+    setHover({ i, left: r.left, top: r.bottom + 6 })
+  }
+  const close = () => {
+    cancelClose()
+    closeTimer.current = window.setTimeout(() => setHover(null), 120)
+  }
+  useEffect(() => cancelClose, [])
+
+  const active = hover ? items[hover.i] : null
+  const names = active ? active[1].map((n) => (privacyMode ? maskName(n) : n)) : []
+
+  const W = 300
+  const left = hover ? Math.max(8, Math.min(hover.left, window.innerWidth - W - 8)) : 0
+
+  return (
+    <>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {items.map(([label, list], i) => (
+          <div
+            key={label}
+            onMouseEnter={(e) => { if (list.length) open(i, e.currentTarget) }}
+            onMouseLeave={close}
+            className={cn(
+              "rounded-xl bg-muted/40 p-3 transition-colors",
+              list.length > 0 && "cursor-help hover:bg-muted/70",
+            )}
+          >
+            <div className="text-2xl font-bold">{list.length}</div>
+            <div className="text-xs text-muted-foreground">{label}</div>
+          </div>
+        ))}
+      </div>
+
+      {active && names.length > 0 && (
+        <div
+          className="fixed z-50 rounded-xl border border-border bg-popover shadow-xl"
+          style={{ left, top: hover!.top, width: W, maxHeight: 320 }}
+          onMouseEnter={cancelClose}
+          onMouseLeave={close}
+        >
+          <div className="flex items-baseline justify-between border-b border-border px-3 py-2">
+            <span className="text-sm font-semibold">{active[0]}</span>
+            <span className="text-[11px] text-muted-foreground">{names.length} 人</span>
+          </div>
+          <div
+            className="overflow-y-auto px-3 py-2"
+            style={{ maxHeight: 320 - 37, overscrollBehavior: "contain" }}
+          >
+            {names.map((n, k) => (
+              <div key={n + k} className="truncate py-0.5 text-xs" title={n}>{n}</div>
+            ))}
+          </div>
+        </div>
+      )}
+    </>
+  )
 }
 
 export default function AnnualReportView() {
@@ -758,18 +841,15 @@ export default function AnnualReportView() {
         {showReview && galaxy && (() => {
           const rv = computeYearReview(galaxy, String(data?.year ?? params.year))
           if (!rv || rv.top.length === 0) return null
-          const quad: [string, number][] = [["新增重要关系", rv.newly.length], ["持续陪伴", rv.continued.length], ["重新恢复", rv.resumed.length], ["逐渐淡出", rv.faded.length]]
+          // 传名单而不是数量 —— 数量由 ReviewQuad 自己数，顺带把「是谁」挂到悬浮上
+          const quad: [string, string[]][] = [["新增重要关系", rv.newly], ["持续陪伴", rv.continued], ["重新恢复", rv.resumed], ["逐渐淡出", rv.faded]]
           return (
             <div className="rounded-2xl border bg-gradient-to-br from-primary/5 to-transparent p-5">
               <div className="mb-3 flex items-center gap-2">
                 <span className="text-sm font-semibold">我的 {rv.year} 关系回顾</span>
                 <span className="text-xs text-muted-foreground">来自关系星图{rv.stage ? " · " + rv.stage : ""}</span>
               </div>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                {quad.map(([l, v]) => (
-                  <div key={l} className="rounded-xl bg-muted/40 p-3"><div className="text-2xl font-bold">{v}</div><div className="text-xs text-muted-foreground">{l}</div></div>
-                ))}
-              </div>
+              <ReviewQuad items={quad} privacyMode={privacyMode} />
               <div className="mt-3 text-xs text-muted-foreground">这一年陪伴你最多：<span className="text-foreground">{rv.top.map((t) => (privacyMode ? maskName(t.name) : t.name)).join("、")}</span></div>
               <div className="mt-1 text-xs text-muted-foreground">本年度活跃 {rv.activeMonths} 个月{rv.keywords.length ? " · 关键词：" + rv.keywords.join("、") : ""}</div>
             </div>
