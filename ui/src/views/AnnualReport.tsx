@@ -1045,19 +1045,27 @@ function MonthlyTrendChart({
     ? `${pastStartYear}-${pastEndYear}年`
     : ""
 
-  // 后端的 monthly_trend 恒定补满 1~12 月（report_singlepass.go），
-  // 所以跑「今年」的报告时，还没到的月份会是一串 0 —— 画出来像年底突然断崖。
-  // 给 null 让线直接停在当月：recharts 默认 connectNulls=false，不连、不画点，
-  // Tooltip 的 filterNull 默认 true，也不会列出来。
-  // 往年的报告 12 个月都是完整的，不裁。
+  // 后端的 monthly_trend 恒定补满 1~12 月（report_singlepass.go），补出来的 0
+  // 和「那个月真的没聊」长得一模一样，但含义完全不同。两头的假 0 都要裁掉：
+  //
+  //   右边 —— 还没到的月份。跑「今年」的报告时，画出来像年底突然断崖。
+  //   左边 —— 数据开始之前。存档最早那年（或自定义时区段不从 1 月 1 号起）
+  //           的前几个月压根没有记录，会是一条贴着 X 轴的假平线。
+  //
+  // 假 0 给 null：recharts 默认 connectNulls=false，不连、不画点，
+  // Tooltip 的 filterNull 默认 true 也不会列出来。中间真的 0 照画 —— 那是信息。
   const now = new Date()
   const monthCap = year > now.getFullYear() ? 0
     : year === now.getFullYear() ? now.getMonth() + 1
     : 12
+  // 左边界取「第一个真有消息的月份」，和这条线自己的数据同源，不会和 overview 打架。
+  // 全年一条都没有时不裁，让图老实画一条 0 线，比整片空白更说明问题。
+  const monthsWithData = (data || []).filter((d) => d.count > 0).map((d) => d.month)
+  const monthStart = monthsWithData.length ? Math.min(...monthsWithData) : 1
 
   const chartData = (data || []).map((d) => ({
     name: `${d.month}月`,
-    count: d.month > monthCap ? null : d.count,
+    count: (d.month < monthStart || d.month > monthCap) ? null : d.count,
     avg: avgByMonth[d.month] || 0,
   }))
 
