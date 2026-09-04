@@ -1,12 +1,16 @@
 import { useState } from "react"
 import { createPortal } from "react-dom"
-import { X, Calendar, FileJson, FileText, Globe, FileSpreadsheet, FileType, Shield } from "lucide-react"
+import { X, Calendar, FileJson, FileText, Globe, FileSpreadsheet, FileType, Shield, BarChart3 } from "lucide-react"
 import { Button } from "../ui/button"
 import { cn } from "@/lib/utils"
 import { Label } from "../ui/label"
 import { Input } from "../ui/input"
 
 type ExportFormat = 'html' | 'json' | 'txt' | 'csv' | 'xlsx' | 'docx' | 'forensic'
+  | 'monthly_csv' | 'monthly_xlsx'
+
+/** 月度统计导出的是「每月多少条」这张汇总表，不是消息本身 —— 时间范围对它没意义。 */
+const isMonthly = (t: ExportFormat) => t === 'monthly_csv' || t === 'monthly_xlsx'
 
 interface ExportModalProps {
   isOpen: boolean
@@ -16,6 +20,8 @@ interface ExportModalProps {
 
 export function ExportModal({ isOpen, onClose, onExport }: ExportModalProps) {
   const [exportType, setExportType] = useState<ExportFormat>('html')
+  // 月度统计选中时，用哪种表格格式
+  const [monthlyFmt, setMonthlyFmt] = useState<'csv' | 'xlsx'>('csv')
   const [rangeType, setRangeType] = useState<'all' | 'custom'>('all')
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
@@ -23,7 +29,10 @@ export function ExportModal({ isOpen, onClose, onExport }: ExportModalProps) {
   if (!isOpen) return null
 
   const handleExport = () => {
-    onExport(exportType, {
+    const type: ExportFormat = isMonthly(exportType)
+      ? (monthlyFmt === 'csv' ? 'monthly_csv' : 'monthly_xlsx')
+      : exportType
+    onExport(type, {
       type: rangeType,
       start: startDate,
       end: endDate
@@ -39,6 +48,7 @@ export function ExportModal({ isOpen, onClose, onExport }: ExportModalProps) {
     { id: 'docx' as const, label: 'Word 文档', icon: FileType, desc: 'Word格式，按日期分段排版' },
     { id: 'json' as const, label: 'JSON数据', icon: FileJson, desc: '原始数据，适合开发者' },
     { id: 'forensic' as const, label: '法律取证导出', icon: Shield, desc: '含HTML取证报告、数据校验、取证水印、签名区域' },
+    { id: 'monthly_csv' as const, label: '月度消息统计', icon: BarChart3, desc: '从第一条消息起，每个月多少条（空月补 0）' },
   ]
 
   return createPortal(
@@ -79,16 +89,43 @@ export function ExportModal({ isOpen, onClose, onExport }: ExportModalProps) {
                   )}>
                     <option.icon className="w-5 h-5" />
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <div className="font-medium text-sm">{option.label}</div>
                     <div className="text-xs text-muted-foreground">{option.desc}</div>
+                    {isMonthly(option.id) && isMonthly(exportType) && (
+                      <div
+                        className="mt-2 flex gap-2 animate-in fade-in duration-200"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {(['csv', 'xlsx'] as const).map((f) => (
+                          <button
+                            key={f}
+                            onClick={() => setMonthlyFmt(f)}
+                            className={cn(
+                              "rounded-md border px-2.5 py-1 text-xs transition-colors",
+                              monthlyFmt === f
+                                ? "border-primary bg-primary text-primary-foreground"
+                                : "border-border text-muted-foreground hover:border-primary hover:text-primary"
+                            )}
+                          >
+                            {f === 'csv' ? 'CSV' : 'Excel (xlsx)'}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}
             </div>
           </div>
 
-          {/* 时间范围 */}
+          {/* 时间范围。月度统计导的是全量汇总表，掐一段就看不出「什么时候加上的」了 */}
+          {isMonthly(exportType) ? (
+            <div className="rounded-lg border border-dashed px-3 py-2 text-xs text-muted-foreground">
+              月度统计固定导出<span className="text-foreground">全部记录</span> —— 从第一条消息所在的月份，
+              到最后一条所在的月份，中间没聊的月份补 0。
+            </div>
+          ) : (
           <div className="space-y-3">
             <Label>时间范围</Label>
             <div className="flex gap-4">
@@ -130,11 +167,12 @@ export function ExportModal({ isOpen, onClose, onExport }: ExportModalProps) {
               </div>
             )}
           </div>
+          )}
         </div>
 
         <div className="flex justify-end gap-3 mt-8 border-t pt-4">
           <Button variant="ghost" onClick={onClose}>取消</Button>
-          <Button onClick={handleExport} disabled={rangeType === 'custom' && (!startDate || !endDate)}>
+          <Button onClick={handleExport} disabled={!isMonthly(exportType) && rangeType === 'custom' && (!startDate || !endDate)}>
             开始导出
           </Button>
         </div>

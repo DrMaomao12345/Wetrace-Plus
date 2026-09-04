@@ -211,7 +211,12 @@ export default function Chat() {
       timeRangeParam = `&time_range=${range.start}~${range.end}`
     }
 
-    if (type === 'json') {
+    if (type === 'monthly_csv' || type === 'monthly_xlsx') {
+      // 月度统计是全量汇总表，不接 time_range —— 掐一段就看不出「什么时候加上的」
+      const fmt = type === 'monthly_xlsx' ? 'xlsx' : 'csv'
+      const url = `/api/v1/export/monthly_stats?talker=${encodeURIComponent(activeTalker)}&name=${encodeURIComponent(displayName)}&format=${fmt}`
+      window.open(url, '_blank')
+    } else if (type === 'json') {
       const url = `/api/v1/messages?talker_id=${activeTalker}&limit=1000000${timeRangeParam}`
       const a = document.createElement('a')
       a.href = url

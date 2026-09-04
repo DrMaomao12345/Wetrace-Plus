@@ -812,17 +812,22 @@ func (a *API) ExportVoices(c *gin.Context) {
 	c.Data(200, "application/zip", buf.Bytes())
 }
 
-// sanitizeFileName 清理文件名中的非法字符
+// sanitizeFileName 清理文件名中的非法字符，并限长 50 个**字符**。
+//
+// 按 rune 截而不是按 byte：一个汉字 3 字节、emoji 4 字节，byte 截断会把
+// 最后一个字劈成半个，得到一段非法 UTF-8 —— 拿去做 Content-Disposition 的
+// filename* 会编出一串坏字节，下载下来的文件名就是乱码。
 func sanitizeFileName(name string) string {
 	replacer := strings.NewReplacer(
 		"/", "_", "\\", "_", ":", "_", "*", "_",
 		"?", "_", "\"", "_", "<", "_", ">", "_", "|", "_",
+		"\n", "_", "\r", "_", "\t", "_",
 	)
-	result := replacer.Replace(name)
-	if len(result) > 50 {
-		result = result[:50]
+	runes := []rune(replacer.Replace(name))
+	if len(runes) > 50 {
+		runes = runes[:50]
 	}
-	return result
+	return string(runes)
 }
 
 // maybeAutoTranscribe 在开启「自动转文字」且已配置识别服务时，

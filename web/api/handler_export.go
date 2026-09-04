@@ -3,6 +3,8 @@ package api
 import (
 	"fmt"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/afumu/wetrace/pkg/util"
@@ -117,4 +119,64 @@ func (a *API) ExportForensic(c *gin.Context) {
 	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s", fileName))
 	c.Header("Content-Type", "application/zip")
 	c.Data(http.StatusOK, "application/zip", data)
+}
+
+// setAttachment 写下载响应头。
+//
+// 文件名带中文时必须同时给 RFC 5987 的 filename*：裸的 filename= 只允许
+// ASCII，塞中文进去是非法头，浏览器各显神通，多半落成一串乱码。
+// 保留一个 ASCII 兜底的 filename= 给不认 filename* 的老客户端。
+func setAttachment(c *gin.Context, fileName, contentType string) {
+	ascii := strings.Map(func(r rune) rune {
+		if r < 0x20 || r > 0x7e {
+			return '_'
+		}
+		return r
+	}, fileName)
+	c.Header("Content-Description", "File Transfer")
+	c.Header("Content-Transfer-Encoding", "binary")
+	c.Header("Content-Disposition",
+		fmt.Sprintf(`attachment; filename="%s"; filename*=UTF-8''%s`, ascii, url.PathEscape(fileName)))
+	c.Header("Content-Type", contentType)
+}
+
+// ExportMonthlyStats 导出某个会话「从第一条消息起，每个月多少条」的统计表。
+//
+// 和 ExportChat 不同，这里不接 time_range：它的意义就是**全量**回顾，
+// 掐掉一段反而看不出「什么时候加上的、哪几个月热、哪几个月冷」。
+func (a *API) ExportMonthlyStats(c *gin.Context) {
+	talker := c.Query("talker")
+	talkerName := c.Query("name")
+	if talker == "" {
+		transport.BadRequest(c, "talker 参数是必需的")
+		return
+	}
+	if talkerName == "" {
+		talkerName = talker
+	}
+
+	ctx := c.Request.Context()
+	var (
+		data        []byte
+		err         error
+		ext         string
+		contentType string
+	)
+	switch c.Query("format") {
+	case "xlsx":
+		data, err = a.Export.ExportMonthlyStatsXLSX(ctx, talker, talkerName)
+		ext = "xlsx"
+		contentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+	default:
+		data, err = a.Export.ExportMonthlyStatsCSV(ctx, talker)
+		ext = "csv"
+		contentType = "text/csv; charset=utf-8"
+	}
+	if err != nil {
+		transport.InternalServerError(c, fmt.Sprintf("导出失败: %v", err))
+		return
+	}
+
+	setAttachment(c, fmt.Sprintf("monthly_stats_%s.%s", sanitizeFileName(talkerName), ext), contentType)
+	c.Data(http.StatusOK, contentType, data)
 }

@@ -131,6 +131,7 @@ func (s *Service) setupRoutes() {
 
 		// 导出路由
 		v1.GET("/export/chat", s.api.ExportChat)
+		v1.GET("/export/monthly_stats", s.api.ExportMonthlyStats)
 		v1.GET("/export/forensic", s.api.ExportForensic)
 		v1.GET("/export/voices", s.api.ExportVoices)
 		v1.POST("/export/voices", s.api.ExportVoices)
