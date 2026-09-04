@@ -810,6 +810,7 @@ export default function AnnualReportView() {
               ) : (
                 <MonthlyTrendChart
                   data={data.monthly_trend}
+                  year={data.year}
                   pastYearsAvg={liveBaseline?.past_years_monthly_avg ?? data.past_years_monthly_avg}
                   pastStartYear={liveBaseline?.past_start_year}
                   pastEndYear={liveBaseline?.past_end_year}
@@ -1021,11 +1022,14 @@ function AnnualHighlightsSection({ highlights }: { highlights: AnnualReport["hig
 
 function MonthlyTrendChart({
   data,
+  year,
   pastYearsAvg,
   pastStartYear,
   pastEndYear,
 }: {
   data: AnnualReport["monthly_trend"]
+  /** 报告年份 —— 用来判断哪些月份还没到 */
+  year: number
   pastYearsAvg: AnnualReport["past_years_monthly_avg"]
   pastStartYear?: number
   pastEndYear?: number
@@ -1041,9 +1045,19 @@ function MonthlyTrendChart({
     ? `${pastStartYear}-${pastEndYear}年`
     : ""
 
+  // 后端的 monthly_trend 恒定补满 1~12 月（report_singlepass.go），
+  // 所以跑「今年」的报告时，还没到的月份会是一串 0 —— 画出来像年底突然断崖。
+  // 给 null 让线直接停在当月：recharts 默认 connectNulls=false，不连、不画点，
+  // Tooltip 的 filterNull 默认 true，也不会列出来。
+  // 往年的报告 12 个月都是完整的，不裁。
+  const now = new Date()
+  const monthCap = year > now.getFullYear() ? 0
+    : year === now.getFullYear() ? now.getMonth() + 1
+    : 12
+
   const chartData = (data || []).map((d) => ({
     name: `${d.month}月`,
-    count: d.count,
+    count: d.month > monthCap ? null : d.count,
     avg: avgByMonth[d.month] || 0,
   }))
 
