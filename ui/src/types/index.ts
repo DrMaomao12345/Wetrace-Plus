@@ -35,6 +35,8 @@ export interface UserSettings {
   timeFormat: '12h' | '24h'
   showMediaResources: boolean
   disableServerPinning: boolean
+  /** 月度趋势图上的预测怎么画：'band' 色带+空心点（含不确定区间）／'point' 只画点 */
+  forecastDisplay: 'band' | 'point'
 }
 
 export interface LoadingState {

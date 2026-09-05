@@ -29,7 +29,7 @@ interface CountResult {
 }
 
 export function AnalysisPanel({ talker, onClose }: Props) {
-  const { hourly, daily, weekday, types, calls, yearlyMonthly, top10MonthlyAvg, isLoading } = useAnalysis(talker);
+  const { hourly, daily, weekday, types, calls, yearlyMonthly, top10MonthlyAvg, forecast, isLoading } = useAnalysis(talker);
 
   // 搜索统计 state
   const [searchKw, setSearchKw] = useState("");
@@ -201,7 +201,7 @@ export function AnalysisPanel({ talker, onClose }: Props) {
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <MonthlyChart data={yearlyMonthly.data || []} top10Avg={top10MonthlyAvg.data || []} />
+                    <MonthlyChart data={yearlyMonthly.data || []} top10Avg={top10MonthlyAvg.data || []} forecast={forecast.data} />
                   </CardContent>
                 </Card>
               </div>

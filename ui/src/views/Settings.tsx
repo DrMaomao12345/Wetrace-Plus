@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react"
 import { QRCodeSVG } from "qrcode.react"
 import { cn } from "@/lib/utils"
+import { useAppStore } from "@/stores/app"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { systemApi, sessionApi, mediaApi } from "@/api"
 import { toast } from "sonner"
@@ -19,6 +20,7 @@ import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import {
+  TrendingUp,
   Bot,
   RefreshCw,
   Lock,
@@ -1620,6 +1622,92 @@ function DataDirSection() {
 /* ============================================================
  * Main Settings View
  * ============================================================ */
+/* ============================================================
+ * 月度趋势图的预测怎么画
+ * ============================================================ */
+function ForecastDisplaySection() {
+  const forecastDisplay = useAppStore((st) => st.settings.forecastDisplay)
+  const updateSettings = useAppStore((st) => st.updateSettings)
+  const [showInfo, setShowInfo] = useState(false)
+
+  const options: { id: 'band' | 'point'; label: string; desc: string }[] = [
+    { id: 'band', label: '显示区间', desc: '半透明色带 + 空心点' },
+    { id: 'point', label: '只显示一个数据点', desc: '仅空心点' },
+  ]
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <TrendingUp className="w-4 h-4 text-primary" />
+          聊天频率预测
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <p className="text-xs text-muted-foreground">
+          联系人的月度趋势图会把当月到今年 12 月的预计聊天量画出来。三个月以后的部分
+          没有回测支撑，只保留色带、不画点。
+        </p>
+
+        <div className="space-y-2">
+          <div className="flex items-center gap-1.5">
+            <label className="text-sm font-medium leading-none">预测的画法</label>
+            {/* 小感叹号：讲清楚两种画法各自的代价 */}
+            <div className="relative flex items-center">
+              <button
+                type="button"
+                onClick={() => setShowInfo((v) => !v)}
+                onMouseEnter={() => setShowInfo(true)}
+                onMouseLeave={() => setShowInfo(false)}
+                aria-label="两种画法的优劣"
+                className="flex h-4 w-4 items-center justify-center rounded-full border border-muted-foreground/50 text-[10px] font-bold leading-none text-muted-foreground transition-colors hover:border-primary hover:text-primary"
+              >
+                !
+              </button>
+              {showInfo && (
+                <div className="absolute left-6 top-1/2 z-50 w-[300px] -translate-y-1/2 rounded-lg border border-border bg-popover p-3 text-xs leading-relaxed shadow-xl">
+                  <div className="mb-1.5">
+                    <span className="font-semibold text-foreground">显示区间</span>
+                    <span className="text-muted-foreground">
+                      　看得出「越往后越不准」—— 12 月的色带会明显比当月宽，不会把预测
+                      当成承诺。代价是图更满，同时勾选多个年份时容易糊。
+                    </span>
+                  </div>
+                  <div>
+                    <span className="font-semibold text-foreground">只显示点</span>
+                    <span className="text-muted-foreground">
+                      　干净，好和历史线比。代价是看不出不确定性 —— 11 月那个点会显得和
+                      当月一样可信，实际上差很远。
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            {options.map((o) => (
+              <button
+                key={o.id}
+                onClick={() => updateSettings({ forecastDisplay: o.id })}
+                className={cn(
+                  "rounded-lg border p-3 text-left transition-all",
+                  forecastDisplay === o.id
+                    ? "border-primary bg-primary/5 ring-1 ring-primary"
+                    : "border-border hover:bg-muted/50"
+                )}
+              >
+                <div className="text-sm font-medium">{o.label}</div>
+                <div className="text-xs text-muted-foreground">{o.desc}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
 export default function SettingsView() {
   return (
     <ScrollArea className="h-full">
@@ -1634,6 +1722,7 @@ export default function SettingsView() {
         <DefaultTimezoneSection />
         <StatsScopeSection />
         <EffectiveChatStartSection />
+        <ForecastDisplaySection />
         <AIConfigSection />
         <TTSConfigSection />
         <SyncConfigSection />

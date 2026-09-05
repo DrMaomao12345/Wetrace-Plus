@@ -23,6 +23,14 @@ export function useAnalysis(talker: string) {
     retry: 1,
   });
 
+  // 预测：只对当年，按服务端时区口径（后端用 tz_offset 切天）
+  const forecastQuery = useQuery({
+    queryKey: ["analysis", "forecast", talker],
+    queryFn: () => analysisApi.getForecast(talker, new Date().getFullYear(), -new Date().getTimezoneOffset()),
+    enabled: !!talker,
+    retry: 1,
+  });
+
   const monthlyQuery = useQuery({
     queryKey: ["analysis", "monthly", talker],
     queryFn: () => analysisApi.getMonthly(talker),
@@ -86,6 +94,7 @@ export function useAnalysis(talker: string) {
     calls: callsQuery,
     yearlyMonthly: yearlyMonthlyQuery,
     top10MonthlyAvg: top10MonthlyAvgQuery,
+    forecast: forecastQuery,
     isLoading: isInitialLoading,
   };
 }

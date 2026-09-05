@@ -41,6 +41,8 @@ const defaultSettings: UserSettings = {
   timeFormat: '24h',
   showMediaResources: true,
   disableServerPinning: false,
+  // 默认给区间：预测越远越不准，色带能自己把这件事说出来
+  forecastDisplay: 'band',
 }
 
 export const useAppStore = create<AppState>()(
@@ -85,6 +87,17 @@ export const useAppStore = create<AppState>()(
     {
       name: 'app-storage',
       partialize: (state) => ({ settings: state.settings }), // Only persist settings
+      // zustand 默认的 merge 是**浅合并顶层**：持久化里的 settings 会整个替换掉
+      // defaultSettings，于是每新增一个设置项，老用户读回来都是 undefined ——
+      // 新加的 forecastDisplay 就这么静默变成了 undefined，图上直接少画一半东西。
+      // 这里改成「默认值打底、持久化的值覆盖」，以后再加字段不用记得改这里。
+      merge: (persisted, current) => {
+        const p = persisted as { settings?: Partial<UserSettings> } | undefined
+        return {
+          ...current,
+          settings: { ...current.settings, ...(p?.settings ?? {}) },
+        }
+      },
     }
   )
 )
