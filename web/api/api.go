@@ -150,10 +150,12 @@ func NewAPI(s store.Store, m *media.Service, conf *Config, staticFS fs.FS) *API 
 		_ = viper.WriteConfig()
 	}
 
-	// 启动时把全局默认时区配置同步到 Store（影响联系人侧分析查询）
+	// 启动时把全站时区口径同步到 Store。
+	// 常量修饰符是无分段时的兜底；分段配置走 CASE，所有按时区分桶的查询共用。
 	if off, ok := defaultTzOffsetMinutes(); ok {
 		s.SetDefaultTzModifier(buildTzModifier(off))
 	}
+	s.SetTZConfig(CurrentTZConfig())
 
 	// 初始化语音转文字缓存，并接给存储层 —— 年度报告的字数统计要把
 	// 语音转写出来的文字也算进「说了多少字」。

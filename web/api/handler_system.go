@@ -12,10 +12,12 @@ import (
 	"time"
 
 	"github.com/afumu/wetrace/internal/ai"
+	"github.com/afumu/wetrace/internal/model"
 	"github.com/afumu/wetrace/internal/tts"
 	"github.com/afumu/wetrace/pkg/util"
 	"github.com/afumu/wetrace/web/transport"
 	"github.com/gin-gonic/gin"
+	"github.com/rs/zerolog/log"
 	"github.com/spf13/viper"
 )
 
@@ -803,4 +805,97 @@ func (a *API) GetDataVersion(c *gin.Context) {
 // GetChangelog 返回内嵌的 CHANGELOG.md 内容。
 func (a *API) GetChangelog(c *gin.Context) {
 	transport.SendSuccess(c, gin.H{"content": a.Conf.ChangelogContent})
+}
+
+// ── 全站时区口径：默认时区 + 分段 ─────────────────────────────
+//
+// 以前这份配置分两处：设置页的「默认时区」存服务端、只管联系人统计；
+// 年度报告的分段存浏览器 localStorage、只管报告。同一批消息在两个页面
+// 会被切到不同的自然日里。现在合成一份，所有按时区分桶的查询共用。
+
+// tzSegmentsFromViper 读出持久化的分段。存的是 JSON 字符串，
+// 因为 viper 写 .env 时只能存标量。
+func tzSegmentsFromViper() []model.TZSegmentConfig {
+	raw := viper.GetString("TZ_SEGMENTS")
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	var segs []model.TZSegmentConfig
+	if err := json.Unmarshal([]byte(raw), &segs); err != nil {
+		log.Warn().Err(err).Msg("TZ_SEGMENTS 解析失败，按无分段处理")
+		return nil
+	}
+	return segs
+}
+
+// CurrentTZConfig 汇总出当前生效的时区口径。
+func CurrentTZConfig() model.TZConfig {
+	off, _ := defaultTzOffsetMinutes()
+	return model.TZConfig{DefaultOffset: off, Segments: tzSegmentsFromViper()}
+}
+
+// GetTZConfig GET /api/v1/system/tz_config
+func (a *API) GetTZConfig(c *gin.Context) {
+	off, hasKey := defaultTzOffsetMinutes()
+	segs := tzSegmentsFromViper()
+	if segs == nil {
+		segs = []model.TZSegmentConfig{}
+	}
+	transport.SendSuccess(c, gin.H{
+		"default_offset": off,
+		"has_key":        hasKey,
+		"segments":       segs,
+	})
+}
+
+// UpdateTZConfig POST /api/v1/system/tz_config
+func (a *API) UpdateTZConfig(c *gin.Context) {
+	var req struct {
+		DefaultOffset int                     `json:"default_offset"`
+		Segments      []model.TZSegmentConfig `json:"segments"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		transport.BadRequest(c, "请求体格式错误")
+		return
+	}
+	if req.DefaultOffset < -720 || req.DefaultOffset > 840 {
+		transport.BadRequest(c, "default_offset 必须在 -720 ~ 840 之间（分钟）")
+		return
+	}
+	for _, s := range req.Segments {
+		if s.TZOffset < -720 || s.TZOffset > 840 {
+			transport.BadRequest(c, "分段时区必须在 -720 ~ 840 之间（分钟）")
+			return
+		}
+		if _, err := time.Parse("2006-01-02", s.StartDate); err != nil {
+			transport.BadRequest(c, "分段开始日期格式应为 YYYY-MM-DD: "+s.StartDate)
+			return
+		}
+		if _, err := time.Parse("2006-01-02", s.EndDate); err != nil {
+			transport.BadRequest(c, "分段结束日期格式应为 YYYY-MM-DD: "+s.EndDate)
+			return
+		}
+		if s.EndDate < s.StartDate {
+			transport.BadRequest(c, "分段结束日期不能早于开始日期: "+s.StartDate+" ~ "+s.EndDate)
+			return
+		}
+	}
+
+	blob, err := json.Marshal(req.Segments)
+	if err != nil {
+		transport.InternalServerError(c, "序列化分段失败: "+err.Error())
+		return
+	}
+	viper.Set("DEFAULT_TZ_OFFSET_MINUTES", req.DefaultOffset)
+	viper.Set("DEFAULT_TZ_OFFSET_SET", true)
+	viper.Set("TZ_SEGMENTS", string(blob))
+	if err := viper.WriteConfig(); err != nil {
+		transport.InternalServerError(c, "保存配置失败: "+err.Error())
+		return
+	}
+
+	// 同步到 Repository：常量修饰符仍留着当兜底，分段走 CASE
+	a.Store.SetDefaultTzModifier(buildTzModifier(req.DefaultOffset))
+	a.Store.SetTZConfig(model.TZConfig{DefaultOffset: req.DefaultOffset, Segments: req.Segments})
+	transport.SendSuccess(c, gin.H{"default_offset": req.DefaultOffset, "segments": req.Segments})
 }

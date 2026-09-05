@@ -91,6 +91,8 @@ func (s *Service) setupRoutes() {
 			// 默认时区（影响联系人侧分析）
 			system.GET("/default_timezone", s.api.GetDefaultTimezone)
 			system.POST("/default_timezone", s.api.UpdateDefaultTimezone)
+			system.GET("/tz_config", s.api.GetTZConfig)
+			system.POST("/tz_config", s.api.UpdateTZConfig)
 
 			// 更新日志
 			system.GET("/changelog", s.api.GetChangelog)

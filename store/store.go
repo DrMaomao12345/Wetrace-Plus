@@ -91,6 +91,8 @@ type Store interface {
 
 	// 设置全局默认时区修饰符（影响联系人侧分析查询）
 	SetDefaultTzModifier(mod string)
+	SetTZConfig(cfg model.TZConfig)
+	TZConfig() model.TZConfig
 	// 当前数据版本指纹（DB 文件 path+size+mtime 的 md5）
 	GetDataVersion() string
 

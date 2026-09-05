@@ -104,8 +104,7 @@ func (r *Repository) queryHourlyStatSingleShard(ctx context.Context, target bind
 }
 
 func (r *Repository) queryV4HourlyStat(ctx context.Context, db *sql.DB, tableName string) ([]*model.HourlyStat, error) {
-	tzMod := r.DefaultTzModifier()
-	query := fmt.Sprintf("SELECT CAST(strftime('%%H', create_time, 'unixepoch', %s) AS INTEGER) as hour, COUNT(*) as count FROM %s WHERE (local_type & 4294967295) != 10000 GROUP BY hour", tzMod, tableName)
+	query := fmt.Sprintf("SELECT CAST(strftime('%%H', create_time, 'unixepoch', %s) AS INTEGER) as hour, COUNT(*) as count FROM %s WHERE (local_type & 4294967295) != 10000 GROUP BY hour", r.TzModV4(), tableName)
 	rows, err := db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
@@ -123,8 +122,7 @@ func (r *Repository) queryV4HourlyStat(ctx context.Context, db *sql.DB, tableNam
 }
 
 func (r *Repository) queryV3HourlyStat(ctx context.Context, db *sql.DB, target bind.RouteResult) ([]*model.HourlyStat, error) {
-	tzMod := r.DefaultTzModifier()
-	query := "SELECT CAST(strftime('%H', CreateTime / 1000, 'unixepoch', " + tzMod + ") AS INTEGER) as hour, COUNT(*) as count FROM MSG WHERE Type != 10000"
+	query := "SELECT CAST(strftime('%H', CreateTime / 1000, 'unixepoch', " + r.TzModV3() + ") AS INTEGER) as hour, COUNT(*) as count FROM MSG WHERE Type != 10000"
 	var args []interface{}
 	if target.TalkerID != 0 {
 		query += " AND TalkerId = ?"
@@ -178,9 +176,8 @@ func (r *Repository) queryDailyStatSingleShard(ctx context.Context, target bind.
 	}
 	hash := md5.Sum([]byte(talker))
 	tableName := "Msg_" + hex.EncodeToString(hash[:])
-	tzMod := r.DefaultTzModifier()
 	if r.isTableExist(db, tableName) {
-		query := fmt.Sprintf("SELECT strftime('%%Y-%%m-%%d', create_time, 'unixepoch', %s) as date, COUNT(*) as count FROM %s WHERE (local_type & 4294967295) != 10000 GROUP BY date", tzMod, tableName)
+		query := fmt.Sprintf("SELECT strftime('%%Y-%%m-%%d', create_time, 'unixepoch', %s) as date, COUNT(*) as count FROM %s WHERE (local_type & 4294967295) != 10000 GROUP BY date", r.TzModV4(), tableName)
 		rows, err := db.QueryContext(ctx, query)
 		if err != nil {
 			return nil, err
@@ -197,7 +194,7 @@ func (r *Repository) queryDailyStatSingleShard(ctx context.Context, target bind.
 		return stats, nil
 	}
 	// V3 支持
-	query := "SELECT strftime('%Y-%m-%d', CreateTime / 1000, 'unixepoch', " + tzMod + ") as date, COUNT(*) as count FROM MSG WHERE Type != 10000"
+	query := "SELECT strftime('%Y-%m-%d', CreateTime / 1000, 'unixepoch', " + r.TzModV3() + ") as date, COUNT(*) as count FROM MSG WHERE Type != 10000"
 	var args []interface{}
 	if target.TalkerID != 0 {
 		query += " AND TalkerId = ?"
@@ -234,13 +231,12 @@ func (r *Repository) GetWeekdayActivity(ctx context.Context, talker string) ([]*
 		hash := md5.Sum([]byte(talker))
 		tableName := "Msg_" + hex.EncodeToString(hash[:])
 
-		tzMod := r.DefaultTzModifier()
 		var query string
 		var args []interface{}
 		if r.isTableExist(db, tableName) {
-			query = fmt.Sprintf("SELECT CASE WHEN CAST(strftime('%%w', create_time, 'unixepoch', %s) AS INTEGER) = 0 THEN 7 ELSE CAST(strftime('%%w', create_time, 'unixepoch', %s) AS INTEGER) END as weekday, COUNT(*) as count FROM %s WHERE (local_type & 4294967295) != 10000 GROUP BY weekday", tzMod, tzMod, tableName)
+			query = fmt.Sprintf("SELECT CASE WHEN CAST(strftime('%%w', create_time, 'unixepoch', %s) AS INTEGER) = 0 THEN 7 ELSE CAST(strftime('%%w', create_time, 'unixepoch', %s) AS INTEGER) END as weekday, COUNT(*) as count FROM %s WHERE (local_type & 4294967295) != 10000 GROUP BY weekday", r.TzModV4(), r.TzModV4(), tableName)
 		} else {
-			query = "SELECT CASE WHEN CAST(strftime('%w', CreateTime / 1000, 'unixepoch', " + tzMod + ") AS INTEGER) = 0 THEN 7 ELSE CAST(strftime('%w', CreateTime / 1000, 'unixepoch', " + tzMod + ") AS INTEGER) END as weekday, COUNT(*) as count FROM MSG WHERE Type != 10000"
+			query = "SELECT CASE WHEN CAST(strftime('%w', CreateTime / 1000, 'unixepoch', " + r.TzModV3() + ") AS INTEGER) = 0 THEN 7 ELSE CAST(strftime('%w', CreateTime / 1000, 'unixepoch', " + r.TzModV3() + ") AS INTEGER) END as weekday, COUNT(*) as count FROM MSG WHERE Type != 10000"
 			if target.TalkerID != 0 {
 				query += " AND TalkerId = ?"
 				args = append(args, target.TalkerID)
@@ -280,13 +276,12 @@ func (r *Repository) GetMonthlyActivity(ctx context.Context, talker string) ([]*
 		hash := md5.Sum([]byte(talker))
 		tableName := "Msg_" + hex.EncodeToString(hash[:])
 
-		tzMod := r.DefaultTzModifier()
 		var query string
 		var args []interface{}
 		if r.isTableExist(db, tableName) {
-			query = fmt.Sprintf("SELECT CAST(strftime('%%m', create_time, 'unixepoch', %s) AS INTEGER) as month, COUNT(*) as count FROM %s WHERE (local_type & 4294967295) != 10000 GROUP BY month", tzMod, tableName)
+			query = fmt.Sprintf("SELECT CAST(strftime('%%m', create_time, 'unixepoch', %s) AS INTEGER) as month, COUNT(*) as count FROM %s WHERE (local_type & 4294967295) != 10000 GROUP BY month", r.TzModV4(), tableName)
 		} else {
-			query = "SELECT CAST(strftime('%m', CreateTime / 1000, 'unixepoch', " + tzMod + ") AS INTEGER) as month, COUNT(*) as count FROM MSG WHERE Type != 10000"
+			query = "SELECT CAST(strftime('%m', CreateTime / 1000, 'unixepoch', " + r.TzModV3() + ") AS INTEGER) as month, COUNT(*) as count FROM MSG WHERE Type != 10000"
 			if target.TalkerID != 0 {
 				query += " AND TalkerId = ?"
 				args = append(args, target.TalkerID)
@@ -359,7 +354,6 @@ func (r *Repository) GetYearlyMonthlyActivity(ctx context.Context, talker string
 		hash := md5.Sum([]byte(talker))
 		tableName := "Msg_" + hex.EncodeToString(hash[:])
 
-		tzMod := r.DefaultTzModifier()
 		var query string
 		var args []interface{}
 		if r.isTableExist(db, tableName) {
@@ -367,9 +361,9 @@ func (r *Repository) GetYearlyMonthlyActivity(ctx context.Context, talker string
 				SELECT CAST(strftime('%%Y', create_time, 'unixepoch', %s) AS INTEGER) as y,
 				       CAST(strftime('%%m', create_time, 'unixepoch', %s) AS INTEGER) as m,
 				       COUNT(*) as count
-				FROM %s WHERE (local_type & 4294967295) != 10000 GROUP BY y, m`, tzMod, tzMod, tableName)
+				FROM %s WHERE (local_type & 4294967295) != 10000 GROUP BY y, m`, r.TzModV4(), r.TzModV4(), tableName)
 		} else {
-			query = "SELECT CAST(strftime('%Y', CreateTime/1000, 'unixepoch', " + tzMod + ") AS INTEGER) as y, CAST(strftime('%m', CreateTime/1000, 'unixepoch', " + tzMod + ") AS INTEGER) as m, COUNT(*) as count FROM MSG WHERE Type != 10000"
+			query = "SELECT CAST(strftime('%Y', CreateTime/1000, 'unixepoch', " + r.TzModV3() + ") AS INTEGER) as y, CAST(strftime('%m', CreateTime/1000, 'unixepoch', " + r.TzModV3() + ") AS INTEGER) as m, COUNT(*) as count FROM MSG WHERE Type != 10000"
 			if target.TalkerID != 0 {
 				query += " AND TalkerId = ?"
 				args = append(args, target.TalkerID)

@@ -222,6 +222,9 @@ func (s *DefaultStore) BuildGalaxy(ctx context.Context, profile *model.UserProfi
 	return s.repo.BuildGalaxy(ctx, profile, tzOffsetSec, topN, overrides)
 }
 
+func (s *DefaultStore) SetTZConfig(cfg model.TZConfig) { s.repo.SetTZConfig(cfg) }
+func (s *DefaultStore) TZConfig() model.TZConfig       { return s.repo.TZConfig() }
+
 func (s *DefaultStore) SetDefaultTzModifier(mod string) {
 	s.repo.SetDefaultTzModifier(mod)
 }
