@@ -106,6 +106,18 @@ export interface AIPromptsResponse {
   defaults: Record<string, string>;
 }
 
+/** 一段「这段日期用这个时区」的配置 */
+export interface TZSegmentConfig {
+  start_date: string;  // YYYY-MM-DD
+  end_date: string;    // YYYY-MM-DD
+  tz_offset: number;   // 分钟，东正西负（UTC+8 → 480）
+}
+export interface TZConfigResponse {
+  default_offset: number;
+  has_key: boolean;
+  segments: TZSegmentConfig[];
+}
+
 export const systemApi = {
   getStatus: () => request.get("/api/v1/system/status"),
   activate: (license: string) => request.post("/api/v1/system/activate", { license }),
@@ -156,6 +168,15 @@ export const systemApi = {
   // 默认时区（全局，影响联系人侧分析查询）
   getDefaultTimezone: () => request.get<{ offset: number; has_key: boolean }>("/api/v1/system/default_timezone"),
   updateDefaultTimezone: (offset: number) => request.post<{ offset: number }>("/api/v1/system/default_timezone", { offset }),
+
+  // 时区口径的**唯一来源**：默认时区 + 时间分段。所有按时区分桶的统计都读它，
+  // 年度报告也不再自己存一份。
+  getTZConfig: () => request.get<TZConfigResponse>("/api/v1/system/tz_config"),
+  updateTZConfig: (defaultOffset: number, segments: TZSegmentConfig[]) =>
+    request.post<{ status: string }>("/api/v1/system/tz_config", {
+      default_offset: defaultOffset,
+      segments,
+    }),
 
   // 当前消息 DB 文件的指纹（path+size+mtime 的 md5），用于客户端缓存校验
   getDataVersion: () => request.get<{ version: string }>("/api/v1/system/data_version"),

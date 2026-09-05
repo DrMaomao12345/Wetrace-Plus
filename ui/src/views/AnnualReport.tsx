@@ -1,4 +1,5 @@
 import { useState, useRef, useMemo, useEffect } from "react"
+import { useNavigate } from "react-router-dom"
 import { useQuery } from "@tanstack/react-query"
 import { useReportStream } from "@/hooks/useReportStream"
 import { useCountUp } from "@/hooks/useCountUp"
@@ -21,8 +22,6 @@ import {
   Clock,
   Flame,
   Trophy,
-  Plus,
-  Trash2,
   ChevronDown,
   Search,
   X,
@@ -85,38 +84,24 @@ const TZ_OPTIONS: { label: string; offset: number }[] = [
 
 type SegmentRow = TZSegment & { _id: string }
 
-function newRow(year: number): SegmentRow {
-  return { _id: Math.random().toString(36).slice(2), start_date: `${year}-01-01`, end_date: `${year}-12-31`, tz_offset: -new Date().getTimezoneOffset() }
-}
-
 type ReportParams = { year: number; defaultTz: number; segments: SegmentRow[]; excludeTalkers: string[] }
 
 const STORAGE_KEY = "annual_report_tz_config_v2"
 
+// 时区口径已经搬到「设置 → 时区」，服务端存一份、所有统计共用。
+// 这里只剩排除名单（它本身也同步到服务端，localStorage 只是首屏兜底）。
 interface SavedConfig {
-  defaultTz: number
-  segments: SegmentRow[]
   excludeTalkers: string[]
 }
 
-const DEFAULT_CONFIG: SavedConfig = {
-  defaultTz: 480,
-  segments: [
-    { _id: "s1", start_date: "2025-09-10", end_date: "2025-12-21", tz_offset: 0 },
-    { _id: "s2", start_date: "2025-12-22", end_date: "2025-12-26", tz_offset: 540 },
-    { _id: "s3", start_date: "2025-12-01", end_date: "2026-01-13", tz_offset: 480 },
-    { _id: "s4", start_date: "2026-01-14", end_date: "2026-03-21", tz_offset: 60 },
-    { _id: "s5", start_date: "2026-03-22", end_date: "2026-04-11", tz_offset: 480 },
-    { _id: "s6", start_date: "2026-04-12", end_date: "2026-05-22", tz_offset: 60 },
-  ],
-  excludeTalkers: [],
-}
+const DEFAULT_CONFIG: SavedConfig = { excludeTalkers: [] }
 
 function loadConfig(): SavedConfig {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return DEFAULT_CONFIG
-    return JSON.parse(raw) as SavedConfig
+    const parsed = JSON.parse(raw) as Partial<SavedConfig>
+    return { excludeTalkers: parsed.excludeTalkers ?? [] }
   } catch {
     return DEFAULT_CONFIG
   }
@@ -225,12 +210,35 @@ function ReviewQuad({ items, privacyMode }: {
   )
 }
 
+/** 把分钟偏移显示成 UTC+8 这种标签。 */
+function tzLabel(offsetMinutes: number): string {
+  const hit = TZ_OPTIONS.find((t) => t.offset === offsetMinutes)
+  if (hit) return hit.label
+  const sign = offsetMinutes < 0 ? "-" : "+"
+  const abs = Math.abs(offsetMinutes)
+  const h = Math.floor(abs / 60), m = abs % 60
+  return `UTC${sign}${h}${m ? ":" + String(m).padStart(2, "0") : ""}`
+}
+
 export default function AnnualReportView() {
+  const navigate = useNavigate()
   const currentYear = new Date().getFullYear()
   const [inputYear, setInputYear] = useState(String(currentYear))
-  const [defaultTz, setDefaultTz] = useState(() => loadConfig().defaultTz)
-  const [segments, setSegments] = useState<SegmentRow[]>(() => loadConfig().segments)
   const [excludeTalkers, setExcludeTalkers] = useState<string[]>(() => loadConfig().excludeTalkers ?? [])
+
+  // 时区口径来自「设置 → 时区」，服务端唯一一份。这里只读 ——
+  // 但必须进 params/sig：时区一改，缓存的报告就得作废重算。
+  const { data: tzConfig } = useQuery({
+    queryKey: ["tz-config"],
+    queryFn: () => systemApi.getTZConfig(),
+  })
+  const defaultTz = tzConfig?.has_key
+    ? tzConfig.default_offset
+    : (tzConfig ? -new Date().getTimezoneOffset() : 480)
+  const segments: SegmentRow[] = useMemo(
+    () => (tzConfig?.segments ?? []).map((sg, i) => ({ ...sg, _id: `srv${i}` })),
+    [tzConfig]
+  )
   const [galaxy, setGalaxy] = useState<RelationshipGraph | null>(null)
   const [showReview, setShowReview] = useState(true)
   useEffect(() => { galaxyApi.getGraph().then(setGalaxy).catch(() => setGalaxy(null)) }, [])
@@ -279,7 +287,7 @@ export default function AnnualReportView() {
   }, [])
 
   const handleSaveConfig = () => {
-    saveConfig({ defaultTz, segments, excludeTalkers })
+    saveConfig({ excludeTalkers })
     // 排除名单同步保存到服务端，移动端 / 其他设备共用
     reportApi.saveExcludeTalkers(excludeTalkers).catch(() => {})
     setSavedTip(true)
@@ -504,14 +512,6 @@ export default function AnnualReportView() {
     })
   }
 
-  const addSegment = () => {
-    const year = params?.year ?? currentYear
-    setSegments(prev => [...prev, newRow(year)])
-  }
-  const removeSegment = (id: string) => setSegments(prev => prev.filter(s => s._id !== id))
-  const updateSegment = (id: string, patch: Partial<SegmentRow>) =>
-    setSegments(prev => prev.map(s => s._id === id ? { ...s, ...patch } : s))
-
   if (isLoading) {
     const pct = stream.total > 0 ? Math.round((stream.current / stream.total) * 100) : 0
     const stepLabel: Record<string, string> = {
@@ -720,73 +720,38 @@ export default function AnnualReportView() {
       {/* 时区配置面板 */}
       {showTzPanel && (
         <div className="border rounded-lg p-4 bg-muted/30 space-y-3">
-          <div className="flex items-center gap-3">
-            <span className="text-sm text-muted-foreground w-24 shrink-0">默认时区</span>
-            <select
-              value={defaultTz}
-              onChange={(e) => setDefaultTz(Number(e.target.value))}
-              className="h-8 rounded-md border border-input bg-background px-2 text-sm"
-            >
-              {TZ_OPTIONS.map((tz) => (
-                <option key={tz.offset} value={tz.offset}>{tz.label}</option>
-              ))}
-            </select>
-            <span className="text-xs text-muted-foreground">（未被覆盖的日期使用此时区）</span>
+          <div className="flex items-start justify-between gap-4">
+            <p className="text-xs text-muted-foreground">
+              时区口径已统一到<span className="text-foreground">「设置 → 时区」</span>，
+              服务端存一份，联系人统计和年度报告共用同一套 —— 同一条消息不会再在两个页面
+              被切进不同的自然日。
+            </p>
+            <Button variant="outline" size="sm" className="shrink-0" onClick={() => navigate("/settings")}>
+              去设置修改
+            </Button>
           </div>
 
-          {segments.length > 0 && (
-            <div className="space-y-2">
-              <div className="grid grid-cols-[1fr_1fr_180px_32px] gap-2 text-xs text-muted-foreground px-1">
-                <span>开始日期</span><span>结束日期</span><span>该时段时区</span><span />
-              </div>
+          <div className="flex items-center gap-3 text-sm">
+            <span className="w-24 shrink-0 text-muted-foreground">默认时区</span>
+            <span className="font-medium">{tzLabel(defaultTz)}</span>
+            <span className="text-xs text-muted-foreground">没有被分段覆盖的日期用它</span>
+          </div>
+
+          {segments.length > 0 ? (
+            <div className="space-y-1">
+              <div className="text-xs text-muted-foreground">时间分段（{segments.length} 段）</div>
               {segments.map((seg) => (
-                <div key={seg._id} className="grid grid-cols-[1fr_1fr_180px_32px] gap-2 items-center">
-                  <Input
-                    type="date"
-                    value={seg.start_date}
-                    onChange={(e) => updateSegment(seg._id, { start_date: e.target.value })}
-                    className="h-8 text-sm"
-                  />
-                  <Input
-                    type="date"
-                    value={seg.end_date}
-                    onChange={(e) => updateSegment(seg._id, { end_date: e.target.value })}
-                    className="h-8 text-sm"
-                  />
-                  <select
-                    value={seg.tz_offset}
-                    onChange={(e) => updateSegment(seg._id, { tz_offset: Number(e.target.value) })}
-                    className="h-8 rounded-md border border-input bg-background px-2 text-sm"
-                  >
-                    {TZ_OPTIONS.map((tz) => (
-                      <option key={tz.offset} value={tz.offset}>{tz.label}</option>
-                    ))}
-                  </select>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                    onClick={() => removeSegment(seg._id)}
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </Button>
+                <div key={seg._id} className="flex items-center gap-2 text-sm">
+                  <span className="tabular-nums text-muted-foreground">{seg.start_date}</span>
+                  <span className="text-muted-foreground">→</span>
+                  <span className="tabular-nums text-muted-foreground">{seg.end_date}</span>
+                  <span className="ml-2 font-medium">{tzLabel(seg.tz_offset)}</span>
                 </div>
               ))}
             </div>
+          ) : (
+            <div className="text-xs text-muted-foreground">没有配置时间分段，全程使用默认时区。</div>
           )}
-
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" className="gap-1" onClick={addSegment}>
-              <Plus className="w-3.5 h-3.5" />
-              添加时区段
-            </Button>
-            <Button size="sm" className="gap-1" onClick={handleSaveConfig}>
-              保存配置
-            </Button>
-            {savedTip && (
-              <span className="text-xs text-green-600">已保存</span>
-            )}
-          </div>
         </div>
       )}
     </div>
