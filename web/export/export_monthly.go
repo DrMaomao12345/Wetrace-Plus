@@ -28,41 +28,61 @@ func ym(year, month int) int { return year*12 + month }
 // monthWindowOf 给出「真实存在」的月份闭区间 —— **和前端 lib/monthSeries.ts
 // 是同一条规则**，改一边记得同步另一边。
 //
-//		真实区间 = [第一条消息所在的月, 当前月]
+//	区间 = [第一条消息所在的月, 右边界]
 //
-//	  - 左边界之前：数据尚不存在（联系人还没加上）
-//	  - 右边界之后：时间尚未发生
-//	  - 区间**之内**一律是真值，包括结尾那段沉默 —— 不聊了，0 就是 0
+// 左边界之前数据尚不存在（联系人还没加上），这一头永远裁。
+//
+// 右边界由 fillToNow 决定 —— 这两种口径都说得通，所以做成开关：
+//
+//	true （默认）：延到**当月**。最后一条之后没聊的月份记作 0 —— 那段沉默
+//	              是真事，「三月起就没说过话」正是时间序列该讲的话。
+//	false        ：停在**最后一条消息所在的月**。只要有记录的那一段，
+//	              不想要一条长长的 0 尾巴时用。
 //
 // 第三个返回值为 false 表示这个会话一条消息都没有。
-func monthWindowOf(stats []*model.YearMonthStat, now time.Time) (first, last int, ok bool) {
+func monthWindowOf(stats []*model.YearMonthStat, now time.Time, fillToNow bool) (first, last int, ok bool) {
 	first = 1 << 30
+	lastWithData := 0
 	for _, st := range stats {
 		if st == nil || st.Count <= 0 || st.Month < 1 || st.Month > 12 || st.Year < 2000 || st.Year > 2100 {
 			continue
 		}
-		if k := ym(st.Year, st.Month); k < first {
+		k := ym(st.Year, st.Month)
+		if k < first {
 			first = k
+		}
+		if k > lastWithData {
+			lastWithData = k
 		}
 	}
 	if first == 1<<30 {
 		return 0, 0, false
 	}
-	return first, ym(now.Year(), int(now.Month())), true
+	if !fillToNow {
+		return first, lastWithData, true
+	}
+	// 当月永远是右上限：再往后是还没发生的月份，补 0 就是造数据。
+	// 数据比当月还新（时区/机器时钟偏差）时以数据为准，别把它裁掉。
+	nowKey := ym(now.Year(), int(now.Month()))
+	if lastWithData > nowKey {
+		return first, lastWithData, true
+	}
+	return first, nowKey, true
 }
 
 // buildMonthlyStats 取某个会话按年-月聚合的消息数，补齐成一条连续的月度序列。
+// fillToNow 见 monthWindowOf。
 //
 // 补 0 是必须的：底层是 GROUP BY，一条消息都没有的月份根本不会有行，直接导出
 // 会得到一份「跳月」的表 —— 拿去画图或者做同比全是坑。范围由 monthWindowOf
 // 决定，两头都不外扩：没发生过的月份不凭空造。
-func (s *Service) buildMonthlyStats(ctx context.Context, talker string) ([]MonthlyStatRow, error) {
+func (s *Service) buildMonthlyStats(ctx context.Context, talker string, fillToNow bool) ([]MonthlyStatRow, error) {
 	stats, err := s.Store.GetYearlyMonthlyActivity(ctx, talker)
 	if err != nil {
 		return nil, err
 	}
 
-	minKey, maxKey, ok := monthWindowOf(stats, time.Now())
+	minKey, maxKey, ok := monthWindowOf(stats, time.Now(), fillToNow)
 	if !ok {
 		return nil, nil
 	}
@@ -106,8 +126,8 @@ func (s *Service) buildMonthlyStats(ctx context.Context, talker string) ([]Month
 var monthlyStatsHeader = []string{"年月", "年", "月", "消息数", "累计", "占比%"}
 
 // ExportMonthlyStatsCSV 导出「从第一条消息起，每个月多少条」为 CSV。
-func (s *Service) ExportMonthlyStatsCSV(ctx context.Context, talker string) ([]byte, error) {
-	rows, err := s.buildMonthlyStats(ctx, talker)
+func (s *Service) ExportMonthlyStatsCSV(ctx context.Context, talker string, fillToNow bool) ([]byte, error) {
+	rows, err := s.buildMonthlyStats(ctx, talker, fillToNow)
 	if err != nil {
 		return nil, err
 	}
@@ -138,8 +158,8 @@ func (s *Service) ExportMonthlyStatsCSV(ctx context.Context, talker string) ([]b
 }
 
 // ExportMonthlyStatsXLSX 同上，但输出 Excel：表头加粗冻结、数字列带千分位。
-func (s *Service) ExportMonthlyStatsXLSX(ctx context.Context, talker, talkerName string) ([]byte, error) {
-	rows, err := s.buildMonthlyStats(ctx, talker)
+func (s *Service) ExportMonthlyStatsXLSX(ctx context.Context, talker, talkerName string, fillToNow bool) ([]byte, error) {
+	rows, err := s.buildMonthlyStats(ctx, talker, fillToNow)
 	if err != nil {
 		return nil, err
 	}

@@ -203,7 +203,11 @@ export default function Chat() {
     }
   }
 
-  const handleExportRequest = (type: string, range: { type: 'all' | 'custom', start?: string, end?: string }) => {
+  const handleExportRequest = (
+    type: string,
+    range: { type: 'all' | 'custom', start?: string, end?: string },
+    opts?: { fillToNow?: boolean },
+  ) => {
     if (!activeTalker) return
 
     let timeRangeParam = ''
@@ -214,7 +218,9 @@ export default function Chat() {
     if (type === 'monthly_csv' || type === 'monthly_xlsx') {
       // 月度统计是全量汇总表，不接 time_range —— 掐一段就看不出「什么时候加上的」
       const fmt = type === 'monthly_xlsx' ? 'xlsx' : 'csv'
-      const url = `/api/v1/export/monthly_stats?talker=${encodeURIComponent(activeTalker)}&name=${encodeURIComponent(displayName)}&format=${fmt}`
+      // fillToNow 缺省为 true，只有明确关掉时才带上参数
+      const fill = opts?.fillToNow === false ? '&fill_to_now=0' : ''
+      const url = `/api/v1/export/monthly_stats?talker=${encodeURIComponent(activeTalker)}&name=${encodeURIComponent(displayName)}&format=${fmt}${fill}`
       window.open(url, '_blank')
     } else if (type === 'json') {
       const url = `/api/v1/messages?talker_id=${activeTalker}&limit=1000000${timeRangeParam}`

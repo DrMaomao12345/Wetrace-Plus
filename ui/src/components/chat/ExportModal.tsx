@@ -15,13 +15,19 @@ const isMonthly = (t: ExportFormat) => t === 'monthly_csv' || t === 'monthly_xls
 interface ExportModalProps {
   isOpen: boolean
   onClose: () => void
-  onExport: (type: ExportFormat, range: { type: 'all' | 'custom', start?: string, end?: string }) => void
+  onExport: (
+    type: ExportFormat,
+    range: { type: 'all' | 'custom', start?: string, end?: string },
+    opts?: { fillToNow?: boolean },
+  ) => void
 }
 
 export function ExportModal({ isOpen, onClose, onExport }: ExportModalProps) {
   const [exportType, setExportType] = useState<ExportFormat>('html')
   // 月度统计选中时，用哪种表格格式
   const [monthlyFmt, setMonthlyFmt] = useState<'csv' | 'xlsx'>('csv')
+  // 最后一条消息之后、还没聊的那些月份要不要记成 0。默认记 —— 那段沉默是真事
+  const [fillToNow, setFillToNow] = useState(true)
   const [rangeType, setRangeType] = useState<'all' | 'custom'>('all')
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
@@ -36,7 +42,7 @@ export function ExportModal({ isOpen, onClose, onExport }: ExportModalProps) {
       type: rangeType,
       start: startDate,
       end: endDate
-    })
+    }, { fillToNow })
     onClose()
   }
 
@@ -121,9 +127,27 @@ export function ExportModal({ isOpen, onClose, onExport }: ExportModalProps) {
 
           {/* 时间范围。月度统计导的是全量汇总表，掐一段就看不出「什么时候加上的」了 */}
           {isMonthly(exportType) ? (
-            <div className="rounded-lg border border-dashed px-3 py-2 text-xs text-muted-foreground">
-              月度统计固定导出<span className="text-foreground">全部记录</span> —— 从第一条消息所在的月份，
-              到最后一条所在的月份，中间没聊的月份补 0。
+            <div className="space-y-2 rounded-lg border border-dashed px-3 py-2.5 text-xs text-muted-foreground">
+              <div>
+                月度统计固定导出<span className="text-foreground">全部记录</span> —— 从第一条消息所在的月份开始，
+                中间没聊的月份补 0。
+              </div>
+              <label className="flex cursor-pointer select-none items-start gap-2">
+                <input
+                  type="checkbox"
+                  checked={fillToNow}
+                  onChange={(e) => setFillToNow(e.target.checked)}
+                  className="accent-primary mt-0.5"
+                />
+                <span>
+                  <span className="text-foreground">一直补到当月</span>
+                  <span className="ml-1">
+                    {fillToNow
+                      ? '—— 最后一条之后没聊的月份也记作 0'
+                      : '—— 关掉后停在最后一条消息所在的月'}
+                  </span>
+                </span>
+              </label>
             </div>
           ) : (
           <div className="space-y-3">

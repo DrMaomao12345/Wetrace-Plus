@@ -144,6 +144,9 @@ func setAttachment(c *gin.Context, fileName, contentType string) {
 //
 // 和 ExportChat 不同，这里不接 time_range：它的意义就是**全量**回顾，
 // 掐掉一段反而看不出「什么时候加上的、哪几个月热、哪几个月冷」。
+//
+// fill_to_now=0 时右边界停在最后一条消息所在的月，不补那条 0 尾巴；
+// 缺省（或任何非 "0"/"false" 的值）都按补到当月算。
 func (a *API) ExportMonthlyStats(c *gin.Context) {
 	talker := c.Query("talker")
 	talkerName := c.Query("name")
@@ -155,6 +158,11 @@ func (a *API) ExportMonthlyStats(c *gin.Context) {
 		talkerName = talker
 	}
 
+	fillToNow := true
+	if v := c.Query("fill_to_now"); v == "0" || v == "false" {
+		fillToNow = false
+	}
+
 	ctx := c.Request.Context()
 	var (
 		data        []byte
@@ -164,11 +172,11 @@ func (a *API) ExportMonthlyStats(c *gin.Context) {
 	)
 	switch c.Query("format") {
 	case "xlsx":
-		data, err = a.Export.ExportMonthlyStatsXLSX(ctx, talker, talkerName)
+		data, err = a.Export.ExportMonthlyStatsXLSX(ctx, talker, talkerName, fillToNow)
 		ext = "xlsx"
 		contentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 	default:
-		data, err = a.Export.ExportMonthlyStatsCSV(ctx, talker)
+		data, err = a.Export.ExportMonthlyStatsCSV(ctx, talker, fillToNow)
 		ext = "csv"
 		contentType = "text/csv; charset=utf-8"
 	}
