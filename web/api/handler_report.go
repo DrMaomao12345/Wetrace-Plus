@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/afumu/wetrace/store/types"
@@ -119,9 +120,24 @@ func (a *API) GetAnnualReport(c *gin.Context) {
 	transport.SendSuccess(c, report)
 }
 
+// excludeFromQuery 读 ?exclude=wxid_a,wxid_b 并与服务端全局排除名单合并。
+//
+// 参考线走的是 GET（前端要按参数缓存），排除名单只能挂在 query 上。
+// 名单是 15 个 wxid 量级、300 字符出头，远在 URL 长度红线之下。
+func (a *API) excludeFromQuery(c *gin.Context) []string {
+	raw := c.Query("exclude")
+	var list []string
+	for _, t := range strings.Split(raw, ",") {
+		if t = strings.TrimSpace(t); t != "" {
+			list = append(list, t)
+		}
+	}
+	return a.mergedExcludeTalkers(list)
+}
+
 // GetPastYearsMonthlyAvg 计算指定年份范围内每年月度趋势的平均。
 // 默认 from = 「有效聊天记录起始时间」全局设置；不传 to 则取当前年-1
-// GET /api/v1/report/past_monthly_avg?from=2023&to=2025&tz_offset=480
+// GET /api/v1/report/past_monthly_avg?from=2023&to=2025&tz_offset=480&exclude=wxid_a,wxid_b
 func (a *API) GetPastYearsMonthlyAvg(c *gin.Context) {
 	from, _ := strconv.Atoi(c.Query("from"))
 	to, _ := strconv.Atoi(c.Query("to"))
@@ -134,13 +150,13 @@ func (a *API) GetPastYearsMonthlyAvg(c *gin.Context) {
 	tzOffsetMin, _ := strconv.Atoi(c.Query("tz_offset"))
 	tzOffsetSec := tzOffsetMin * 60
 
-	avg := a.Store.ComputeMonthlyAvgInRange(c.Request.Context(), from, to, tzOffsetSec)
+	avg := a.Store.ComputeMonthlyAvgInRange(c.Request.Context(), from, to, tzOffsetSec, a.excludeFromQuery(c))
 	transport.SendSuccess(c, avg)
 }
 
 // GetReportBaseline 一次返回当前生效的「往年月均」+「往年同期 overview 平均」
 // 前端在「有效聊天记录起始时间」改变后，调用此端点局部刷新参考线和百分比，无需重建整份报告
-// GET /api/v1/report/baseline?year=2026&tz_offset=480
+// GET /api/v1/report/baseline?year=2026&tz_offset=480&exclude=wxid_a,wxid_b
 func (a *API) GetReportBaseline(c *gin.Context) {
 	year, err := strconv.Atoi(c.Query("year"))
 	if err != nil || year < 2000 || year > 2100 {
@@ -152,8 +168,10 @@ func (a *API) GetReportBaseline(c *gin.Context) {
 	pastStartYear := effectiveChatStartYear()
 	pastEndYear := time.Now().Year() // 「往年月均」参考线固定按 [起始年, 当前年] 计算，不随所看报告年份变化
 
-	monthlyAvg := a.Store.ComputeMonthlyAvgInRange(c.Request.Context(), pastStartYear, pastEndYear, tzOffsetSec)
-	overviewAvg := a.Store.ComputePastOverviewAvg(c.Request.Context(), year, pastStartYear, tzOffsetSec)
+	// 和主线同一份排除名单：两条线画在同一个 Y 轴上，口径必须一致
+	exclude := a.excludeFromQuery(c)
+	monthlyAvg := a.Store.ComputeMonthlyAvgInRange(c.Request.Context(), pastStartYear, pastEndYear, tzOffsetSec, exclude)
+	overviewAvg := a.Store.ComputePastOverviewAvg(c.Request.Context(), year, pastStartYear, tzOffsetSec, exclude)
 
 	transport.SendSuccess(c, gin.H{
 		"past_start_year":        pastStartYear,

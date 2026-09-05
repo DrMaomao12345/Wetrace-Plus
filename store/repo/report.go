@@ -3,6 +3,7 @@ package repo
 import (
 	"context"
 	"fmt"
+	"math"
 	"sort"
 	"sync"
 	"time"
@@ -121,21 +122,38 @@ func buildSegments(year int, defaultTzOffset int, userSegs []types.TZSegment) []
 	return result
 }
 
+// excludeSetOf 把排除名单转成 ReportTableFilter 要的集合。
+func excludeSetOf(talkers []string) map[string]bool {
+	if len(talkers) == 0 {
+		return nil
+	}
+	set := make(map[string]bool, len(talkers))
+	for _, t := range talkers {
+		set[t] = true
+	}
+	return set
+}
+
 // computePastYearsMonthlyAvg 计算「往年月均」参考线。
 // 固定按 [pastStartYear, 当前年] 计算，与所看报告的年份无关，保证同一条参考线不随切换报告年份而改变。
 // 用于年度报告内置默认参考线。
-func (r *Repository) computePastYearsMonthlyAvg(ctx context.Context, year, pastStartYear, defaultTzOffset int) []*model.MonthlyStat {
+//
+// excludeTalkers 必须和主线用的是同一份：参考线和主线画在同一个 Y 轴上，
+// 一边排掉了人、另一边没排，两条线就没有可比性了。
+func (r *Repository) computePastYearsMonthlyAvg(ctx context.Context, year, pastStartYear, defaultTzOffset int, excludeTalkers []string) []*model.MonthlyStat {
 	if pastStartYear < 2010 {
 		pastStartYear = 2023
 	}
 	_ = year // 参考线固定到当前年，不再随报告年份变化
 	to := time.Now().Year()
-	return r.ComputeMonthlyAvgInRange(ctx, pastStartYear, to, defaultTzOffset)
+	return r.ComputeMonthlyAvgInRange(ctx, pastStartYear, to, defaultTzOffset, excludeTalkers)
 }
 
 // ComputeMonthlyAvgInRange 计算 [fromYear, toYear] 闭区间内每年月度趋势的平均值。
 // 输出 12 个月的平均值（无数据的月份为 0）。
-func (r *Repository) ComputeMonthlyAvgInRange(ctx context.Context, fromYear, toYear, tzOffsetSeconds int) []*model.MonthlyStat {
+//
+// excludeTalkers 传进来是为了和主线同口径 —— 见 computePastYearsMonthlyAvg 的说明。
+func (r *Repository) ComputeMonthlyAvgInRange(ctx context.Context, fromYear, toYear, tzOffsetSeconds int, excludeTalkers []string) []*model.MonthlyStat {
 	monthlyTotal := make(map[int]int)
 	monthlyCount := make(map[int]int)
 
@@ -148,13 +166,17 @@ func (r *Repository) ComputeMonthlyAvgInRange(ctx context.Context, fromYear, toY
 	}
 
 	for py := fromYear; py <= toYear; py++ {
+		// 年界按**用户时区**划，不能用 UTC —— 和 buildSegments 同一个坑：
+		// 对 UTC+8 用户，UTC 年界会漏掉元旦头 8 小时、又混进次年元旦头 8 小时，
+		// 而后者 strftime('%m') 同样算「01」，于是一月被算错。
+		// 参考线和主线只要年界不一样，两条线就没法比。
 		seg := reportSegment{
-			start: time.Date(py, 1, 1, 0, 0, 0, 0, time.UTC),
-			end:   time.Date(py, 12, 31, 23, 59, 59, 999999999, time.UTC),
+			start: time.Date(py, 1, 1, 0, 0, 0, 0, loc),
+			end:   time.Date(py, 12, 31, 23, 59, 59, 999999999, loc),
 			loc:   loc,
 			tzMod: tzMod,
 		}
-		trend := r.getAnnualMonthlyTrend(ctx, []reportSegment{seg}, r.ReportTableFilter(ctx, nil))
+		trend := r.getAnnualMonthlyTrend(ctx, []reportSegment{seg}, r.ReportTableFilter(ctx, excludeSetOf(excludeTalkers)))
 		var anyData bool
 		for _, t := range trend {
 			if t.Count > 0 {
@@ -183,7 +205,8 @@ func (r *Repository) ComputeMonthlyAvgInRange(ctx context.Context, fromYear, toY
 	for m := 1; m <= 12; m++ {
 		avg := 0
 		if monthlyCount[m] > 0 {
-			avg = monthlyTotal[m] / monthlyCount[m]
+			// 四舍五入，不要整除截断：整除永远往下丢，参考线会被系统性压低
+			avg = int(math.Round(float64(monthlyTotal[m]) / float64(monthlyCount[m])))
 		}
 		result = append(result, &model.MonthlyStat{Month: m, Count: avg})
 	}
@@ -241,7 +264,7 @@ func (r *Repository) GetAnnualReport(ctx context.Context, year int, defaultTzOff
 		report.TopContacts = tc
 	})
 	run("往年月均", func() {
-		report.PastYearsMonthlyAvg = r.computePastYearsMonthlyAvg(ctx, year, pastStartYear, defaultTzOffset)
+		report.PastYearsMonthlyAvg = r.computePastYearsMonthlyAvg(ctx, year, pastStartYear, defaultTzOffset, excludeTalkers)
 	})
 	wg.Wait()
 
@@ -249,7 +272,7 @@ func (r *Repository) GetAnnualReport(ctx context.Context, year int, defaultTzOff
 
 	report.Overview = overview
 	// 同比依赖 overview，必须等上面跑完
-	report.OverviewDeltas = r.computeOverviewDeltas(ctx, year, pastStartYear, defaultTzOffset, overview)
+	report.OverviewDeltas = r.computeOverviewDeltas(ctx, year, pastStartYear, defaultTzOffset, overview, excludeTalkers)
 
 	// 设置数据版本指纹（供前端缓存校验）
 	report.DataVersion = r.GetDataVersion()
@@ -303,12 +326,12 @@ func (r *Repository) GetAnnualReportWithProgress(ctx context.Context, year int, 
 		progressFn("top_contacts", 6, totalSteps, topContacts)
 	}
 
-	report.PastYearsMonthlyAvg = r.computePastYearsMonthlyAvg(ctx, year, pastStartYear, defaultTzOffset)
+	report.PastYearsMonthlyAvg = r.computePastYearsMonthlyAvg(ctx, year, pastStartYear, defaultTzOffset, excludeTalkers)
 	if progressFn != nil {
 		progressFn("past_years_avg", 7, totalSteps, report.PastYearsMonthlyAvg)
 	}
 
-	report.OverviewDeltas = r.computeOverviewDeltas(ctx, year, pastStartYear, defaultTzOffset, overview)
+	report.OverviewDeltas = r.computeOverviewDeltas(ctx, year, pastStartYear, defaultTzOffset, overview, excludeTalkers)
 	report.DataVersion = r.GetDataVersion()
 	if progressFn != nil {
 		progressFn("highlights", 8, totalSteps, map[string]interface{}{
@@ -323,7 +346,7 @@ func (r *Repository) GetAnnualReportWithProgress(ctx context.Context, year int, 
 // ComputePastOverviewAvg 计算往年同期 (YTD) 概览数据的平均
 // 给定 year, pastStartYear, defaultTzOffset，返回 [pastStartYear, year-1] 各年同期 overview 的平均
 // 当没有任何有效往年数据时返回 nil
-func (r *Repository) ComputePastOverviewAvg(ctx context.Context, year, pastStartYear, defaultTzOffset int) *model.AnnualOverview {
+func (r *Repository) ComputePastOverviewAvg(ctx context.Context, year, pastStartYear, defaultTzOffset int, excludeTalkers []string) *model.AnnualOverview {
 	now := time.Now()
 	currentYear := now.Year()
 	loc := time.FixedZone("default", defaultTzOffset)
@@ -343,13 +366,14 @@ func (r *Repository) ComputePastOverviewAvg(ctx context.Context, year, pastStart
 	var sumTotal, sumSent, sumRecv, sumContacts, sumRooms, sumDays int
 	count := 0
 	for py := pastStartYear; py <= year-1; py++ {
-		startUTC := time.Date(py, 1, 1, 0, 0, 0, 0, time.UTC)
-		endUTC := time.Date(py, cutoffMonth, cutoffDay, 23, 59, 59, 999999999, time.UTC)
-		if endUTC.Before(startUTC) {
+		// 同上：年界按用户时区，别用 UTC
+		segStart := time.Date(py, 1, 1, 0, 0, 0, 0, loc)
+		segEnd := time.Date(py, cutoffMonth, cutoffDay, 23, 59, 59, 999999999, loc)
+		if segEnd.Before(segStart) {
 			continue
 		}
-		seg := reportSegment{start: startUTC, end: endUTC, loc: loc, tzMod: tzMod}
-		ov, err := r.getAnnualOverview(ctx, []reportSegment{seg}, r.ReportTableFilter(ctx, nil))
+		seg := reportSegment{start: segStart, end: segEnd, loc: loc, tzMod: tzMod}
+		ov, err := r.getAnnualOverview(ctx, []reportSegment{seg}, r.ReportTableFilter(ctx, excludeSetOf(excludeTalkers)))
 		if err != nil || ov.TotalMessages == 0 {
 			continue
 		}
@@ -364,19 +388,20 @@ func (r *Repository) ComputePastOverviewAvg(ctx context.Context, year, pastStart
 	if count == 0 {
 		return nil
 	}
+	avg := func(sum int) int { return int(math.Round(float64(sum) / float64(count))) }
 	return &model.AnnualOverview{
-		TotalMessages:    sumTotal / count,
-		SentMessages:     sumSent / count,
-		ReceivedMessages: sumRecv / count,
-		ActiveContacts:   sumContacts / count,
-		ActiveChatrooms:  sumRooms / count,
-		ActiveDays:       sumDays / count,
+		TotalMessages:    avg(sumTotal),
+		SentMessages:     avg(sumSent),
+		ReceivedMessages: avg(sumRecv),
+		ActiveContacts:   avg(sumContacts),
+		ActiveChatrooms:  avg(sumRooms),
+		ActiveDays:       avg(sumDays),
 	}
 }
 
 // computeOverviewDeltas 用 ComputePastOverviewAvg 的结果与 current 比较得出百分比差
-func (r *Repository) computeOverviewDeltas(ctx context.Context, year, pastStartYear, defaultTzOffset int, current model.AnnualOverview) *model.OverviewDeltas {
-	avg := r.ComputePastOverviewAvg(ctx, year, pastStartYear, defaultTzOffset)
+func (r *Repository) computeOverviewDeltas(ctx context.Context, year, pastStartYear, defaultTzOffset int, current model.AnnualOverview, excludeTalkers []string) *model.OverviewDeltas {
+	avg := r.ComputePastOverviewAvg(ctx, year, pastStartYear, defaultTzOffset, excludeTalkers)
 	if avg == nil {
 		return nil
 	}

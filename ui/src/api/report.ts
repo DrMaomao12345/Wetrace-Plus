@@ -85,10 +85,12 @@ export const reportApi = {
     }),
 
   // 自定义范围的「往年月度趋势平均」
-  getPastMonthlyAvg: (from: number, to: number, tzOffsetMinutes: number) =>
+  // excludeTalkers 必须和生成报告时用的是同一份 —— 参考线和主线画在同一个 Y 轴上，
+  // 一边排掉了人另一边没排，两条线就没有可比性
+  getPastMonthlyAvg: (from: number, to: number, tzOffsetMinutes: number, excludeTalkers: string[] = []) =>
     request.get<Array<{ month: number; count: number }>>(
       "/api/v1/report/past_monthly_avg",
-      { from, to, tz_offset: tzOffsetMinutes }
+      { from, to, tz_offset: tzOffsetMinutes, exclude: excludeTalkers.join(",") }
     ),
 
   // 字数统计（按消息内容字符数）
@@ -108,11 +110,15 @@ export const reportApi = {
     request.post<{ status: string }>("/api/v1/report/exclude_talkers", { talkers }),
 
   // 局部刷新：拿到当前生效的往年月均 + 往年同期 overview 平均
-  getReportBaseline: (year: number, tzOffsetMinutes: number) =>
+  getReportBaseline: (year: number, tzOffsetMinutes: number, excludeTalkers: string[] = []) =>
     request.get<{
       past_start_year: number;
       past_end_year: number;
       past_years_monthly_avg: Array<{ month: number; count: number }>;
       past_overview_avg: AnnualOverview | null;
-    }>("/api/v1/report/baseline", { year, tz_offset: tzOffsetMinutes }),
+    }>("/api/v1/report/baseline", {
+      year,
+      tz_offset: tzOffsetMinutes,
+      exclude: excludeTalkers.join(","),
+    }),
 };

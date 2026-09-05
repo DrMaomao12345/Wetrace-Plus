@@ -178,12 +178,12 @@ func (s *DefaultStore) GetAnnualReportWithProgress(ctx context.Context, year int
 	return s.repo.GetAnnualReportWithProgress(ctx, year, defaultTzOffset, pastStartYear, segments, excludeTalkers, progressFn)
 }
 
-func (s *DefaultStore) ComputeMonthlyAvgInRange(ctx context.Context, fromYear, toYear, tzOffsetSeconds int) []*model.MonthlyStat {
-	return s.repo.ComputeMonthlyAvgInRange(ctx, fromYear, toYear, tzOffsetSeconds)
+func (s *DefaultStore) ComputeMonthlyAvgInRange(ctx context.Context, fromYear, toYear, tzOffsetSeconds int, excludeTalkers []string) []*model.MonthlyStat {
+	return s.repo.ComputeMonthlyAvgInRange(ctx, fromYear, toYear, tzOffsetSeconds, excludeTalkers)
 }
 
-func (s *DefaultStore) ComputePastOverviewAvg(ctx context.Context, year, pastStartYear, defaultTzOffset int) *model.AnnualOverview {
-	return s.repo.ComputePastOverviewAvg(ctx, year, pastStartYear, defaultTzOffset)
+func (s *DefaultStore) ComputePastOverviewAvg(ctx context.Context, year, pastStartYear, defaultTzOffset int, excludeTalkers []string) *model.AnnualOverview {
+	return s.repo.ComputePastOverviewAvg(ctx, year, pastStartYear, defaultTzOffset, excludeTalkers)
 }
 
 func (s *DefaultStore) GetCalendarHeatmap(ctx context.Context, year, tzOffsetSec int, exclude []string) []*model.DayHeat {

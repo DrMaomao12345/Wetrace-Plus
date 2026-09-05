@@ -6,7 +6,9 @@ import (
 	"encoding/csv"
 	"fmt"
 	"strconv"
+	"time"
 
+	"github.com/afumu/wetrace/internal/model"
 	"github.com/xuri/excelize/v2"
 )
 
@@ -20,39 +22,63 @@ type MonthlyStatRow struct {
 	SharePct   float64 // 占该会话全部消息的百分比
 }
 
-// buildMonthlyStats 取某个会话按年-月聚合的消息数，并把中间的空月补成 0。
+// ym 把 (年, 月) 压成一个能直接比较、直接自增的整数。
+func ym(year, month int) int { return year*12 + month }
+
+// monthWindowOf 给出「真实存在」的月份闭区间 —— **和前端 lib/monthSeries.ts
+// 是同一条规则**，改一边记得同步另一边。
+//
+//		真实区间 = [第一条消息所在的月, 当前月]
+//
+//	  - 左边界之前：数据尚不存在（联系人还没加上）
+//	  - 右边界之后：时间尚未发生
+//	  - 区间**之内**一律是真值，包括结尾那段沉默 —— 不聊了，0 就是 0
+//
+// 第三个返回值为 false 表示这个会话一条消息都没有。
+func monthWindowOf(stats []*model.YearMonthStat, now time.Time) (first, last int, ok bool) {
+	first = 1 << 30
+	for _, st := range stats {
+		if st == nil || st.Count <= 0 || st.Month < 1 || st.Month > 12 || st.Year < 2000 || st.Year > 2100 {
+			continue
+		}
+		if k := ym(st.Year, st.Month); k < first {
+			first = k
+		}
+	}
+	if first == 1<<30 {
+		return 0, 0, false
+	}
+	return first, ym(now.Year(), int(now.Month())), true
+}
+
+// buildMonthlyStats 取某个会话按年-月聚合的消息数，补齐成一条连续的月度序列。
 //
 // 补 0 是必须的：底层是 GROUP BY，一条消息都没有的月份根本不会有行，直接导出
-// 会得到一份「跳月」的表 —— 拿去画图或者做同比全是坑。
-//
-// 但两头不外扩：比第一条消息更早的月份，联系人还没加上；比最后一条更晚的月份，
-// 要么还没发生、要么已经没有记录。那些 0 是假的，不该凭空造出来
-// （和月度趋势图裁掉两头是同一个道理）。
+// 会得到一份「跳月」的表 —— 拿去画图或者做同比全是坑。范围由 monthWindowOf
+// 决定，两头都不外扩：没发生过的月份不凭空造。
 func (s *Service) buildMonthlyStats(ctx context.Context, talker string) ([]MonthlyStatRow, error) {
 	stats, err := s.Store.GetYearlyMonthlyActivity(ctx, talker)
 	if err != nil {
 		return nil, err
 	}
 
-	// key = year*12 + month，把年月压成一个能直接自增的整数，补空月才好写
+	minKey, maxKey, ok := monthWindowOf(stats, time.Now())
+	if !ok {
+		return nil, nil
+	}
+
 	byKey := make(map[int]int, len(stats))
-	minKey, maxKey, total := 0, 0, 0
+	total := 0
 	for _, st := range stats {
 		if st == nil || st.Month < 1 || st.Month > 12 || st.Year < 2000 || st.Year > 2100 {
 			continue
 		}
-		k := st.Year*12 + st.Month
+		k := ym(st.Year, st.Month)
+		if k < minKey || k > maxKey {
+			continue // 理论上不会有：早于首条、或晚于当月
+		}
 		byKey[k] += st.Count
 		total += st.Count
-		if minKey == 0 || k < minKey {
-			minKey = k
-		}
-		if k > maxKey {
-			maxKey = k
-		}
-	}
-	if minKey == 0 {
-		return nil, nil
 	}
 
 	rows := make([]MonthlyStatRow, 0, maxKey-minKey+1)

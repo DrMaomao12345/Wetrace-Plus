@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import type { YearMonthStat, MonthlyStat } from '@/api';
+import { ym, monthWindowOf, monthValue } from '@/lib/monthSeries';
 
 interface Props {
   data: YearMonthStat[];
@@ -78,34 +79,15 @@ export function MonthlyChart({ data, top10Avg }: Props) {
     return map;
   }, [data, availableYears]);
 
-  // —— 时间边界 ——
-  // 图上的 0 有两种完全不同的含义，必须分开：
-  //   · **真 0**：那个月确实一条没聊 —— 该画，那是信息
-  //   · **假 0**：那个月压根不存在 —— 要么联系人还没加上（第一条消息之前），
-  //     要么这个月还没到（未来）。后端只按 GROUP BY 返回有数据的月份，
-  //     这里补的 0 全是假的，画出来就成了「贴着 X 轴的一条平线」和「年底跌到 0」。
-  // 假 0 一律给 null：recharts 默认 connectNulls=false，线会断开、点也不画，
-  // Tooltip 的 filterNull 默认 true，悬浮时也不会列出这些年份。
-  const firstYM = useMemo(() => {
-    let min = Infinity;
-    for (const s of (data || [])) {
-      if (s.count > 0 && s.month >= 1 && s.month <= 12) {
-        min = Math.min(min, s.year * 12 + s.month);
-      }
-    }
-    return min;
-  }, [data]);
-  // 「现在」按浏览器时区算，和 api/insights.ts 里的 tz() 同口径。
-  // 当月是**已经开始**的月份，照常显示（哪怕只过了几天）。
-  const nowYM = currentYear * 12 + (new Date().getMonth() + 1);
+  // 哪几个月是真实存在的 —— 口径统一在 lib/monthSeries，说明见那里
+  const window = useMemo(() => monthWindowOf(data || []), [data]);
 
   // 构造 recharts 的 row 数据
   const chartData = [];
   for (let m = 1; m <= 12; m++) {
     const row: Record<string, any> = { name: `${m}月` };
     for (const y of availableYears) {
-      const ym = y * 12 + m;
-      row[`y${y}`] = (ym < firstYM || ym > nowYM) ? null : yearMonthMap[y][m];
+      row[`y${y}`] = monthValue(ym(y, m), window, yearMonthMap[y][m]);
     }
     row.avg = avgByMonth[m];
     chartData.push(row);

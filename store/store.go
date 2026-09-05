@@ -51,8 +51,8 @@ type Store interface {
 	GetTalkerAnnualReport(ctx context.Context, year int, talker string, defaultTzOffset int) (*model.AnnualReport, error)
 	GetAnnualWordCounts(ctx context.Context, year int, defaultTzOffset int, segments []types.TZSegment, excludeTalkers []string) (*model.WordCountStat, error)
 	GetAnnualReportWithProgress(ctx context.Context, year int, defaultTzOffset, pastStartYear int, segments []types.TZSegment, excludeTalkers []string, progressFn types.ProgressCallback) (*model.AnnualReport, error)
-	ComputeMonthlyAvgInRange(ctx context.Context, fromYear, toYear, tzOffsetSeconds int) []*model.MonthlyStat
-	ComputePastOverviewAvg(ctx context.Context, year, pastStartYear, defaultTzOffset int) *model.AnnualOverview
+	ComputeMonthlyAvgInRange(ctx context.Context, fromYear, toYear, tzOffsetSeconds int, excludeTalkers []string) []*model.MonthlyStat
+	ComputePastOverviewAvg(ctx context.Context, year, pastStartYear, defaultTzOffset int, excludeTalkers []string) *model.AnnualOverview
 
 	// 单个联系人的扩展分析（日历热力图 / 语音 / 互动与回复）
 	GetTalkerExtras(ctx context.Context, talker string, year, tzOffsetSec int) *model.TalkerExtras

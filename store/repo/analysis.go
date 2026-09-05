@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -416,7 +417,10 @@ func (r *Repository) GetTopContactsHistoricalMonthlyAvg(ctx context.Context, lim
 	}
 
 	currentYear := time.Now().Year()
-	monthlyAccum := make(map[int]int) // month -> 累加(每个联系人的过去年份月均)
+	// 全程用 float64 累加，最后一次性四舍五入。
+	// 原来是两层整除：先 pastByMonth/年数、再 累加/人数，两次都往下截断，
+	// 参考线被系统性压低 —— 某人某月过去 3 年共 5 条，5/3 直接变成 1。
+	monthlyAccum := make(map[int]float64) // month -> 累加(每个联系人的过去年份月均)
 	contactCount := 0
 
 	for _, tc := range topContacts {
@@ -438,7 +442,7 @@ func (r *Repository) GetTopContactsHistoricalMonthlyAvg(ctx context.Context, lim
 		contactCount++
 		for m := 1; m <= 12; m++ {
 			// 该联系人月均 = 过去年份该月总和 / 过去年份数
-			monthlyAccum[m] += pastByMonth[m] / len(pastYears)
+			monthlyAccum[m] += float64(pastByMonth[m]) / float64(len(pastYears))
 		}
 	}
 
@@ -446,7 +450,7 @@ func (r *Repository) GetTopContactsHistoricalMonthlyAvg(ctx context.Context, lim
 	for m := 1; m <= 12; m++ {
 		avg := 0
 		if contactCount > 0 {
-			avg = monthlyAccum[m] / contactCount
+			avg = int(math.Round(monthlyAccum[m] / float64(contactCount)))
 		}
 		result = append(result, &model.MonthlyStat{Month: m, Count: avg})
 	}

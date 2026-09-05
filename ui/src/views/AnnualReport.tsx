@@ -6,6 +6,7 @@ import { reportApi, type AnnualReport, type AnnualOverview, type TZSegment, type
 import { sessionApi, systemApi } from "@/api"
 import { galaxyApi, type RelationshipGraph } from "@/api/galaxy"
 import { computeYearReview } from "@/lib/relationshipReview"
+import { ym, monthWindowOf, monthValue } from "@/lib/monthSeries"
 import { toast } from "sonner"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -437,10 +438,14 @@ export default function AnnualReportView() {
     queryFn: () => systemApi.getEffectiveChatStart(),
   })
 
+  // 参考线必须和主线同一份排除名单，所以 excludeTalkers 既进 queryKey 也进请求
+  const baselineExclude = params ? [...params.excludeTalkers].sort() : []
   const { data: liveBaseline } = useQuery({
-    queryKey: ["report-baseline", params?.year, params?.defaultTz, effectiveStart?.year],
-    queryFn: () => reportApi.getReportBaseline(params!.year, params!.defaultTz),
-    enabled: !!params && stream.status === "done" && !!effectiveStart,
+    queryKey: ["report-baseline", params?.year, params?.defaultTz, effectiveStart?.year, baselineExclude.join(",")],
+    queryFn: () => reportApi.getReportBaseline(params!.year, params!.defaultTz, baselineExclude),
+    // 走缓存时 stream 从没跑过，但缓存里那份参考线可能是旧口径算的（没排除名单），
+    // 所以只要报告已经在屏幕上就拉一次实时参考线覆盖掉它
+    enabled: !!params && !!effectiveStart && (stream.status === "done" || !!data),
   })
 
   // 字数模式：任何地方（概览卡或排行行）需要字数都触发拉取，按 sig 缓存
@@ -1126,26 +1131,15 @@ function MonthlyTrendChart({
     : ""
 
   // 后端的 monthly_trend 恒定补满 1~12 月（report_singlepass.go），补出来的 0
-  // 和「那个月真的没聊」长得一模一样，但含义完全不同。两头的假 0 都要裁掉：
+  // 和「那个月真的没聊」长得一模一样，含义却完全不同。哪几个月算真实存在，
+  // 口径统一在 lib/monthSeries —— 这段逻辑以前在这里和 MonthlyChart 各写一份。
   //
-  //   右边 —— 还没到的月份。跑「今年」的报告时，画出来像年底突然断崖。
-  //   左边 —— 数据开始之前。存档最早那年（或自定义时区段不从 1 月 1 号起）
-  //           的前几个月压根没有记录，会是一条贴着 X 轴的假平线。
-  //
-  // 假 0 给 null：recharts 默认 connectNulls=false，不连、不画点，
-  // Tooltip 的 filterNull 默认 true 也不会列出来。中间真的 0 照画 —— 那是信息。
-  const now = new Date()
-  const monthCap = year > now.getFullYear() ? 0
-    : year === now.getFullYear() ? now.getMonth() + 1
-    : 12
-  // 左边界取「第一个真有消息的月份」，和这条线自己的数据同源，不会和 overview 打架。
-  // 全年一条都没有时不裁，让图老实画一条 0 线，比整片空白更说明问题。
-  const monthsWithData = (data || []).filter((d) => d.count > 0).map((d) => d.month)
-  const monthStart = monthsWithData.length ? Math.min(...monthsWithData) : 1
+  // monthly_trend 只有 month 没有 year，先按报告年份补上再交给共用口径。
+  const window = monthWindowOf((data || []).map((d) => ({ year, month: d.month, count: d.count })))
 
   const chartData = (data || []).map((d) => ({
     name: `${d.month}月`,
-    count: (d.month < monthStart || d.month > monthCap) ? null : d.count,
+    count: monthValue(ym(year, d.month), window, d.count),
     avg: avgByMonth[d.month] || 0,
   }))
 
