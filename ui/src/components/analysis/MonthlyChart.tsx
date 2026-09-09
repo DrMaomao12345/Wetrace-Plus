@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { ComposedChart, Line, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+import { ComposedChart, Line, Area, ReferenceLine, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import type { YearMonthStat, MonthlyStat, ForecastResult } from '@/api';
 import { ym, monthWindowOf, monthValue } from '@/lib/monthSeries';
 import { useAppStore } from '@/stores/app';
@@ -104,18 +104,28 @@ export function MonthlyChart({ data, top10Avg, forecast }: Props) {
   }, [forecast, selectedYears, currentYear]);
   const hasForecast = fcByMonth.size > 0;
   const currentMonth = new Date().getMonth() + 1;
+  // 当月的「实时值 → 月末预计」这一段。两个点在同一个 X 上，普通 Line 连不了
+  // （Line 是按 X 类目走的），所以用 ReferenceLine 的 segment 画。
+  const currentPoint = fcByMonth.get(currentMonth);
+  // 下端取**图上实线真正画出来的那个值**（yearMonthMap），不是预测接口回的 actual：
+  // 两者理论上相等，但只要有一点出入，虚线就会和实心点脱开一截。
+  const currentActual = availableYears.includes(currentYear)
+    ? yearMonthMap[currentYear]?.[currentMonth] ?? 0
+    : 0;
+  const nowSegment =
+    currentPoint && currentPoint.point > currentActual
+      ? ([
+          { x: `${currentMonth}月`, y: currentActual },
+          { x: `${currentMonth}月`, y: currentPoint.point },
+        ] as const)
+      : null;
 
   // 构造 recharts 的 row 数据
   const chartData = [];
   for (let m = 1; m <= 12; m++) {
     const row: Record<string, any> = { name: `${m}月` };
     for (const y of availableYears) {
-      // 画预测时，实线只到**最后一个完整月**。
-      // 当月才过了几天，它的部分值画在实线上就是一个假的断崖 —— 用户会读成
-      // 「不聊了」，而实际只是月份没过完。那个数字没丢，进了 Tooltip 的
-      // 「截至今天已 N 条」，月末预计值由空心点接手。
-      const partialCurrentMonth = hasForecast && y === currentYear && m >= currentMonth;
-      row[`y${y}`] = partialCurrentMonth ? null : monthValue(ym(y, m), window, yearMonthMap[y][m]);
+      row[`y${y}`] = monthValue(ym(y, m), window, yearMonthMap[y][m]);
     }
     row.avg = avgByMonth[m];
 
@@ -196,7 +206,9 @@ export function MonthlyChart({ data, top10Avg, forecast }: Props) {
 
       {hasForecast && (
         <div className="text-xs text-muted-foreground">
-          {forecastDisplay === 'band' ? '色带与空心点' : '空心点'}：{currentYear} 年剩余月份的预计聊天量
+          实线走到当月截至今天的实时数量，再用虚线接到当月的空心点（月末预计）；
+          {forecastDisplay === 'band' ? '色带与空心点' : '空心点'}
+          ：{currentYear} 年剩余月份的预计聊天量
           {forecast?.confidence && <>（置信度 <span className="text-foreground">{CONFIDENCE_LABEL[forecast.confidence] ?? forecast.confidence}</span>）</>}
           ，{TRUSTED_HORIZON} 个月以后只给范围、不给具体数字
         </div>
@@ -295,6 +307,16 @@ export function MonthlyChart({ data, top10Avg, forecast }: Props) {
                 legendType="none"
                 name="预测区间"
                 connectNulls={false}
+              />
+            )}
+            {/* 当月「实时 → 月末预计」的连接线。先画，压在两个点下面 */}
+            {nowSegment && (
+              <ReferenceLine
+                segment={nowSegment}
+                stroke={yearColor(currentYear)}
+                strokeWidth={1.5}
+                strokeDasharray="4 4"
+                ifOverflow="extendDomain"
               />
             )}
             {/* 空心点：只在有回测支撑的距离内画 */}
