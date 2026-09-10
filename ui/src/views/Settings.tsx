@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils"
 import { useAppStore } from "@/stores/app"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { systemApi, sessionApi, mediaApi } from "@/api"
+import type { TZSegmentConfig } from "@/api"
 import { toast } from "sonner"
 import type {
   AIConfigUpdate,
@@ -19,6 +20,9 @@ import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import {
+  Trash2,
+  Plus,
+  CalendarDays,
   TrendingUp,
   Bot,
   Lock,
@@ -1291,78 +1295,194 @@ function MobilePairingSection() {
   )
 }
 
-function DefaultTimezoneSection() {
+/* ============================================================
+ * 时区口径：默认时区 + 时间分段
+ * 这里是**唯一来源** —— 所有按时区分桶的统计（含年度报告）都读它
+ * ============================================================ */
+type SegRow = TZSegmentConfig & { _id: string }
+
+const newSegRow = (): SegRow => ({
+  _id: Math.random().toString(36).slice(2),
+  start_date: "",
+  end_date: "",
+  tz_offset: 480,
+})
+
+/** 找出互相重叠的分段。后端按「最后匹配的段优先」解释，重叠时前一段会被悄悄吃掉。 */
+function overlappingIds(segs: SegRow[]): Set<string> {
+  const bad = new Set<string>()
+  const valid = segs.filter((s) => s.start_date && s.end_date && s.start_date <= s.end_date)
+  for (let i = 0; i < valid.length; i++) {
+    for (let j = i + 1; j < valid.length; j++) {
+      const a = valid[i], b = valid[j]
+      if (a.start_date <= b.end_date && b.start_date <= a.end_date) {
+        bad.add(a._id); bad.add(b._id)
+      }
+    }
+  }
+  return bad
+}
+
+function TimezoneSection() {
   const queryClient = useQueryClient()
-  const [offset, setOffset] = useState<number | null>(null)
+  const [defaultOffset, setDefaultOffset] = useState<number | null>(null)
+  const [segments, setSegments] = useState<SegRow[]>([])
+  const [dirty, setDirty] = useState(false)
 
   const { data, isLoading } = useQuery({
-    queryKey: ["default-timezone"],
-    queryFn: () => systemApi.getDefaultTimezone(),
+    queryKey: ["tz-config"],
+    queryFn: () => systemApi.getTZConfig(),
   })
 
   useEffect(() => {
-    if (data && offset === null) {
-      // 服务端没保存过 → 用浏览器本地时区作为默认显示
-      const guess = data.has_key ? data.offset : -new Date().getTimezoneOffset()
-      setOffset(guess)
-    }
-  }, [data])
+    if (!data || dirty) return
+    // 服务端没保存过 → 用浏览器本地时区兜底显示
+    setDefaultOffset(data.has_key ? data.default_offset : -new Date().getTimezoneOffset())
+    setSegments((data.segments ?? []).map((s) => ({ ...s, _id: Math.random().toString(36).slice(2) })))
+  }, [data, dirty])
 
   const mutation = useMutation({
-    mutationFn: (off: number) => systemApi.updateDefaultTimezone(off),
+    mutationFn: () =>
+      systemApi.updateTZConfig(
+        defaultOffset ?? 0,
+        segments
+          .filter((s) => s.start_date && s.end_date)
+          .map(({ _id, ...rest }) => rest)
+      ),
     onSuccess: () => {
-      toast.success("已保存，联系人侧分析数据会按新时区计算")
-      queryClient.invalidateQueries({ queryKey: ["default-timezone"] })
-      // 让所有联系人侧分析查询重新拉取
+      setDirty(false)
+      toast.success("已保存，所有统计和年度报告都会按新口径重算")
+      queryClient.invalidateQueries({ queryKey: ["tz-config"] })
+      // 所有按时区分桶的查询都得重新拉
       queryClient.invalidateQueries({ queryKey: ["analysis"] })
+      queryClient.invalidateQueries({ queryKey: ["insights"] })
+      queryClient.invalidateQueries({ queryKey: ["daily-report"] })
+      queryClient.invalidateQueries({ queryKey: ["report-baseline"] })
     },
     onError: (e: Error) => toast.error("保存失败: " + e.message),
   })
+
+  const patch = (id: string, p: Partial<SegRow>) => {
+    setDirty(true)
+    setSegments((prev) => prev.map((s) => (s._id === id ? { ...s, ...p } : s)))
+  }
+  const addSeg = () => { setDirty(true); setSegments((p) => [...p, newSegRow()]) }
+  const removeSeg = (id: string) => { setDirty(true); setSegments((p) => p.filter((s) => s._id !== id)) }
+
+  const overlaps = overlappingIds(segments)
+  const incomplete = segments.some((s) => !s.start_date || !s.end_date)
+  const reversed = segments.some((s) => s.start_date && s.end_date && s.end_date < s.start_date)
+  const blocked = overlaps.size > 0 || reversed
+
+  if (isLoading || defaultOffset === null) {
+    return (
+      <Card>
+        <CardContent className="p-6 flex items-center justify-center">
+          <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+        </CardContent>
+      </Card>
+    )
+  }
 
   return (
     <Card>
       <CardHeader>
         <CardTitle className="text-base flex items-center gap-2">
-          <CalendarRange className="w-4 h-4 text-primary" />
-          默认时区
+          <CalendarDays className="w-4 h-4 text-primary" />
+          时区
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-3">
+      <CardContent className="space-y-4">
         <p className="text-xs text-muted-foreground">
-          联系人统计中的「24 小时活跃分布 / 星期分布 / 月度趋势 / 每日趋势」按此时区聚合数据。
-          年度报告有自己独立的时区分段配置，不受此项影响。
+          所有按时间分桶的统计都用这里的口径：24 小时活跃分布、星期分布、月度趋势、
+          每日趋势、日历热力图、今日报告、月度导出、聊天频率预测，
+          <span className="text-foreground">以及年度报告</span>。
+          出国那几段把时区设成当地的，作息统计才对得上。
         </p>
-        <div className="flex items-center gap-2">
-          <label className="text-sm w-20 shrink-0">时区</label>
+
+        <div className="flex items-center gap-3">
+          <span className="text-sm w-20 shrink-0">默认时区</span>
           <select
-            value={offset ?? -new Date().getTimezoneOffset()}
-            onChange={(e) => setOffset(Number(e.target.value))}
+            value={defaultOffset}
+            onChange={(e) => { setDirty(true); setDefaultOffset(Number(e.target.value)) }}
             className="h-9 rounded-md border border-input bg-background px-2 text-sm"
-            disabled={isLoading}
           >
             {TZ_OPTIONS_SETTINGS.map((tz) => (
               <option key={tz.offset} value={tz.offset}>{tz.label}</option>
             ))}
           </select>
+          <span className="text-xs text-muted-foreground">没有被分段覆盖的日期用它</span>
+        </div>
+
+        {segments.length > 0 && (
+          <div className="space-y-2">
+            <div className="grid grid-cols-[1fr_1fr_170px_32px] gap-2 px-1 text-xs text-muted-foreground">
+              <span>开始日期</span><span>结束日期</span><span>该时段时区</span><span />
+            </div>
+            {segments.map((seg) => {
+              const bad = overlaps.has(seg._id) || (seg.start_date && seg.end_date && seg.end_date < seg.start_date)
+              return (
+                <div key={seg._id} className="grid grid-cols-[1fr_1fr_170px_32px] items-center gap-2">
+                  <Input
+                    type="date" value={seg.start_date}
+                    onChange={(e) => patch(seg._id, { start_date: e.target.value })}
+                    className={cn("h-9 text-sm", bad && "border-destructive")}
+                  />
+                  <Input
+                    type="date" value={seg.end_date}
+                    onChange={(e) => patch(seg._id, { end_date: e.target.value })}
+                    className={cn("h-9 text-sm", bad && "border-destructive")}
+                  />
+                  <select
+                    value={seg.tz_offset}
+                    onChange={(e) => patch(seg._id, { tz_offset: Number(e.target.value) })}
+                    className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+                  >
+                    {TZ_OPTIONS_SETTINGS.map((tz) => (
+                      <option key={tz.offset} value={tz.offset}>{tz.label}</option>
+                    ))}
+                  </select>
+                  <Button
+                    variant="ghost" size="icon"
+                    className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                    onClick={() => removeSeg(seg._id)}
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {/* 重叠会被静默吃掉一段，必须挡住 —— 这个坑刚踩过 */}
+        {overlaps.size > 0 && (
+          <p className="text-xs text-destructive">
+            有分段互相重叠（已标红）。重叠时靠后的那段会覆盖前一段，前面那段等于没写 —— 请把日期错开。
+          </p>
+        )}
+        {reversed && (
+          <p className="text-xs text-destructive">有分段的结束日期早于开始日期（已标红）。</p>
+        )}
+        {incomplete && !blocked && (
+          <p className="text-xs text-muted-foreground">日期没填全的分段在保存时会被忽略。</p>
+        )}
+
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" className="gap-1" onClick={addSeg}>
+            <Plus className="w-3.5 h-3.5" />
+            添加时区段
+          </Button>
           <Button
             size="sm"
-            onClick={() => offset !== null && mutation.mutate(offset)}
-            disabled={mutation.isPending || offset === null}
+            onClick={() => mutation.mutate()}
+            disabled={mutation.isPending || blocked || !dirty}
           >
             {mutation.isPending && <Loader2 className="w-4 h-4 animate-spin mr-1" />}
             保存
           </Button>
+          {!data?.has_key && <span className="text-xs text-muted-foreground">未配置，目前使用服务器本地时区</span>}
         </div>
-        {data?.has_key && (
-          <p className="text-xs text-muted-foreground">
-            当前生效：<span className="font-bold text-foreground">UTC{data.offset >= 0 ? "+" : ""}{Math.floor(data.offset / 60)}{data.offset % 60 ? `:${Math.abs(data.offset % 60).toString().padStart(2, "0")}` : ""}</span>
-          </p>
-        )}
-        {!data?.has_key && (
-          <p className="text-xs text-muted-foreground">
-            未配置，目前使用服务器本地时区
-          </p>
-        )}
       </CardContent>
     </Card>
   )
@@ -1588,7 +1708,7 @@ export default function SettingsView() {
 
         <DataDirSection />
         <MobilePairingSection />
-        <DefaultTimezoneSection />
+        <TimezoneSection />
         <StatsScopeSection />
         <EffectiveChatStartSection />
         <ForecastDisplaySection />

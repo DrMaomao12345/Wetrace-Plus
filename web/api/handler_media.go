@@ -17,6 +17,7 @@ import (
 	"github.com/DrMaomao12345/Wetrace-Plus/internal/model"
 	"github.com/DrMaomao12345/Wetrace-Plus/store/repo"
 	"github.com/DrMaomao12345/Wetrace-Plus/store/types"
+	"github.com/DrMaomao12345/Wetrace-Plus/web/media"
 	"github.com/DrMaomao12345/Wetrace-Plus/web/transport"
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog/log"
@@ -54,8 +55,15 @@ func (a *API) GetMedia(c *gin.Context) {
 		mediaInfo.Path = path
 	}
 
-	// 2. 使用媒体服务准备内容
-	preparedMedia := a.Media.Prepare(mediaInfo, isThumb)
+	// 2. 使用媒体服务准备内容。
+	//    语音支持 ?format=wav 取无损版本：播放用 MP3 就够，但音色克隆和
+	//    离线分析要完整频谱 —— MP3 那条会把 4.4 kHz 以上削掉。
+	var preparedMedia media.PreparedMedia
+	if mediaType == "voice" && strings.EqualFold(c.Query("format"), "wav") {
+		preparedMedia = a.Media.PrepareVoiceLossless(mediaInfo.Data)
+	} else {
+		preparedMedia = a.Media.Prepare(mediaInfo, isThumb)
+	}
 
 	// 3. 发送响应
 	transport.SendMedia(c, preparedMedia)
@@ -363,15 +371,16 @@ func (a *API) TranscribeVoice(c *gin.Context) {
 		return
 	}
 
-	// 准备语音内容
-	prepared := a.Media.Prepare(mediaInfo, false)
+	// 准备语音内容。转写走**无损 WAV** —— MP3 那条会把 4.4 kHz 以上削掉，
+	// 齿音（s/sh/f/x/z）全在那一段，直接拉低识别准确率。
+	prepared := a.Media.PrepareVoiceLossless(mediaInfo.Data)
 	if prepared.Error != nil || len(prepared.Content) == 0 {
 		transport.InternalServerError(c, "无法读取语音文件")
 		return
 	}
 
 	// 识别
-	text, err := a.TTS.Transcribe(prepared.Content, "voice.mp3")
+	text, err := a.TTS.Transcribe(prepared.Content, "voice.wav")
 	if err != nil {
 		log.Error().Err(err).Str("id", req.ID).Msg("语音转文字失败")
 		transport.InternalServerError(c, "语音转文字失败: "+err.Error())
@@ -567,11 +576,12 @@ func (a *API) transcribeOne(ctx context.Context, voiceID string) (string, error)
 	if err != nil {
 		return "", errVoiceMissing
 	}
-	prepared := a.Media.Prepare(mediaInfo, false)
+	// 同上：转写用无损 WAV，别喂被削过高频的 MP3
+	prepared := a.Media.PrepareVoiceLossless(mediaInfo.Data)
 	if prepared.Error != nil || len(prepared.Content) == 0 {
 		return "", errVoiceMissing
 	}
-	text, err := a.TTS.Transcribe(prepared.Content, "voice.mp3")
+	text, err := a.TTS.Transcribe(prepared.Content, "voice.wav")
 	if err != nil {
 		log.Error().Err(err).Str("id", voiceID).Msg("批量语音转文字失败")
 		return "", err

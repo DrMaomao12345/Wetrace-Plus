@@ -75,7 +75,7 @@ func (c *ReportCache) Invalidate() {
 
 // AnnualReportKey 「全局年度报告」缓存键。
 func AnnualReportKey(year, defaultTzOffset, pastStartYear int,
-	exclude []string, segs []TZSegmentRequest) string {
+	exclude []string, segs []model.TZSegmentConfig) string {
 	sorted := append([]string(nil), exclude...)
 	sort.Strings(sorted)
 	var sb strings.Builder

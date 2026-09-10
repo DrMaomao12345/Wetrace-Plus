@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/DrMaomao12345/Wetrace-Plus/internal/model"
 	"github.com/DrMaomao12345/Wetrace-Plus/store/types"
 	"github.com/DrMaomao12345/Wetrace-Plus/web/transport"
 	"github.com/gin-gonic/gin"
@@ -27,6 +28,34 @@ type AnnualReportRequest struct {
 	DefaultTZ      *int               `json:"default_tz_offset"`
 	ExcludeTalkers []string           `json:"exclude_talkers"`
 	Talker         string             `json:"talker"` // 非空时返回该联系人的年度报告
+}
+
+// resolveTZ 取当前生效的时区口径。
+//
+// **服务端配置是唯一来源**：设置页的「时区」既管联系人统计也管年度报告，
+// 请求体里的 default_tz_offset / tz_segments 一律忽略。以前两边各存一份，
+// 同一批消息在两个页面会被切进不同的自然日。字段保留只为兼容老客户端。
+func resolveTZ() (defaultOffsetSec int, segs []model.TZSegmentConfig) {
+	cfg := CurrentTZConfig()
+	return cfg.DefaultOffset * 60, cfg.Segments
+}
+
+// storeSegsOf 把配置里的分段转成 store 层类型（分钟 → 秒，日期 → 闭区间时刻）。
+func storeSegsOf(segs []model.TZSegmentConfig) []types.TZSegment {
+	var out []types.TZSegment
+	for _, s := range segs {
+		start, err1 := time.Parse("2006-01-02", s.StartDate)
+		end, err2 := time.Parse("2006-01-02", s.EndDate)
+		if err1 != nil || err2 != nil {
+			continue
+		}
+		out = append(out, types.TZSegment{
+			Start:    start.UTC(),
+			End:      end.Add(24*time.Hour - time.Nanosecond).UTC(),
+			TZOffset: s.TZOffset * 60,
+		})
+	}
+	return out
 }
 
 // GetAnnualReport 获取年度报告（支持 GET 和 POST，POST 时可传多时区段）
@@ -58,11 +87,8 @@ func (a *API) GetAnnualReport(c *gin.Context) {
 		req.Year = time.Now().Year()
 	}
 
-	// 默认时区偏移（秒）
-	defaultTzOffset := 0
-	if req.DefaultTZ != nil {
-		defaultTzOffset = *req.DefaultTZ * 60
-	}
+	// 时区一律取服务端配置，忽略请求体里的（见 resolveTZ）
+	defaultTzOffset, cfgSegs := resolveTZ()
 
 	// 指定了 talker：返回该联系人的年度报告（在内存里聚合该 talker 的消息）
 	if req.Talker != "" {
@@ -83,27 +109,14 @@ func (a *API) GetAnnualReport(c *gin.Context) {
 		return
 	}
 
-	// 将前端 segments 转换为 store 层的类型（偏移分钟 → 秒）
-	var storeSegs []types.TZSegment
-	for _, s := range req.TZSegments {
-		start, err1 := time.Parse("2006-01-02", s.StartDate)
-		end, err2 := time.Parse("2006-01-02", s.EndDate)
-		if err1 != nil || err2 != nil {
-			continue
-		}
-		storeSegs = append(storeSegs, types.TZSegment{
-			Start:    start.UTC(),
-			End:      end.Add(24*time.Hour - time.Nanosecond).UTC(),
-			TZOffset: s.TZOffset * 60,
-		})
-	}
+	storeSegs := storeSegsOf(cfgSegs)
 
 	pastStartYear := effectiveChatStartYear()
 	excludeMerged := a.mergedExcludeTalkers(req.ExcludeTalkers)
 
 	// 数据指纹 + 参数键 命中缓存就直接返回，省下整份重算
 	version := a.reportDataVersion()
-	cacheKey := AnnualReportKey(req.Year, defaultTzOffset, pastStartYear, excludeMerged, req.TZSegments)
+	cacheKey := AnnualReportKey(req.Year, defaultTzOffset, pastStartYear, excludeMerged, cfgSegs)
 	if cached := a.ReportCache.Get(version, cacheKey); cached != nil {
 		transport.SendSuccess(c, cached)
 		return
@@ -194,24 +207,9 @@ func (a *API) StreamAnnualReport(c *gin.Context) {
 		req.Year = time.Now().Year()
 	}
 
-	defaultTzOffset := 0
-	if req.DefaultTZ != nil {
-		defaultTzOffset = *req.DefaultTZ * 60
-	}
-
-	var storeSegs []types.TZSegment
-	for _, s := range req.TZSegments {
-		start, err1 := time.Parse("2006-01-02", s.StartDate)
-		end, err2 := time.Parse("2006-01-02", s.EndDate)
-		if err1 != nil || err2 != nil {
-			continue
-		}
-		storeSegs = append(storeSegs, types.TZSegment{
-			Start:    start.UTC(),
-			End:      end.Add(24*time.Hour - time.Nanosecond).UTC(),
-			TZOffset: s.TZOffset * 60,
-		})
-	}
+	// 时区一律取服务端配置（见 resolveTZ）
+	defaultTzOffset, cfgSegs := resolveTZ()
+	storeSegs := storeSegsOf(cfgSegs)
 	pastStartYear := effectiveChatStartYear()
 
 	// NDJSON 流式响应头
@@ -285,24 +283,9 @@ func (a *API) GetAnnualWordCounts(c *gin.Context) {
 		req.Year = time.Now().Year()
 	}
 
-	defaultTzOffset := 0
-	if req.DefaultTZ != nil {
-		defaultTzOffset = *req.DefaultTZ * 60
-	}
-
-	var storeSegs []types.TZSegment
-	for _, s := range req.TZSegments {
-		start, err1 := time.Parse("2006-01-02", s.StartDate)
-		end, err2 := time.Parse("2006-01-02", s.EndDate)
-		if err1 != nil || err2 != nil {
-			continue
-		}
-		storeSegs = append(storeSegs, types.TZSegment{
-			Start:    start.UTC(),
-			End:      end.Add(24*time.Hour - time.Nanosecond).UTC(),
-			TZOffset: s.TZOffset * 60,
-		})
-	}
+	// 时区一律取服务端配置（见 resolveTZ）
+	defaultTzOffset, cfgSegs := resolveTZ()
+	storeSegs := storeSegsOf(cfgSegs)
 
 	stat, err := a.Store.GetAnnualWordCounts(c.Request.Context(), req.Year, defaultTzOffset, storeSegs, a.mergedExcludeTalkers(req.ExcludeTalkers))
 	if err != nil {
