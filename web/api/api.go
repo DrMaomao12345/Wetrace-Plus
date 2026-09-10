@@ -9,19 +9,18 @@ import (
 	"sync"
 	"time"
 
-	"github.com/afumu/wetrace/decrypt"
-	"github.com/afumu/wetrace/internal/ai"
-	"github.com/afumu/wetrace/internal/backup"
-	"github.com/afumu/wetrace/internal/monitor"
-	intsync "github.com/afumu/wetrace/internal/sync"
-	"github.com/afumu/wetrace/internal/telegram"
-	"github.com/afumu/wetrace/internal/transcripts"
-	"github.com/afumu/wetrace/internal/tts"
-	"github.com/afumu/wetrace/pkg/wordcloud"
-	"github.com/afumu/wetrace/store"
-	"github.com/afumu/wetrace/store/types"
-	"github.com/afumu/wetrace/web/export"
-	"github.com/afumu/wetrace/web/media"
+	"github.com/DrMaomao12345/Wetrace-Plus/internal/ai"
+	"github.com/DrMaomao12345/Wetrace-Plus/internal/backup"
+	"github.com/DrMaomao12345/Wetrace-Plus/internal/importer"
+	"github.com/DrMaomao12345/Wetrace-Plus/internal/monitor"
+	"github.com/DrMaomao12345/Wetrace-Plus/internal/telegram"
+	"github.com/DrMaomao12345/Wetrace-Plus/internal/transcripts"
+	"github.com/DrMaomao12345/Wetrace-Plus/internal/tts"
+	"github.com/DrMaomao12345/Wetrace-Plus/pkg/wordcloud"
+	"github.com/DrMaomao12345/Wetrace-Plus/store"
+	"github.com/DrMaomao12345/Wetrace-Plus/store/types"
+	"github.com/DrMaomao12345/Wetrace-Plus/web/export"
+	"github.com/DrMaomao12345/Wetrace-Plus/web/media"
 	"github.com/spf13/viper"
 )
 
@@ -50,7 +49,6 @@ type API struct {
 	Conf              *Config
 	AI                *ai.Client
 	Password          *PasswordManager
-	SyncScheduler     *intsync.Scheduler
 	BackupScheduler   *backup.Scheduler
 	Monitor           *monitor.Store
 	MonitorChecker    *monitor.Checker
@@ -62,9 +60,9 @@ type API struct {
 	MobilePairings    *MobilePairingStore
 	ExcludeConfig     *ExcludeConfigStore
 	StatsScope        *StatsScopeStore
-	Accounts          *AccountStore
 	ReportCache       *ReportCache
 	ImageList         *imageListCache // 图库清单缓存（枚举一次约 1.7s，翻页复用）
+	Importer          *importer.Service
 	mu                sync.Mutex
 	summarizeCancel   context.CancelFunc
 	currentSummaryJob *SummaryHistoryItem
@@ -73,13 +71,6 @@ type API struct {
 
 type Config struct {
 	DataDir          string
-	WechatDbSrcPath  string
-	WechatDbKey      string
-	WxKeyDllPath     string
-	WechatPath       string
-	WechatDataPath   string
-	ImageKey         string
-	XorKey           string
 	AIEnabled        bool
 	AIProvider       string
 	AIAPIKey         string
@@ -108,6 +99,7 @@ func NewAPI(s store.Store, m *media.Service, conf *Config, staticFS fs.FS) *API 
 		Conf:     conf,
 		AI:       aiClient,
 		Password: NewPasswordManager(),
+		Importer: importer.New(conf.DataDir),
 	}
 
 	// Initialize AI prompts JSON file path
@@ -124,18 +116,6 @@ func NewAPI(s store.Store, m *media.Service, conf *Config, staticFS fs.FS) *API 
 	a.StatsScope = NewStatsScopeStore(conf.DataDir)
 	if s != nil {
 		s.SetStatsScope(a.StatsScope.Get())
-	}
-
-	// 初始化多账号管理 store
-	a.Accounts = NewAccountStore(conf.DataDir)
-	// 如果 WECHAT_DB_SRC_PATH 已配置但尚未在账号列表中，自动注册
-	if conf.WechatDbSrcPath != "" {
-		accs, _ := a.Accounts.List()
-		if len(accs) == 0 {
-			if acc, err := a.Accounts.Add(conf.WechatDbSrcPath, ""); err == nil {
-				_ = a.Accounts.SetActive(acc.ID)
-			}
-		}
 	}
 
 	// 年度报告缓存（按数据指纹 + 参数键缓存）
@@ -168,28 +148,6 @@ func NewAPI(s store.Store, m *media.Service, conf *Config, staticFS fs.FS) *API 
 	// 记住哪些语音本地根本没有文件（微信没下载过），下次批量转写直接跳过
 	if ms, err := transcripts.NewNamedStore(conf.DataDir, "voice_missing.json"); err == nil {
 		a.VoiceMissing = ms
-	}
-
-	// Initialize sync scheduler
-	syncFunc := func() error {
-		_, _, err := decrypt.RunTask(conf.WechatDbSrcPath, conf.WechatDbKey)
-		// 同步进来的新语音顺手转成文字（开关在设置里，默认关）。
-		// 放在 defer 里是为了无论解密结果如何都先把已有数据处理掉。
-		defer a.maybeAutoTranscribe()
-		if err != nil {
-			return err
-		}
-		return s.Reload()
-	}
-	a.SyncScheduler = intsync.NewScheduler(syncFunc, filepath.Join(conf.DataDir, "sync_history.json"))
-
-	// Restore sync config from viper
-	if viper.GetBool("SYNC_ENABLED") {
-		interval := viper.GetInt("SYNC_INTERVAL_MINUTES")
-		if interval < 5 {
-			interval = 30
-		}
-		a.SyncScheduler.Configure(true, interval)
 	}
 
 	// Initialize backup scheduler

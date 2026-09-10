@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/afumu/wetrace/internal/model"
-	"github.com/afumu/wetrace/store/strategy"
+	"github.com/DrMaomao12345/Wetrace-Plus/internal/model"
+	"github.com/DrMaomao12345/Wetrace-Plus/store/strategy"
 )
 
 func (r *Repository) GetMedia(ctx context.Context, mediaType string, key string) (*model.Media, error) {

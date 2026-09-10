@@ -7,9 +7,9 @@ export function MainLayout() {
   const isMobile = useAppStore((state) => state.isMobile)
 
   return (
-    <div className="flex h-screen w-full bg-background overflow-hidden text-foreground">
+    <div className={`flex h-screen h-dvh w-full overflow-hidden bg-background text-foreground ${isMobile ? "flex-col" : "flex-row"}`}>
       {!isMobile && <Sidebar />}
-      <main className="flex-1 h-full overflow-hidden flex flex-col relative">
+      <main className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overscroll-contain">
         <Outlet />
       </main>
       {isMobile && <MobileNav />}

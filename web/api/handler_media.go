@@ -14,13 +14,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/afumu/wetrace/internal/model"
-	"github.com/afumu/wetrace/store/repo"
-	"github.com/afumu/wetrace/store/types"
-	"github.com/afumu/wetrace/web/transport"
+	"github.com/DrMaomao12345/Wetrace-Plus/internal/model"
+	"github.com/DrMaomao12345/Wetrace-Plus/store/repo"
+	"github.com/DrMaomao12345/Wetrace-Plus/store/types"
+	"github.com/DrMaomao12345/Wetrace-Plus/web/transport"
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog/log"
-	"github.com/spf13/viper"
 )
 
 // GetMedia 处理媒体文件（如图片、视频、语音等）的请求。
@@ -79,42 +78,6 @@ func (a *API) GetEmoji(c *gin.Context) {
 	transport.SendMedia(c, preparedMedia)
 }
 
-// HandleStartCache 启动图片缓存预加载任务
-// HandleStopCache 中断正在进行的图片预加载
-func (a *API) HandleStopCache(c *gin.Context) {
-	if err := a.Media.StopCacheTask(); err != nil {
-		transport.BadRequest(c, err.Error())
-		return
-	}
-	transport.SendSuccess(c, gin.H{"status": "stopping"})
-}
-
-func (a *API) HandleStartCache(c *gin.Context) {
-	var req struct {
-		Scope  string `json:"scope"`  // "all" 或 "session"
-		Talker string `json:"talker"` // 仅当 scope 为 session 时需要
-	}
-
-	if err := c.ShouldBindJSON(&req); err != nil {
-		transport.BadRequest(c, "无效的请求参数")
-		return
-	}
-
-	err := a.Media.StartCacheTask(req.Scope, req.Talker)
-	if err != nil {
-		transport.InternalServerError(c, err.Error())
-		return
-	}
-
-	transport.SendSuccess(c, "任务已启动")
-}
-
-// GetCacheStatus 获取当前缓存任务的进度
-func (a *API) GetCacheStatus(c *gin.Context) {
-	status := a.Media.GetCacheStatus()
-	transport.SendSuccess(c, status)
-}
-
 // imageListQuery 图片列表请求参数
 type imageListQuery struct {
 	Talker    string `form:"talker"`
@@ -132,8 +95,6 @@ type imageListItem struct {
 	ThumbnailURL string `json:"thumbnailUrl"`
 	FullURL      string `json:"fullUrl"`
 	Seq          int64  `json:"seq"`
-	// Encrypted 为真表示这张图是加密存储的，当前解不出来（macOS 上 2025-05 之后的图片）
-	Encrypted bool `json:"encrypted"`
 }
 
 // resolveTalkerFilter 把用户输入解析成「精确会话 ID」或「模糊名字过滤」。
@@ -828,23 +789,4 @@ func sanitizeFileName(name string) string {
 		runes = runes[:50]
 	}
 	return string(runes)
-}
-
-// maybeAutoTranscribe 在开启「自动转文字」且已配置识别服务时，
-// 后台把尚未转写的语音补齐。已在跑的任务不会被重复触发。
-func (a *API) maybeAutoTranscribe() {
-	if !viper.GetBool("TTS_AUTO") {
-		return
-	}
-	a.mu.Lock()
-	if a.TTS == nil || (a.batchJob != nil && a.batchJob.Running) {
-		a.mu.Unlock()
-		return
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	a.batchJob = &BatchTranscribeJob{Running: true, cancel: cancel}
-	a.mu.Unlock()
-
-	log.Info().Msg("自动语音转文字：开始扫描未转写的语音")
-	a.runBatchTranscribe(ctx, "")
 }

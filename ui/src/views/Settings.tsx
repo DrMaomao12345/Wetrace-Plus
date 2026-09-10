@@ -7,7 +7,6 @@ import { systemApi, sessionApi, mediaApi } from "@/api"
 import { toast } from "sonner"
 import type {
   AIConfigUpdate,
-  SyncConfigUpdate,
   BackupConfigUpdate,
   TTSConfigUpdate,
   WhisperScanResult,
@@ -22,7 +21,6 @@ import { Switch } from "@/components/ui/switch"
 import {
   TrendingUp,
   Bot,
-  RefreshCw,
   Lock,
   HardDrive,
   Loader2,
@@ -36,6 +34,7 @@ import {
   FolderOpen,
   CalendarRange,
   Smartphone,
+  ExternalLink,
 } from "lucide-react"
 
 /* ============================================================
@@ -408,120 +407,6 @@ function AIPromptsDialog({ onClose }: { onClose: () => void }) {
       </div>
       <div className="absolute inset-0 -z-10" onClick={onClose} />
     </div>
-  )
-}
-
-/* ============================================================
- * Sync Config Section
- * ============================================================ */
-function SyncConfigSection() {
-  const queryClient = useQueryClient()
-  const [enabled, setEnabled] = useState(false)
-  const [interval, setInterval] = useState(30)
-
-  const { data: config, isLoading } = useQuery({
-    queryKey: ["sync-config"],
-    queryFn: () => systemApi.getSyncConfig(),
-    refetchInterval: (query) => query.state.data?.is_syncing ? 2000 : false,
-  })
-
-  useEffect(() => {
-    if (config) {
-      setEnabled(config.enabled)
-      setInterval(config.interval_minutes)
-    }
-  }, [config])
-
-  const updateMutation = useMutation({
-    mutationFn: (data: SyncConfigUpdate) => systemApi.updateSyncConfig(data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["sync-config"] })
-      toast.success("同步配置已保存")
-    },
-    onError: (err: Error) => toast.error("保存失败: " + err.message),
-  })
-
-  const syncMutation = useMutation({
-    mutationFn: () => systemApi.triggerSync(),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["sync-config"] })
-      toast.success("同步已触发")
-    },
-    onError: (err: Error) => toast.error("同步失败: " + err.message),
-  })
-
-  if (isLoading) {
-    return (
-      <Card>
-        <CardContent className="p-6 flex items-center justify-center">
-          <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
-        </CardContent>
-      </Card>
-    )
-  }
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base flex items-center gap-2">
-          <RefreshCw className="w-4 h-4 text-primary" />
-          自动同步
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="rounded-md bg-muted/50 p-3 text-xs text-muted-foreground">
-          💡 获取密钥后，点击"立即同步"按钮将微信数据解密并导入到本地数据库
-        </div>
-        <div className="flex items-center justify-between">
-          <label className="text-sm font-medium leading-none">启用自动同步</label>
-          <Switch checked={enabled} onCheckedChange={setEnabled} />
-        </div>
-
-        {enabled && (
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium leading-none">同步间隔（分钟）</label>
-            <Input
-              type="number"
-              min={5}
-              max={1440}
-              value={interval}
-              onChange={(e) => setInterval(Number(e.target.value))}
-              className="h-9 w-32"
-            />
-            <p className="text-xs text-muted-foreground">最小 5 分钟，最大 1440 分钟（24小时）</p>
-          </div>
-        )}
-
-        {config?.last_sync_time && (
-          <div className="text-xs text-muted-foreground">
-            上次同步: {new Date(config.last_sync_time).toLocaleString()}
-            {config.last_sync_status && ` (${config.last_sync_status})`}
-          </div>
-        )}
-
-        <div className="flex items-center gap-2 pt-2">
-          <Button
-            size="sm"
-            onClick={() => updateMutation.mutate({ enabled, interval_minutes: interval })}
-            disabled={updateMutation.isPending}
-          >
-            {updateMutation.isPending && <Loader2 className="w-4 h-4 animate-spin mr-1" />}
-            保存配置
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => syncMutation.mutate()}
-            disabled={syncMutation.isPending || config?.is_syncing}
-          >
-            {(syncMutation.isPending || config?.is_syncing) && (
-              <Loader2 className="w-4 h-4 animate-spin mr-1" />
-            )}
-            立即同步
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
   )
 }
 
@@ -934,7 +819,6 @@ function TTSConfigSection() {
     local_mode: false,
     local_binary: "",
     local_model: "",
-    auto: false,
   })
 
   const { data: config, isLoading } = useQuery({
@@ -953,7 +837,6 @@ function TTSConfigSection() {
         local_mode: (config as any).local_mode || false,
         local_binary: (config as any).local_binary || "",
         local_model: (config as any).local_model || "",
-        auto: (config as any).auto || false,
       })
     }
   }, [config])
@@ -1019,20 +902,6 @@ function TTSConfigSection() {
 
         {form.enabled && (
           <>
-            {/* 自动转写 */}
-            <div className="flex items-center justify-between">
-              <div>
-                <label className="text-sm font-medium leading-none">自动转文字</label>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  每次数据同步后自动把新语音转成文字；转出来的字数会计入年度报告
-                </p>
-              </div>
-              <Switch
-                checked={form.auto || false}
-                onCheckedChange={(v) => setForm((f) => ({ ...f, auto: v }))}
-              />
-            </div>
-
             {/* 一次性把历史语音全部转写 */}
             <BatchTranscribePanel />
 
@@ -1593,7 +1462,7 @@ function DataDirSection() {
       </CardHeader>
       <CardContent className="space-y-3">
         <p className="text-xs text-muted-foreground">
-          应用数据库、缓存、导出文件均保存在此目录。
+          上传文件只在系统临时目录中解析并随后删除；导入生成的聊天、联系人和分析数据库保存在这里。
         </p>
         <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2">
           {isLoading ? (
@@ -1725,9 +1594,22 @@ export default function SettingsView() {
         <ForecastDisplaySection />
         <AIConfigSection />
         <TTSConfigSection />
-        <SyncConfigSection />
         <PasswordSection />
         <BackupConfigSection />
+
+        <div className="border-t pt-4 text-center text-xs text-muted-foreground">
+          需要从微信提取、解密或同步聊天数据？前往{" "}
+          <a
+            href="https://github.com/DrMaomao12345/Wetrace-Pro"
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 font-medium text-primary underline-offset-4 hover:underline"
+          >
+            Wetrace-Pro
+            <ExternalLink className="h-3 w-3" />
+          </a>
+          ，Plus 仅负责导入与分析。
+        </div>
       </div>
     </ScrollArea>
   )

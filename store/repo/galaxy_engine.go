@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/afumu/wetrace/internal/model"
+	"github.com/DrMaomao12345/Wetrace-Plus/internal/model"
 )
 
 // DefaultLifeStages 依据出生年月生成默认教育阶段(§3.2),按常见入学年龄。

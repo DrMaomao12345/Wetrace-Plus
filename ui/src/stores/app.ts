@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { UserSettings, AppConfig } from '@/types'
+import { APP_VERSION } from '@/version'
 
 interface AppState {
   config: AppConfig
@@ -19,7 +20,7 @@ interface AppState {
 
 const defaultConfig: AppConfig = {
   title: 'Chatlog Session',
-  version: '1.0.0',
+  version: APP_VERSION.slice(1),
   apiBaseUrl: 'http://127.0.0.1:5030',
   apiTimeout: 30000,
   pageSize: 500,
@@ -52,7 +53,7 @@ export const useAppStore = create<AppState>()(
       settings: defaultSettings,
       isMobile: false,
       sidebarCollapsed: false,
-      activeNav: 'chat',
+      activeNav: 'import',
 
       setMobile: (isMobile) => set({ isMobile }),
       

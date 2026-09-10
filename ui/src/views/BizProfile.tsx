@@ -114,8 +114,7 @@ export default function BizProfileView() {
         <Newspaper className="mx-auto mb-3 h-10 w-10 text-muted-foreground/40" />
         <h2 className="text-lg font-semibold">没有找到公众号数据</h2>
         <p className="mt-2 text-sm text-muted-foreground">
-          公众号推送存放在 <code className="rounded bg-muted px-1">biz_message_*.db</code>，
-          需要解密后才能统计。如果你用的是旧版微信，可能没有这些库。
+          当前导入文件没有包含可识别的公众号推送记录。不同导出工具对公众号数据的支持程度可能不同。
         </p>
       </div>
     )

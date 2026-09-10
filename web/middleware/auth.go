@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/afumu/wetrace/web/api"
+	"github.com/DrMaomao12345/Wetrace-Plus/web/api"
 	"github.com/gin-gonic/gin"
 )
 

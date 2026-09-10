@@ -33,7 +33,7 @@ export const AgreementModal: React.FC<AgreementModalProps> = ({ onAccept }) => {
               <h4>1. 隐私安全警示</h4>
             </div>
             <p className="text-muted-foreground pl-6">
-              本工具涉及的数据库文件、密钥信息及解析出的聊天记录均属于<span className="text-foreground font-bold underline decoration-primary/30 underline-offset-4">极度敏感的个人隐私数据</span>。请务必妥善保管相关文件。
+              本工具导入并分析的聊天记录属于<span className="text-foreground font-bold underline decoration-primary/30 underline-offset-4">极度敏感的个人隐私数据</span>。请务必妥善保管导出文件与分析结果。
             </p>
           </section>
 
@@ -47,7 +47,7 @@ export const AgreementModal: React.FC<AgreementModalProps> = ({ onAccept }) => {
                 <span className="text-foreground font-bold italic">您承诺：</span> 仅将本工具用于个人数据备份、学习研究或合法取证用途。
               </p>
               <p className="bg-destructive/5 border-l-2 border-destructive p-3 rounded-r-lg">
-                <span className="text-destructive font-bold">严禁</span>将获取到的任何敏感文件、密钥或聊天记录向外传播、上传至任何第三方平台或用于任何非法用途。由此产生的任何隐私泄露或法律后果，均由用户本人承担。
+                <span className="text-destructive font-bold">严禁</span>将导入文件、聊天记录或分析结果向外传播、上传至任何未经授权的第三方平台或用于任何非法用途。由此产生的任何隐私泄露或法律后果，均由用户本人承担。
               </p>
             </div>
           </section>
@@ -58,7 +58,7 @@ export const AgreementModal: React.FC<AgreementModalProps> = ({ onAccept }) => {
               <h4>3. 数据本地化保障</h4>
             </div>
             <p className="text-muted-foreground pl-6 italic">
-              <span className="text-foreground font-bold not-italic">本工具的所有数据处理（包括解密、分析、存储等）均完全在您的本地计算机上完成。</span> 软件不会向任何外部服务器、云端或第三方机构上传或共享您的任何数据，请放心使用。
+              <span className="text-foreground font-bold not-italic">聊天文件的导入、分析与存储均在您的本地计算机上完成。</span> 仅当您主动启用并配置在线 AI 或语音服务时，相关内容才会发送至您指定的服务商。
             </p>
           </section>
 

@@ -1,10 +1,8 @@
 package media
 
 import (
-	"context"
 	"crypto/aes"
 	"crypto/cipher"
-	"crypto/md5"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -14,12 +12,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync"
-	"sync/atomic"
 
-	"github.com/afumu/wetrace/internal/model"
-	"github.com/afumu/wetrace/pkg/util/dat2img"
-	"github.com/afumu/wetrace/pkg/util/silk"
+	"github.com/DrMaomao12345/Wetrace-Plus/internal/model"
+	"github.com/DrMaomao12345/Wetrace-Plus/pkg/util/dat2img"
+	"github.com/DrMaomao12345/Wetrace-Plus/pkg/util/silk"
 	"github.com/rs/zerolog/log"
 )
 
@@ -29,17 +25,6 @@ type Service struct {
 	ImageKey        string
 	XorKey          string
 	WechatDbSrcPath string
-
-	// 任务状态
-	cacheStatus struct {
-		sync.RWMutex
-		IsRunning bool
-		Total     int32
-		Processed int32
-		Scope     string
-		Canceled  bool
-		cancel    context.CancelFunc // 供「中断」用
-	}
 }
 
 // NewService 创建一个新的媒体服务。
@@ -50,141 +35,6 @@ func NewService(dataDir, imageKey, xorKey, wechatDbSrcPath string) *Service {
 		XorKey:          xorKey,
 		WechatDbSrcPath: wechatDbSrcPath,
 	}
-}
-
-// CacheStatus 缓存任务进度
-type CacheStatus struct {
-	IsRunning bool   `json:"isRunning"`
-	Total     int    `json:"total"`
-	Processed int    `json:"processed"`
-	Scope     string `json:"scope"`
-	// Canceled 表示上一次任务是被手动中断的（而不是跑完的）
-	Canceled bool `json:"canceled"`
-}
-
-func (s *Service) GetCacheStatus() CacheStatus {
-	s.cacheStatus.RLock()
-	defer s.cacheStatus.RUnlock()
-	return CacheStatus{
-		Canceled:  s.cacheStatus.Canceled,
-		IsRunning: s.cacheStatus.IsRunning,
-		Total:     int(s.cacheStatus.Total),
-		Processed: int(s.cacheStatus.Processed),
-		Scope:     s.cacheStatus.Scope,
-	}
-}
-
-func (s *Service) StartCacheTask(scope string, talker string) error {
-	s.cacheStatus.Lock()
-	if s.cacheStatus.IsRunning {
-		s.cacheStatus.Unlock()
-		return errors.New("已有任务正在运行中")
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	s.cacheStatus.IsRunning = true
-	s.cacheStatus.Total = 0
-	s.cacheStatus.Processed = 0
-	s.cacheStatus.Scope = scope
-	s.cacheStatus.Canceled = false
-	s.cacheStatus.cancel = cancel
-	s.cacheStatus.Unlock()
-
-	go s.runCacheTask(ctx, scope, talker)
-	return nil
-}
-
-// StopCacheTask 中断正在进行的图片预加载。已处理的部分保留在缓存里，
-// 下次再跑会跳过，不会白做。
-func (s *Service) StopCacheTask() error {
-	s.cacheStatus.Lock()
-	defer s.cacheStatus.Unlock()
-	if !s.cacheStatus.IsRunning || s.cacheStatus.cancel == nil {
-		return errors.New("当前没有正在运行的预加载任务")
-	}
-	s.cacheStatus.Canceled = true
-	s.cacheStatus.cancel()
-	return nil
-}
-
-func (s *Service) runCacheTask(ctx context.Context, scope string, talker string) {
-	defer func() {
-		s.cacheStatus.Lock()
-		s.cacheStatus.IsRunning = false
-		s.cacheStatus.Unlock()
-	}()
-
-	var targetDirs []string
-	baseAttachDir := filepath.Join(s.WechatDbSrcPath, "msg", "attach")
-
-	if scope == "session" && talker != "" {
-		// 计算 md5(talker)
-		h := md5.Sum([]byte(talker))
-		talkerMd5 := hex.EncodeToString(h[:])
-		targetDirs = append(targetDirs, filepath.Join(baseAttachDir, talkerMd5))
-	} else {
-		// 全量模式，获取 attach 下所有子目录
-		entries, err := os.ReadDir(baseAttachDir)
-		if err != nil {
-			log.Error().Err(err).Msg("读取 attach 目录失败")
-			return
-		}
-		for _, entry := range entries {
-			if entry.IsDir() {
-				targetDirs = append(targetDirs, filepath.Join(baseAttachDir, entry.Name()))
-			}
-		}
-	}
-
-	// 1. 扫描文件总数
-	var files []string
-	for _, dir := range targetDirs {
-		_ = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
-			if err == nil && !info.IsDir() && strings.HasSuffix(strings.ToLower(path), ".dat") {
-				files = append(files, path)
-			}
-			return nil
-		})
-	}
-
-	atomic.StoreInt32(&s.cacheStatus.Total, int32(len(files)))
-	if len(files) == 0 {
-		return
-	}
-
-	// 2. 并发解密：用固定几个 worker 从队列取活。
-	// 早先是给每个文件都起一个 goroutine（几万张图就是几万个 goroutine），
-	// 改成工作池之后既省资源，中断时也能立刻停下来。
-	const workers = 4
-	jobs := make(chan string)
-	var wg sync.WaitGroup
-
-	for i := 0; i < workers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for p := range jobs {
-				if ctx.Err() != nil {
-					return
-				}
-				// 缓存已存在时 doPrepareFile 内部会直接返回，不重复解密
-				_ = s.doPrepareFile(p, false)
-				atomic.AddInt32(&s.cacheStatus.Processed, 1)
-			}
-		}()
-	}
-
-	for _, path := range files {
-		select {
-		case jobs <- path:
-		case <-ctx.Done():
-			close(jobs)
-			wg.Wait()
-			log.Info().Int32("已处理", atomic.LoadInt32(&s.cacheStatus.Processed)).Msg("图片预加载已中断")
-			return
-		}
-	}
-	close(jobs)
-	wg.Wait()
 }
 
 // PreparedMedia 保存媒体文件的最终内容和内容类型。

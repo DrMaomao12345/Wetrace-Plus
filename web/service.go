@@ -8,9 +8,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/afumu/wetrace/store"
-	"github.com/afumu/wetrace/web/api"
-	"github.com/afumu/wetrace/web/media"
+	"github.com/DrMaomao12345/Wetrace-Plus/store"
+	"github.com/DrMaomao12345/Wetrace-Plus/web/api"
+	"github.com/DrMaomao12345/Wetrace-Plus/web/media"
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog/log"
 )
@@ -31,13 +31,6 @@ type Service struct {
 type Config struct {
 	ListenAddr       string
 	DataDir          string
-	ImageKey         string
-	XorKey           string
-	WechatDbSrcPath  string
-	WechatDbKey      string
-	WxKeyDllPath     string
-	WechatPath       string
-	WechatDataPath   string
 	AIEnabled        bool
 	AIProvider       string
 	AIAPIKey         string
@@ -51,18 +44,11 @@ func NewService(store store.Store, conf *Config, staticFS fs.FS) *Service {
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
 
-	mediaService := media.NewService(conf.DataDir, conf.ImageKey, conf.XorKey, conf.WechatDbSrcPath)
+	mediaService := media.NewService(conf.DataDir, "", "", conf.DataDir)
 
 	// 创建共享的 API 配置指针
 	apiConf := &api.Config{
 		DataDir:          conf.DataDir,
-		WechatDbSrcPath:  conf.WechatDbSrcPath,
-		WechatDbKey:      conf.WechatDbKey,
-		WxKeyDllPath:     conf.WxKeyDllPath,
-		WechatPath:       conf.WechatPath,
-		WechatDataPath:   conf.WechatDataPath,
-		ImageKey:         conf.ImageKey,
-		XorKey:           conf.XorKey,
 		AIEnabled:        conf.AIEnabled,
 		AIProvider:       conf.AIProvider,
 		AIAPIKey:         conf.AIAPIKey,

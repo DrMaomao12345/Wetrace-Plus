@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/afumu/wetrace/web/middleware"
+	"github.com/DrMaomao12345/Wetrace-Plus/web/middleware"
 	"github.com/gin-gonic/gin"
 )
 
@@ -21,13 +21,6 @@ func (s *Service) setupRoutes() {
 		system := v1.Group("/system")
 		{
 			system.GET("/status", s.api.GetSystemStatus)
-			system.POST("/decrypt", s.api.HandleEnvDecrypt)
-			system.GET("/wxkey/db", s.api.GetWeChatDbKey)
-			system.GET("/wxkey/image", s.api.GetWeChatImageKey)
-			system.GET("/detect/wechat_path", s.api.DetectWeChatInstallPath)
-			system.GET("/detect/db_path", s.api.DetectWeChatDataPath)
-			system.POST("/select_path", s.api.SelectPath)
-			system.POST("/config", s.api.UpdateConfig)
 
 			// AI 配置路由 (需求3)
 			system.GET("/ai_config", s.api.GetAIConfig)
@@ -47,13 +40,6 @@ func (s *Service) setupRoutes() {
 			// 合规提示路由 (需求9)
 			system.GET("/compliance", s.api.GetCompliance)
 			system.POST("/compliance/agree", s.api.AgreeCompliance)
-
-			// 自动同步路由 (需求5)
-			system.GET("/sync_config", s.api.GetSyncConfig)
-			system.POST("/sync_config", s.api.UpdateSyncConfig)
-			system.POST("/sync", s.api.TriggerSync)
-			system.GET("/sync_status", s.api.GetSyncStatus)
-			system.GET("/sync_history", s.api.GetSyncHistory)
 
 			// 自动备份路由 (需求8)
 			system.GET("/backup_config", s.api.GetBackupConfig)
@@ -99,6 +85,11 @@ func (s *Service) setupRoutes() {
 		}
 
 		// 会话路由
+		v1.GET("/imports/formats", s.api.GetImportFormats)
+		v1.GET("/imports/history", s.api.GetImportHistory)
+		v1.POST("/imports", s.api.ImportChats)
+
+		// 会话路由
 		v1.GET("/sessions", s.api.GetSessions)
 		v1.DELETE("/sessions/:id", s.api.DeleteSession)
 
@@ -122,9 +113,6 @@ func (s *Service) setupRoutes() {
 		v1.GET("/media/images", s.api.GetImageList)
 		v1.GET("/media/:type/:key", s.api.GetMedia)
 		v1.GET("/media/emoji", s.api.GetEmoji)
-		v1.POST("/media/cache/start", s.api.HandleStartCache)
-		v1.POST("/media/cache/stop", s.api.HandleStopCache)
-		v1.GET("/media/cache/status", s.api.GetCacheStatus)
 		v1.POST("/media/voice/transcribe", s.api.TranscribeVoice)
 		v1.GET("/media/voice/transcript", s.api.GetVoiceTranscript)
 		v1.POST("/media/voice/transcribe-session", s.api.TranscribeSession)
@@ -259,15 +247,6 @@ func (s *Service) setupRoutes() {
 			telegramGroup.POST("/test", s.api.TestTelegramBotGlobal)
 		}
 
-		// 多账号管理路由
-		accounts := v1.Group("/accounts")
-		{
-			accounts.GET("", s.api.ListAccounts)
-			accounts.POST("", s.api.AddAccount)
-			accounts.DELETE("/:id", s.api.DeleteAccount)
-			accounts.POST("/:id/activate", s.api.ActivateAccount)
-			accounts.PUT("/:id/label", s.api.UpdateAccountLabel)
-		}
 	}
 
 	// 健康检查

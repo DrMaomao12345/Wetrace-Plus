@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/afumu/wetrace/internal/model"
+	"github.com/DrMaomao12345/Wetrace-Plus/internal/model"
 )
 
 // ── 今日报告 ───────────────────────────────────────────────────

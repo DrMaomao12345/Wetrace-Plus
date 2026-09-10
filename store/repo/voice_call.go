@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/afumu/wetrace/internal/model"
-	"github.com/afumu/wetrace/pkg/util"
+	"github.com/DrMaomao12345/Wetrace-Plus/internal/model"
+	"github.com/DrMaomao12345/Wetrace-Plus/pkg/util"
 )
 
 // callWindow 是一次通话占据的时间区间（unix 秒）

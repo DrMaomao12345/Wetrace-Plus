@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/afumu/wetrace/internal/model/wxproto"
-	"github.com/afumu/wetrace/pkg/util/zstd"
+	"github.com/DrMaomao12345/Wetrace-Plus/internal/model/wxproto"
+	"github.com/DrMaomao12345/Wetrace-Plus/pkg/util/zstd"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -85,7 +85,11 @@ func (m *MessageV4) Wrap(talker string) *Message {
 		}
 	}
 
-	_m.ParseMediaInfo(content)
+	// 第三方导出经常只保留“[图片]”“[文件]”等可读占位，而不是微信 XML。
+	// 解析结构化媒体失败时仍保留原文，避免导入后内容无声丢失。
+	if err := _m.ParseMediaInfo(content); err != nil {
+		_m.Content = content
+	}
 
 	// 语音消息
 	if _m.Type == 34 {

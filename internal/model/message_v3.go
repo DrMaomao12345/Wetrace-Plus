@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/afumu/wetrace/internal/model/wxproto"
-	"github.com/afumu/wetrace/pkg/util/lz4"
+	"github.com/DrMaomao12345/Wetrace-Plus/internal/model/wxproto"
+	"github.com/DrMaomao12345/Wetrace-Plus/pkg/util/lz4"
 	"google.golang.org/protobuf/proto"
 )
 

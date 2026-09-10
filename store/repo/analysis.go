@@ -13,11 +13,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/afumu/wetrace/internal/model"
-	"github.com/afumu/wetrace/pkg/util"
-	"github.com/afumu/wetrace/pkg/util/zstd"
-	"github.com/afumu/wetrace/store/bind"
-	"github.com/afumu/wetrace/store/types"
+	"github.com/DrMaomao12345/Wetrace-Plus/internal/model"
+	"github.com/DrMaomao12345/Wetrace-Plus/pkg/util"
+	"github.com/DrMaomao12345/Wetrace-Plus/pkg/util/zstd"
+	"github.com/DrMaomao12345/Wetrace-Plus/store/bind"
+	"github.com/DrMaomao12345/Wetrace-Plus/store/types"
 	"github.com/rs/zerolog/log"
 )
 

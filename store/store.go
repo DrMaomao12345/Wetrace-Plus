@@ -4,9 +4,9 @@ import (
 	"context"
 	"time"
 
-	"github.com/afumu/wetrace/internal/model"
-	"github.com/afumu/wetrace/store/repo"
-	"github.com/afumu/wetrace/store/types"
+	"github.com/DrMaomao12345/Wetrace-Plus/internal/model"
+	"github.com/DrMaomao12345/Wetrace-Plus/store/repo"
+	"github.com/DrMaomao12345/Wetrace-Plus/store/types"
 	"github.com/fsnotify/fsnotify"
 )
 

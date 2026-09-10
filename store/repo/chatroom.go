@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/afumu/wetrace/internal/model"
-	"github.com/afumu/wetrace/store/types"
+	"github.com/DrMaomao12345/Wetrace-Plus/internal/model"
+	"github.com/DrMaomao12345/Wetrace-Plus/store/types"
 )
 
 func (r *Repository) GetChatRooms(ctx context.Context, q types.ChatRoomQuery) ([]*model.ChatRoom, error) {

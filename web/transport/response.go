@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/afumu/wetrace/web/media"
+	"github.com/DrMaomao12345/Wetrace-Plus/web/media"
 	"github.com/gin-gonic/gin"
 )
 

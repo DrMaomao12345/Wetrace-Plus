@@ -8,8 +8,8 @@ import (
 	"sort"
 	"time"
 
-	"github.com/afumu/wetrace/store/core"
-	"github.com/afumu/wetrace/store/strategy"
+	"github.com/DrMaomao12345/Wetrace-Plus/store/core"
+	"github.com/DrMaomao12345/Wetrace-Plus/store/strategy"
 	"github.com/rs/zerolog/log"
 )
 

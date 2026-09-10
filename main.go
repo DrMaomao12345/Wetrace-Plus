@@ -2,9 +2,6 @@ package main
 
 import (
 	"embed"
-	"fmt"
-	"github.com/afumu/wetrace/internal/envfile"
-	"github.com/afumu/wetrace/internal/wxkey"
 	"io/fs"
 	"log"
 	"os"
@@ -14,8 +11,9 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/afumu/wetrace/store"
-	"github.com/afumu/wetrace/web"
+	"github.com/DrMaomao12345/Wetrace-Plus/internal/envfile"
+	"github.com/DrMaomao12345/Wetrace-Plus/store"
+	"github.com/DrMaomao12345/Wetrace-Plus/web"
 	"github.com/spf13/viper"
 )
 
@@ -58,7 +56,7 @@ func main() {
 	}
 
 	// --- 配置 ---
-	// workDir 是包含已解密数据库文件的目录。
+	// workDir 保存由导入文件生成的统一分析数据库。
 	workDir := viper.GetString("WORK_DIR")
 	if workDir == "" {
 		workDir = "data"
@@ -72,29 +70,6 @@ func main() {
 			listenAddr = "127.0.0.1:" + port
 		} else {
 			listenAddr = "127.0.0.1:5200"
-		}
-	}
-
-	imageKey := viper.GetString("IMAGE_KEY")
-	xorKey := viper.GetString("XOR_KEY")
-
-	// 没配就自己算：微信 4.x 的图片密钥可以从 uin + wxid 直接推出来，
-	//   xor_key = uin & 0xFF
-	//   aes_key = md5(uin + wxid)[:16]
-	// uin 取自微信自己的埋点文件名，账号目录的 4 位后缀正好是 md5(uin) 的前 4 位，
-	// 可据此校验配对是否正确。推不出来也不影响其它功能，只是加密图片显示不了。
-	srcPath := viper.GetString("WECHAT_DB_SRC_PATH")
-	if (imageKey == "" || xorKey == "") && srcPath != "" {
-		if keys, err := wxkey.DeriveImageKeys(srcPath); err == nil {
-			if imageKey == "" {
-				imageKey = keys.AESKey
-			}
-			if xorKey == "" {
-				xorKey = fmt.Sprintf("%02x", keys.XORKey) // SetV4XorKey 要纯 2 位十六进制
-			}
-			log.Printf("已自动推导图片密钥 (uin=%s)", keys.UIN)
-		} else {
-			log.Printf("图片密钥自动推导失败，加密图片将无法显示: %v", err)
 		}
 	}
 
@@ -123,13 +98,6 @@ func main() {
 	webConf := web.Config{
 		ListenAddr:       listenAddr,
 		DataDir:          workDir,
-		ImageKey:         imageKey,
-		XorKey:           xorKey,
-		WechatDbSrcPath:  viper.GetString("WECHAT_DB_SRC_PATH"),
-		WechatDbKey:      viper.GetString("WECHAT_DB_KEY"),
-		WxKeyDllPath:     viper.GetString("WXKEY_DLL_PATH"),
-		WechatPath:       viper.GetString("WXKEY_WECHAT_PATH"),
-		WechatDataPath:   viper.GetString("WXKEY_WECHAT_DATA_PATH"),
 		AIEnabled:        viper.GetBool("AI_ENABLED"),
 		AIProvider:       viper.GetString("AI_PROVIDER"),
 		AIAPIKey:         viper.GetString("AI_API_KEY"),

@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/afumu/wetrace/internal/model"
-	"github.com/afumu/wetrace/pkg/util/zstd"
+	"github.com/DrMaomao12345/Wetrace-Plus/internal/model"
+	"github.com/DrMaomao12345/Wetrace-Plus/pkg/util/zstd"
 )
 
 // ── 图库的图片清单 ──────────────────────────────────────────────

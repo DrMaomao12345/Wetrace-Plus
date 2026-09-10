@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/afumu/wetrace/store/types"
+	"github.com/DrMaomao12345/Wetrace-Plus/store/types"
 	"github.com/rs/zerolog/log"
 )
 

@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"strconv"
 
-	"github.com/afumu/wetrace/internal/model"
-	"github.com/afumu/wetrace/store/repo"
-	"github.com/afumu/wetrace/web/transport"
+	"github.com/DrMaomao12345/Wetrace-Plus/internal/model"
+	"github.com/DrMaomao12345/Wetrace-Plus/store/repo"
+	"github.com/DrMaomao12345/Wetrace-Plus/web/transport"
 	"github.com/gin-gonic/gin"
 )
 

@@ -9,8 +9,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/afumu/wetrace/internal/model"
-	"github.com/afumu/wetrace/store/types"
+	"github.com/DrMaomao12345/Wetrace-Plus/internal/model"
+	"github.com/DrMaomao12345/Wetrace-Plus/store/types"
 )
 
 // listMsgTables 列出一个 v4 分片库里的所有会话消息表（Msg_*）。

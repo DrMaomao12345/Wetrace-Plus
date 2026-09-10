@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: '可选：手动触发时的版本号（如 v1.5.3），不填则用 dev-<commit>'
+        description: '可选：手动触发时的版本号（如 v1.0.0），不填则用 dev-<commit>'
         required: false
         default: ''
 
@@ -87,52 +87,53 @@ jobs:
         env:
           CGO_ENABLED: '1'
         run: |
-          go build -trimpath -ldflags "-s -w -X main.Version=${{ steps.ver.outputs.tag }}" -o wetrace.exe .
-          dir wetrace.exe
+          go test ./...
+          go build -trimpath -ldflags "-s -w -X github.com/DrMaomao12345/Wetrace-Plus/pkg/version.Version=${{ steps.ver.outputs.tag }}" -o wetrace-plus.exe .
+          dir wetrace-plus.exe
         shell: pwsh
 
       - name: Package release zip
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Move-Item wetrace.exe dist\wetrace.exe
+          Move-Item wetrace-plus.exe dist\wetrace-plus.exe
           Copy-Item README.md dist\ -ErrorAction SilentlyContinue
           Copy-Item LICENSE dist\ -ErrorAction SilentlyContinue
           Copy-Item CHANGELOG.md dist\ -ErrorAction SilentlyContinue
-          Compress-Archive -Path dist\wetrace.exe, dist\README.md, dist\LICENSE, dist\CHANGELOG.md `
-            -DestinationPath "dist\wetrace-pro-${{ steps.ver.outputs.tag }}-windows-amd64.zip"
+          Compress-Archive -Path dist\wetrace-plus.exe, dist\README.md, dist\LICENSE, dist\CHANGELOG.md `
+            -DestinationPath "dist\wetrace-plus-${{ steps.ver.outputs.tag }}-windows-amd64.zip"
           dir dist
         shell: pwsh
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: wetrace-pro-${{ steps.ver.outputs.tag }}
+          name: wetrace-plus-${{ steps.ver.outputs.tag }}
           path: |
-            dist/wetrace.exe
-            dist/wetrace-pro-*-windows-amd64.zip
+            dist/wetrace-plus.exe
+            dist/wetrace-plus-*-windows-amd64.zip
           if-no-files-found: error
 
       - name: Create GitHub Release
         if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
-          name: Wetrace Pro ${{ steps.ver.outputs.tag }}
+          name: Wetrace Plus ${{ steps.ver.outputs.tag }}
           files: |
-            dist/wetrace.exe
-            dist/wetrace-pro-*-windows-amd64.zip
+            dist/wetrace-plus.exe
+            dist/wetrace-plus-*-windows-amd64.zip
           generate_release_notes: true
           body: |
-            ## Wetrace Pro ${{ steps.ver.outputs.tag }}
+            ## Wetrace Plus ${{ steps.ver.outputs.tag }}
 
             完整改动详见 [CHANGELOG.md](CHANGELOG.md)。
 
             ### 下载
-            - **`wetrace.exe`** — 单个可执行文件，直接双击运行（启动后自动在 `127.0.0.1:5200` 打开浏览器）
-            - **`wetrace-pro-*-windows-amd64.zip`** — 压缩包，含 README + LICENSE + CHANGELOG
+            - **`wetrace-plus.exe`** — 单个可执行文件，直接双击运行（启动后自动在 `127.0.0.1:5200` 打开浏览器）
+            - **`wetrace-plus-*-windows-amd64.zip`** — 压缩包，含 README + LICENSE + CHANGELOG
 
             ### 启动
             ```powershell
-            .\wetrace.exe
+            .\wetrace-plus.exe
             ```
 
             ### 系统要求

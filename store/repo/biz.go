@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/afumu/wetrace/internal/model"
-	"github.com/afumu/wetrace/pkg/util/zstd"
-	"github.com/afumu/wetrace/pkg/wordcloud"
-	"github.com/afumu/wetrace/store/strategy"
+	"github.com/DrMaomao12345/Wetrace-Plus/internal/model"
+	"github.com/DrMaomao12345/Wetrace-Plus/pkg/util/zstd"
+	"github.com/DrMaomao12345/Wetrace-Plus/pkg/wordcloud"
+	"github.com/DrMaomao12345/Wetrace-Plus/store/strategy"
 )
 
 // bizTitleCap 是提取标题时最多解压的推送条数 —— 全量解压 7 万条太慢，

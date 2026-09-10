@@ -1,5 +1,4 @@
 import { request, getApiBaseUrl } from "@/lib/request";
-import type { AxiosRequestConfig } from "axios";
 
 export interface ComplianceStatus {
   agreed: boolean;
@@ -30,19 +29,6 @@ export interface AIConfigUpdate {
   model?: string;
   base_url?: string;
   api_key?: string;
-}
-
-export interface SyncConfig {
-  enabled: boolean;
-  interval_minutes: number;
-  last_sync_time: string;
-  last_sync_status: string;
-  is_syncing: boolean;
-}
-
-export interface SyncConfigUpdate {
-  enabled: boolean;
-  interval_minutes: number;
 }
 
 export interface PasswordStatus {
@@ -77,8 +63,6 @@ export interface BackupHistoryItem {
 
 export interface TTSConfig {
   enabled: boolean;
-  /** 每次数据同步后自动把新语音转成文字 */
-  auto?: boolean;
   provider: string;
   base_url: string;
   api_key_masked: string;
@@ -115,7 +99,6 @@ export interface TTSConfigUpdate {
   local_mode?: boolean;
   local_binary?: string;
   local_model?: string;
-  auto?: boolean;
 }
 
 export interface AIPromptsResponse {
@@ -124,17 +107,8 @@ export interface AIPromptsResponse {
 }
 
 export const systemApi = {
-  decrypt: () => request.post("/api/v1/system/decrypt"),
   getStatus: () => request.get("/api/v1/system/status"),
-  getWeChatDbKey: (config?: AxiosRequestConfig) =>
-    request.get("/api/v1/system/wxkey/db", {}, { timeout: 130000, ...config }),
-  getWeChatImageKey: (config?: AxiosRequestConfig) =>
-    request.get("/api/v1/system/wxkey/image", {}, { timeout: 130000, ...config }),
   activate: (license: string) => request.post("/api/v1/system/activate", { license }),
-  detectWeChatPath: () => request.get("/api/v1/system/detect/wechat_path"),
-  detectDbPath: () => request.get("/api/v1/system/detect/db_path"),
-  selectPath: (type: 'file' | 'folder') => request.post("/api/v1/system/select_path", { type }),
-  updateConfig: (data: Record<string, string>) => request.post("/api/v1/system/config", data),
   getCompliance: () => request.get<ComplianceStatus>("/api/v1/system/compliance"),
   agreeCompliance: (version: string) => request.post("/api/v1/system/compliance/agree", { version }),
 
@@ -147,12 +121,6 @@ export const systemApi = {
   // AI Prompts
   getAIPrompts: () => request.get<AIPromptsResponse>("/api/v1/system/ai_prompts"),
   updateAIPrompts: (prompts: Record<string, string>) => request.post("/api/v1/system/ai_prompts", { prompts }),
-
-  // Sync Config
-  getSyncConfig: () => request.get<SyncConfig>("/api/v1/system/sync_config"),
-  updateSyncConfig: (data: SyncConfigUpdate) => request.post("/api/v1/system/sync_config", data),
-  triggerSync: () => request.post("/api/v1/system/sync"),
-  getSyncStatus: () => request.get<SyncConfig>("/api/v1/system/sync_status"),
 
   // Password
   getPasswordStatus: () => request.get<PasswordStatus>("/api/v1/system/password/status"),

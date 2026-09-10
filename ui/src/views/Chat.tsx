@@ -4,9 +4,9 @@ import { useAppStore } from "@/stores/app"
 import { cn } from "@/lib/utils"
 import { DailyReportCard } from "@/components/DailyReportCard"
 import { useChat } from "@/hooks/useChat"
-import { RefreshCw, ArrowLeft, Smile, PlusCircle, Mic, Download, Sparkles, ImageIcon, Images, BrainCircuit, MessageSquareQuote, MoreHorizontal, Type } from "lucide-react"
+import { RefreshCw, ArrowLeft, Smile, PlusCircle, Mic, Download, Sparkles, Images, BrainCircuit, MessageSquareQuote, MoreHorizontal, Type } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { systemApi, mediaApi } from "@/api"
+import { mediaApi } from "@/api"
 import { toast } from "sonner"
 import { aiApi } from "@/api/ai"
 import { createPortal } from "react-dom"
@@ -23,7 +23,6 @@ import { SessionGalleryModal } from "@/components/chat/SessionGalleryModal"
 export default function Chat() {
   const isMobile = useAppStore((state) => state.isMobile)
   const { activeTalker, setActiveTalker } = useChat()
-  const [isSyncing, setIsSyncing] = useState(false)
   const [showAnalysis, setShowAnalysis] = useState(false)
   const [showExportModal, setShowExportModal] = useState(false)
   
@@ -150,18 +149,6 @@ export default function Chat() {
   // Clean up poll timer on unmount
   useEffect(() => () => stopBatchPoll(), [])
 
-  const handleSessionCache = async () => {
-    if (!activeTalker) return
-    try {
-      await mediaApi.startCache('session', activeTalker)
-      window.dispatchEvent(new CustomEvent('image-cache-start'))
-      toast.success("会话图片预加载已启动。")
-    } catch (err) {
-      console.error("Failed to start session cache:", err)
-      toast.error("启动会话缓存失败")
-    }
-  }
-
   const { data: sessions = [] } = useSessions()
   const { data: allMessages = [] } = useMessages(activeTalker)
 
@@ -186,22 +173,6 @@ export default function Chat() {
     const session = sessions.find(s => s.talker === activeTalker)
     return session ? (session.name || session.talkerName) : activeTalker
   }, [activeTalker, sessions])
-
-  const handleSync = async () => {
-    try {
-      setIsSyncing(true)
-      await systemApi.decrypt()
-      // Refresh the page or data? For now just alert success
-      toast.success("同步成功！")
-      window.location.reload()
-    } catch (error: any) {
-      console.error("Sync failed:", error)
-      const message = error.message || "同步失败，请检查控制台。"
-      toast.error(message)
-    } finally {
-      setIsSyncing(false)
-    }
-  }
 
   const handleExportRequest = (
     type: string,
@@ -347,13 +318,6 @@ export default function Chat() {
                         <div className="px-3 py-1 text-[10px] text-muted-foreground font-medium uppercase tracking-wider">媒体</div>
                         <button
                           className="w-full px-3 py-2 text-sm text-left hover:bg-muted/50 transition-colors flex items-center gap-2"
-                          onClick={() => { handleSessionCache(); setShowMoreMenu(false) }}
-                        >
-                          <ImageIcon className="w-4 h-4" />
-                          加载图片
-                        </button>
-                        <button
-                          className="w-full px-3 py-2 text-sm text-left hover:bg-muted/50 transition-colors flex items-center gap-2"
                           onClick={() => { setShowSessionGallery(true); setShowMoreMenu(false) }}
                         >
                           <Images className="w-4 h-4" />
@@ -412,17 +376,6 @@ export default function Chat() {
                             : "一键转文字"}
                         </button>
 
-                        <div className="border-t my-1" />
-                        {/* 其他 */}
-                        <div className="px-3 py-1 text-[10px] text-muted-foreground font-medium uppercase tracking-wider">其他</div>
-                        <button
-                          className="w-full px-3 py-2 text-sm text-left hover:bg-muted/50 transition-colors flex items-center gap-2"
-                          onClick={() => { handleSync(); setShowMoreMenu(false) }}
-                          disabled={isSyncing}
-                        >
-                          <RefreshCw className={cn("w-4 h-4", isSyncing && "animate-spin")} />
-                          {isSyncing ? '正在同步...' : '同步数据'}
-                        </button>
                       </div>
                   </>,
                   document.body

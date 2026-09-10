@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/afumu/wetrace/pkg/util"
-	"github.com/afumu/wetrace/web/transport"
+	"github.com/DrMaomao12345/Wetrace-Plus/pkg/util"
+	"github.com/DrMaomao12345/Wetrace-Plus/web/transport"
 	"github.com/gin-gonic/gin"
 )
 

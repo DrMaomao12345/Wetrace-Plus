@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/afumu/wetrace/store/repo"
+	"github.com/DrMaomao12345/Wetrace-Plus/store/repo"
 )
 
 // imageListCache 缓存图库的图片清单。

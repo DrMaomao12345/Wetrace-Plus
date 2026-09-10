@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/afumu/wetrace/internal/model"
+	"github.com/DrMaomao12345/Wetrace-Plus/internal/model"
 )
 
 // BuildGalaxy 完整跑一遍关系星图流水线:特征提取 → 评分 → 过滤 → 排序取 TopN → 布局。

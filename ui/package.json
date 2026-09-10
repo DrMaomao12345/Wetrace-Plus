@@ -1,13 +1,15 @@
 {
-  "name": "ui",
+  "name": "wetrace-plus-ui",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "sync-version": "node scripts/sync-version.mjs",
+    "prebuild": "node scripts/sync-version.mjs"
   },
   "dependencies": {
     "@radix-ui/react-avatar": "^1.1.11",

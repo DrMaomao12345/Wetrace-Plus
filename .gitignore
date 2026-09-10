@@ -5,9 +5,6 @@
 *.exe~
 *.exe
 *.dll
-# 例外：零字节占位，让 wxkey/embed.go 的 //go:embed 在没有真 DLL 时也能编译。
-# 谁有真正的 wx_key.dll，直接覆盖它重新编译即可自动嵌入（见 wxkey/embed.go 注释）。
-!wxkey/wx_key.dll
 *.so
 *.dylib
 
@@ -28,10 +25,7 @@ go.work.sum
 # env file
 .env
 
-# syncthing files
-.stfolder
-
-chatlog.exe# Added by goreleaser init:
+# Added by goreleaser init:
 dist/
 .idea/
 

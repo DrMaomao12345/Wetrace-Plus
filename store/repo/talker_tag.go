@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/afumu/wetrace/internal/model"
+	"github.com/DrMaomao12345/Wetrace-Plus/internal/model"
 )
 
 // talkerTagTTL 是自动分类结果的缓存时长。联系人库变动不频繁，

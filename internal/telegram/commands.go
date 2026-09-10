@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/afumu/wetrace/store/types"
+	"github.com/DrMaomao12345/Wetrace-Plus/store/types"
 )
 
 // commandHandler 接收解析后的参数，返回回复文本或错误

@@ -11,11 +11,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/afumu/wetrace/internal/ai"
-	"github.com/afumu/wetrace/internal/model"
-	"github.com/afumu/wetrace/internal/tts"
-	"github.com/afumu/wetrace/pkg/util"
-	"github.com/afumu/wetrace/web/transport"
+	"github.com/DrMaomao12345/Wetrace-Plus/internal/ai"
+	"github.com/DrMaomao12345/Wetrace-Plus/internal/model"
+	"github.com/DrMaomao12345/Wetrace-Plus/internal/tts"
+	"github.com/DrMaomao12345/Wetrace-Plus/web/transport"
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/viper"
@@ -72,40 +71,6 @@ func savePromptsToFile(prompts map[string]string) error {
 	return os.WriteFile(promptsFilePath, data, 0644)
 }
 
-// SelectPath 让用户在服务端（本地）选择路径
-func (a *API) SelectPath(c *gin.Context) {
-	type SelectReq struct {
-		Type string `json:"type"` // "file" or "folder"
-	}
-	var req SelectReq
-	if err := c.ShouldBindJSON(&req); err != nil {
-		transport.BadRequest(c, "参数错误")
-		return
-	}
-
-	var path string
-	var err error
-
-	if req.Type == "file" {
-		path, err = util.OpenFileDialog("选择微信可执行文件", "WeChat Executable|WeChat.exe;Weixin.exe|All Files|*.*")
-	} else {
-		path, err = util.OpenFolderDialog("选择微信数据目录 (xwechat_files)")
-	}
-
-	if err != nil {
-		// 用户取消
-		if err.Error() == "cancelled" {
-			transport.SendSuccess(c, gin.H{"path": ""})
-			return
-		}
-		// 其他错误
-		transport.InternalServerError(c, "打开对话框失败: "+err.Error())
-		return
-	}
-
-	transport.SendSuccess(c, gin.H{"path": path})
-}
-
 // GetSystemStatus 返回应用程序的当前状态。
 // 目前，它只确认服务正在运行。
 func (a *API) GetSystemStatus(c *gin.Context) {
@@ -116,89 +81,14 @@ func (a *API) GetSystemStatus(c *gin.Context) {
 		"store_initialized": true,
 		"platform":          runtime.GOOS,
 		"config": gin.H{
-			"has_wechat_db_key": a.Conf.WechatDbKey != "",
-			"has_image_key":     a.Media.ImageKey != "",
-			"has_xor_key":       a.Media.XorKey != "",
-			// 只给脱敏值，明文密钥不出接口
-			"wechat_db_key_masked": maskSecret(a.Conf.WechatDbKey),
-			"image_key_masked":     maskSecret(a.Media.ImageKey),
-			"xor_key_masked":       a.Media.XorKey, // 单字节异或键，本身不算秘密
-			"wechat_path":          a.Conf.WechatPath,
-			"wechat_db_src_path":   a.Conf.WechatDbSrcPath,
+			"mode":     "import_only",
+			"data_dir": a.Conf.DataDir,
 		},
 	}
 	transport.SendSuccess(c, status)
 }
 
-// DetectWeChatInstallPath 检测微信安装路径
-func (a *API) DetectWeChatInstallPath(c *gin.Context) {
-	paths := util.FindWeChatInstallPaths()
-	transport.SendSuccess(c, paths)
-}
-
-// DetectWeChatDataPath 检测微信数据路径
-func (a *API) DetectWeChatDataPath(c *gin.Context) {
-	paths := util.FindWeChatDataPaths()
-	transport.SendSuccess(c, paths)
-}
-
-// UpdateConfig 更新系统配置
-func (a *API) UpdateConfig(c *gin.Context) {
-	var req map[string]string
-	if err := c.ShouldBindJSON(&req); err != nil {
-		transport.BadRequest(c, "参数错误")
-		return
-	}
-
-	// 允许更新的键白名单
-	allowedKeys := map[string]bool{
-		"WXKEY_WECHAT_PATH":  true,
-		"WECHAT_DB_SRC_PATH": true,
-	}
-
-	a.mu.Lock()
-	defer a.mu.Unlock()
-
-	changed := false
-	for k, v := range req {
-		if allowedKeys[k] {
-			viper.Set(k, v)
-			// 同步更新内存中的配置对象
-			if k == "WXKEY_WECHAT_PATH" {
-				a.Conf.WechatPath = v
-			} else if k == "WECHAT_DB_SRC_PATH" {
-				a.Conf.WechatDbSrcPath = v
-			}
-			changed = true
-		}
-	}
-
-	if changed {
-		if err := viper.WriteConfig(); err != nil {
-			// 如果文件不存在，尝试创建
-			if err := viper.WriteConfigAs(".env"); err != nil {
-				transport.InternalServerError(c, "保存配置文件失败: "+err.Error())
-				return
-			}
-		}
-	}
-
-	transport.SendSuccess(c, gin.H{"status": "ok"})
-}
-
 // maskAPIKey 对 API Key 做脱敏处理，仅显示前4位和后4位
-// maskSecret 只保留头尾各 4 位，中间打码 —— 用于把密钥展示给用户核对，
-// 但不把明文送出接口。
-func maskSecret(key string) string {
-	if key == "" {
-		return ""
-	}
-	if len(key) <= 8 {
-		return "••••"
-	}
-	return key[:4] + "••••••••" + key[len(key)-4:]
-}
-
 func maskAPIKey(key string) string {
 	if len(key) <= 8 {
 		return "****"
@@ -613,7 +503,6 @@ func (a *API) GetTTSConfig(c *gin.Context) {
 		"local_mode":     viper.GetBool("TTS_LOCAL_MODE"),
 		"local_binary":   viper.GetString("TTS_LOCAL_BINARY"),
 		"local_model":    viper.GetString("TTS_LOCAL_MODEL"),
-		"auto":           viper.GetBool("TTS_AUTO"),
 	})
 }
 
@@ -628,8 +517,6 @@ func (a *API) UpdateTTSConfig(c *gin.Context) {
 		LocalMode   bool   `json:"local_mode"`
 		LocalBinary string `json:"local_binary"`
 		LocalModel  string `json:"local_model"`
-		// Auto 打开后，每次数据同步完成会自动把新语音转成文字
-		Auto bool `json:"auto"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		transport.BadRequest(c, "参数错误")
@@ -649,7 +536,6 @@ func (a *API) UpdateTTSConfig(c *gin.Context) {
 	viper.Set("TTS_LOCAL_MODE", req.LocalMode)
 	viper.Set("TTS_LOCAL_BINARY", req.LocalBinary)
 	viper.Set("TTS_LOCAL_MODEL", req.LocalModel)
-	viper.Set("TTS_AUTO", req.Auto)
 
 	if err := viper.WriteConfig(); err != nil {
 		transport.InternalServerError(c, "保存配置失败: "+err.Error())

@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/afumu/wetrace/store/bind"
-	"github.com/afumu/wetrace/store/core"
-	"github.com/afumu/wetrace/store/strategy"
-	"github.com/afumu/wetrace/store/types"
+	"github.com/DrMaomao12345/Wetrace-Plus/store/bind"
+	"github.com/DrMaomao12345/Wetrace-Plus/store/core"
+	"github.com/DrMaomao12345/Wetrace-Plus/store/strategy"
+	"github.com/DrMaomao12345/Wetrace-Plus/store/types"
 
 	_ "github.com/mattn/go-sqlite3"
 )

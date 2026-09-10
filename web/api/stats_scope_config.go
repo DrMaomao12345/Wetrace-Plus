@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/afumu/wetrace/internal/model"
+	"github.com/DrMaomao12345/Wetrace-Plus/internal/model"
 )
 
 // StatsScopeStore 持久化「统计范围」配置 —— 存到 data/stats_scope.json。

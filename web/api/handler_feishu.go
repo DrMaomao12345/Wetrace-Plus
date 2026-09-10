@@ -1,8 +1,8 @@
 package api
 
 import (
-	"github.com/afumu/wetrace/internal/monitor"
-	"github.com/afumu/wetrace/web/transport"
+	"github.com/DrMaomao12345/Wetrace-Plus/internal/monitor"
+	"github.com/DrMaomao12345/Wetrace-Plus/web/transport"
 	"github.com/gin-gonic/gin"
 )
 

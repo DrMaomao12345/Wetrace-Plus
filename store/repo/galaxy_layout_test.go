@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/afumu/wetrace/internal/model"
+	"github.com/DrMaomao12345/Wetrace-Plus/internal/model"
 )
 
 func mkNode(id, stage, rtype string, intimacy int) *model.GalaxyNode {

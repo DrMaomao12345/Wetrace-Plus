@@ -1,133 +1,75 @@
-# Wetrace Pro
+# Wetrace Plus
 
->  本项目是 [afumu/wetrace](https://github.com/afumu/wetrace) 的功能扩展 fork，在原版基础上加入了大量统计/可视化/远程查询/缓存优化等功能。完全保留上游的核心解密 / 数据访问能力，专注于「分析侧」的体验改进。
+Wetrace Plus 是一个**只做导入与分析**的本地微信聊天记录工作台。
 
-Wetrace 是一款专为 PC 端微信设计的聊天记录取证、备份与可视化分析工具：自动提取微信数据库密钥，解密并解析本地数据库，提供流畅的 Web 交互界面进行浏览、搜索、导出以及深度的聊天行为分析。
+它接收第三方工具已经导出的 JSON、CSV 或 ZIP 文件，将不同格式统一成分析模型，再提供聊天浏览、搜索、年度报告、联系人统计、词云、关系洞察和可选的 AI 分析。
 
----
+> 隐私边界：Wetrace Plus 不连接微信，不读取微信进程，不提取密钥，也不读取或解密微信数据库。原始导出文件由用户自行通过其他工具获得。
 
-##  Pro 版相比上游新增 / 改进
+## 已支持的导入格式
 
-详见 [CHANGELOG.md](CHANGELOG.md)。主要增量：
+| 来源 | 格式 | 识别依据 |
+| --- | --- | --- |
+| [chatlog-keeper](https://github.com/labazhou2024/chatlog-keeper) | `wechat_messages.json` | `ts`、`conversation_id`、`sender_wxid`、`is_self`、`msg_type`、`account_id` 消息数组 |
+| [chatlog](https://github.com/sjzar/chatlog) | JSON | `seq`、`time`、`talker`、`sender`、`isSelf`、`type`、`content` 消息数组 |
+| chatlog | CSV | `Time,SenderName,Sender,TalkerName,Talker,Content` |
+| MemoTrace / WeChatMsg | 会话 CSV | `消息ID,类型,发送人,时间,内容,...` |
+| MemoTrace / WeChatMsg | 全量 CSV | `localId,TalkerId,Type,SubType,IsSender,CreateTime,StrContent,...` |
+| Wetrace Plus | 标准 JSON | `format: "wetrace-plus"`、`version: 1` |
+| 以上任一格式 | ZIP | 自动扫描压缩包内的 `.json` 与 `.csv` |
 
-### 年度社交报告
-- **流式生成**：NDJSON 长连接，骨架屏 + 数字 0 → 目标值滚动动画；可切换「进度条」模式
-- **多时区段配置**：跨时区出差用户可按日期段分别指定时区，避免跨夜消息归到错的小时
-- **往年同期百分比**：消息数 / 发送 / 接收 等卡片右上角显示同比百分比（±10% 红绿）
-- **字数统计**：点击概览卡或排行行 → 即时切换为「字数」显示
-- **Top 10 历史月均参考线**：月度图叠加往年同月份基线
-- **配置签名 + 数据指纹智能缓存**：同配置 + 同数据自动复用历史报告（无上限），数据库更新自动失效
-- **生成中切换年份**：旧流后台继续跑且能正确写回它自己的缓存
+详细字段、方向判断规则和标准 JSON 示例见 [导入格式说明](docs/13-导入格式.md)。
 
-### 联系人侧统计
-- 24h / 星期 / 月度 / 每日 / 消息类型 / 通话 / 关键词 全维度卡片
-- 月度图支持**多年勾选对比**
-- 每日趋势加日均参考线 + 总数摘要
-- 全局「默认时区」设置，所有联系人侧查询自动按本地时间聚合
-- 通话统计：解析 XML 拿到时长，区分语音 / 视频 / 接通 / 未接
+## 使用方式
 
-### 词云
-- gse 中文分词 + 自定义词典 / 停用词管理界面
-- 「分块稳定性过滤」：把消息切 N 段，只保留至少出现在 K 段中的词，过滤刷屏梗
-- 50000 条上限（原版 1000）、zstd 解压、剥离群聊 `wxid:\n` 前缀
+1. 用你信任的导出工具生成 JSON、CSV 或 ZIP。
+2. 打开 Wetrace Plus 的「导入」页面并选择文件。
+3. 对缺少发送方向的旧式 CSV，填写自己的导出昵称。
+4. 导入完成后直接进入聊天、报告或分析页面。
 
-### 联系人管理
-- 移除 200 条上限（一次性拉全）
-- 识别 `gh_` 公众号 / `@openim` 企业号
-- 五个分类 tab：全部 / 私人好友 / 群聊 / 公众号 / 企业号
+重复文件可以安全再次导入：系统按消息指纹去重，并保留每次导入的文件哈希、格式、消息数和告警记录。
 
-### Telegram Bot 远程查询
-- 在 Telegram 给 bot 发命令即可远程拉数据，长轮询，白名单 chat_id
-- `/help` `/status` `/list [关键词|N]` `/stat <名字> [时间段]` `/words` `/calls` `/types`
-- 时间段支持 `7d` / `last-month` / `2024` / `2024-01-01:2024-12-31` 等
+## 分析能力
 
-### 全局设置
-- **本地数据目录**：一键打开
-- **有效聊天记录起始时间**：影响往年同期对比的下界年份
-- **默认时区**：影响联系人侧所有分析查询
+- 聊天浏览、全局搜索和多格式再次导出
+- 年度报告、联系人趋势、收发比例、活跃时段、消息类型与通话统计
+- 词云、关系星图、陪伴时间轴、情感分析与联系提醒
+- 对话摘要、待办与关键信息提取、模拟聊天等可选 AI 功能
+- 本地 Whisper 或兼容接口的语音转文字（需要导入包包含可用音频）
+- 密码保护、移动端只读访问、备份和监控告警
 
-### Bug 修复
-- V4 `local_type` 打包整数解析（不再出现「类型 21474836529」）
-- 群聊接收数 = 0
-- 流式缓存竞态污染
-- V3 hourly `%%H` 字面量错误
-- 一些 SQL 跨版本兼容问题
+导入文件不含图片、语音、视频等附件时，相关页面只显示占位或元数据；Wetrace Plus 不会回头访问微信目录补取文件。
 
----
+## 本地运行
 
-##  核心功能（继承上游）
+要求 Go 1.25+、Node.js 20+，以及用于编译 `go-sqlite3` 的 C 编译器。
 
-*   **自动密钥提取**：无需手动寻找偏移量，支持自动获取微信数据库密钥 (`DB Key`) 及媒体解密密钥 (`Image Key`)
-*   **多版本支持**：兼容 PC 微信 `v4` 版本的数据库
-*   **丝滑 Web 体验**：基于 React + Go 构建
-*   **AI 智能分析**：对话摘要、情感分析、待办提取、关键信息提取、模拟聊天
-*   **多格式导出**：HTML、TXT、CSV、XLSX、DOCX、PDF 及法律取证格式
-*   **监控告警**：关键词 / AI 智能监控，通过 Webhook / 飞书 / Telegram 推送
-*   **自动同步与备份**：定时同步 / 备份
-*   **离线使用**：完全本地运行，不上传任何隐私数据
-
----
-
-##  文档
-
-完整文档在 [`docs/`](docs/) 目录，按功能模块组织。
-
----
-
-##  开发者指南
-
-### 后端 (Go)
-1. Go 1.25+
-2. 安装 `gcc` 环境（`go-sqlite3` 需要 CGO）— Windows 推荐 [MSYS2](https://www.msys2.org/) + `mingw-w64-x86_64-gcc`
-3. 构建：
-   ```bash
-   set CGO_ENABLED=1
-   go build -o wetrace.exe .
-   ```
-
-### 前端 (React)
-1. 进入 `ui` 目录
-2. `npm install`
-3. `npm run build` 把静态资源打到 `ui/dist`，会被 `go:embed` 嵌进二进制
-4. 开发时可跑 `npm run dev`（vite HMR）
-
-### Release 自动构建
-
-打 tag 即触发 GitHub Actions 自动构建 Windows exe 并发到 Release：
 ```bash
-git tag v1.5.3
-git push origin v1.5.3
+git clone https://github.com/DrMaomao12345/Wetrace-Plus.git
+cd Wetrace-Plus/ui
+npm ci
+npm run build
+cd ..
+CGO_ENABLED=1 go run .
 ```
 
----
+默认打开 `http://127.0.0.1:5200`。分析库保存在 `WORK_DIR`（默认 `data/`），配置见 [.env.example](.env.example)。
 
-##  免责声明
+## 开发导入适配器
 
-本工具仅供学习交流、个人数据备份及合法的电子取证研究使用。请勿用于任何非法用途（如侵犯他人隐私）。使用者因违反法律法规而产生的一切后果，由使用者自行承担，开发者不承担任何法律责任。
+适配层位于 `internal/importer/`。所有适配器只负责把来源字段转换成统一 `Message`，持久化、事务、去重和导入历史由共享写入器处理。新增适配器时请同时添加最小真实样例测试，并更新兼容矩阵。
 
----
+## 数据与联网说明
 
-##  后续开发计划
+- 导入、索引和常规分析都在本地完成。
+- 上传的临时文件在一次导入结束后删除，不额外保存副本。
+- 只有用户主动启用在线 AI、语音识别、Webhook 或机器人功能时，相关数据才会发送到用户指定的服务。
+- 聊天记录属于高度敏感数据，请只处理你有权使用的内容，并妥善保护导出文件、分析库和备份。
 
-开发ios端的数据看板软件，以PC为服务端，手机为客户端，软件通过组网向服务端请求数据并展示。
+## 项目来源与致谢
 
----
+Wetrace Plus 从 Wetrace Pro 分出，并继承了 [afumu/wetrace](https://github.com/afumu/wetrace) 的分析框架。Plus 已移除原项目中的微信进程访问、密钥获取、数据库解密和源目录同步能力。
 
-## 🙏 致谢
+感谢 [chatlog](https://github.com/sjzar/chatlog)、MemoTrace / WeChatMsg 社区导出格式，以及 [go-ego/gse](https://github.com/go-ego/gse)、[Recharts](https://recharts.org/) 和 [Gin](https://github.com/gin-gonic/gin) 等开源项目。
 
-本项目是 [**afumu/wetrace**](https://github.com/afumu/wetrace) 的功能扩展 fork。上游项目实现了：
-
-- 微信密钥提取与数据库解密的核心逻辑
-- V3 / V4 数据库 schema 适配
-- 完整的 Web UI 框架与基础统计能力
-- AI 集成、监控告警、自动同步等基础设施
-
-没有上游项目的扎实工程，本 fork 不可能存在。请优先关注与支持原项目。
-
-同时参考了以下优秀的开源项目：
-
-- [wx_key](https://github.com/0xlane/wx_key) — 微信数据库与图片密钥提取
-- [chatlog](https://github.com/sjzar/chatlog) — 消息解密与读取
-- [go-ego/gse](https://github.com/go-ego/gse) — 中文分词
-- [recharts](https://recharts.org/) — React 图表
-- [gin-gonic/gin](https://github.com/gin-gonic/gin) — HTTP 框架
+本仓库沿用现有 [CC BY-NC-SA 4.0](LICENSE) 许可；第三方依赖分别遵循其自身许可证。

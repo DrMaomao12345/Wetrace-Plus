@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/afumu/wetrace/internal/model"
+	"github.com/DrMaomao12345/Wetrace-Plus/internal/model"
 )
 
 // ReportCache 按 dataVersion + 查询参数缓存年度报告。

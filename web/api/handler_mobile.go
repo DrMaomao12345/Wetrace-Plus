@@ -1,7 +1,7 @@
 package api
 
 import (
-	"github.com/afumu/wetrace/web/transport"
+	"github.com/DrMaomao12345/Wetrace-Plus/web/transport"
 	"github.com/gin-gonic/gin"
 )
 
@@ -68,6 +68,21 @@ func (a *API) RenameMobilePairing(c *gin.Context) {
 func (a *API) MobilePing(c *gin.Context) {
 	transport.SendSuccess(c, gin.H{
 		"ok":      true,
-		"service": "wetrace-pro",
+		"service": "wetrace-plus",
 	})
+}
+
+// GetMobileConfig 返回可供移动端展示的只读配置。
+func (a *API) GetMobileConfig(c *gin.Context) {
+	cfg := gin.H{"mode": "import_only"}
+	if a.AI != nil {
+		cfg["ai_model"] = a.AI.Model
+		cfg["ai_base_url"] = a.AI.BaseURL
+	}
+	if a.BackupScheduler != nil {
+		bs := a.BackupScheduler.GetStatus()
+		cfg["backup_enabled"] = bs.Enabled
+		cfg["backup_interval_hours"] = bs.IntervalHours
+	}
+	transport.SendSuccess(c, cfg)
 }

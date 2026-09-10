@@ -1,7 +1,7 @@
 package model
 
 import (
-	"github.com/afumu/wetrace/internal/model/wxproto"
+	"github.com/DrMaomao12345/Wetrace-Plus/internal/model/wxproto"
 
 	"google.golang.org/protobuf/proto"
 )

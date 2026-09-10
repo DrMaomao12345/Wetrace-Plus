@@ -8,14 +8,14 @@ import (
 )
 
 var (
-	Version   = "(dev)"
+	Version   = "1.0.0"
 	buildInfo = debug.BuildInfo{}
 )
 
 func init() {
 	if bi, ok := debug.ReadBuildInfo(); ok {
 		buildInfo = *bi
-		if len(bi.Main.Version) > 0 {
+		if len(bi.Main.Version) > 0 && bi.Main.Version != "(devel)" {
 			Version = bi.Main.Version
 		}
 	}

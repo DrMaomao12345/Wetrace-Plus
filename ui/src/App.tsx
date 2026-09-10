@@ -20,6 +20,7 @@ import MonitorView from '@/views/MonitorView'
 import ReplayView from '@/views/ReplayView'
 import ContactReminder from '@/views/ContactReminder'
 import Changelog from '@/views/Changelog'
+import ImportView from '@/views/Import'
 import { PaymentModal } from '@/components/PaymentModal'
 import { AgreementModal } from '@/components/AgreementModal'
 import { ComplianceDialog } from '@/components/ComplianceDialog'
@@ -92,7 +93,8 @@ function App() {
       <Toaster position="top-center" richColors closeButton />
       <Routes>
         <Route path="/" element={<MainLayout />}>
-          <Route index element={<Navigate to="/chat" replace />} />
+          <Route index element={<Navigate to="/import" replace />} />
+          <Route path="import" element={<ImportView />} />
           <Route path="chat" element={<Chat />} />
           <Route path="contact" element={<Contact />} />
           <Route path="search" element={<Search />} />

@@ -4,7 +4,7 @@ import (
 	"math"
 	"sort"
 
-	"github.com/afumu/wetrace/internal/model"
+	"github.com/DrMaomao12345/Wetrace-Plus/internal/model"
 )
 
 // ── 布局:人生阶段分扇区 + 扇区内按亲密度均匀铺开(§5.5/§5.6) ──────

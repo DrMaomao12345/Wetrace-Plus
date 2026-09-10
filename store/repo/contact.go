@@ -5,8 +5,8 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/afumu/wetrace/internal/model"
-	"github.com/afumu/wetrace/store/types"
+	"github.com/DrMaomao12345/Wetrace-Plus/internal/model"
+	"github.com/DrMaomao12345/Wetrace-Plus/store/types"
 )
 
 func (r *Repository) GetContacts(ctx context.Context, q types.ContactQuery) ([]*model.Contact, error) {

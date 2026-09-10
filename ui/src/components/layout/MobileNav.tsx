@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils"
 import {
   MessageSquare, Search, Users, ImageIcon, MoreHorizontal,
   Shield, Settings, X, Clock,
-  CalendarDays, Heart, Cloud, BrainCircuit, PlayCircle,
+  CalendarDays, Heart, Cloud, BrainCircuit, PlayCircle, UploadCloud,
 } from "lucide-react"
 import { useNavigate } from "react-router-dom"
 import { useState, useRef, useEffect } from "react"
@@ -27,9 +27,9 @@ export function MobileNav() {
   const panelRef = useRef<HTMLDivElement>(null)
 
   const primaryItems = [
+    { key: 'import', icon: UploadCloud, label: '导入', path: '/import' },
     { key: 'chat', icon: MessageSquare, label: '聊天', path: '/chat' },
     { key: 'contacts', icon: Users, label: '联系人', path: '/contacts' },
-    { key: 'gallery', icon: ImageIcon, label: '图片', path: '/gallery' },
     { key: 'search', icon: Search, label: '搜索', path: '/search' },
   ]
 
@@ -52,6 +52,7 @@ export function MobileNav() {
     {
       label: '其他',
       items: [
+        { key: 'gallery', icon: ImageIcon, label: '图片', path: '/gallery' },
         { key: 'contact-reminder', icon: Clock, label: '联系提醒', path: '/contact-reminder' },
         { key: 'monitor', icon: Shield, label: '监控', path: '/monitor' },
         { key: 'settings', icon: Settings, label: '设置', path: '/settings' },

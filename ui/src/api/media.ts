@@ -47,18 +47,6 @@ export const mediaApi = {
     return [3, 34, 43, 47, 49].includes(type)
   },
 
-  startCache: (scope: 'all' | 'session', talker?: string) => {
-    return request.post('/api/v1/media/cache/start', { scope, talker })
-  },
-
-  stopCache: () => {
-    return request.post('/api/v1/media/cache/stop', {})
-  },
-
-  getCacheStatus: () => {
-    return request.get('/api/v1/media/cache/status')
-  },
-
   getImageList: (params?: {
     talker?: string;
     time_range?: string;

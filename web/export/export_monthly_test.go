@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/afumu/wetrace/internal/model"
+	"github.com/DrMaomao12345/Wetrace-Plus/internal/model"
 )
 
 func ymStat(y, m, c int) *model.YearMonthStat {

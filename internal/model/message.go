@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/afumu/wetrace/pkg/util"
+	"github.com/DrMaomao12345/Wetrace-Plus/pkg/util"
 )
 
 var Debug = false

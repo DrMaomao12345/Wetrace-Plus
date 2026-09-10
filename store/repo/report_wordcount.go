@@ -9,9 +9,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/afumu/wetrace/internal/model"
-	"github.com/afumu/wetrace/store/bind"
-	"github.com/afumu/wetrace/store/types"
+	"github.com/DrMaomao12345/Wetrace-Plus/internal/model"
+	"github.com/DrMaomao12345/Wetrace-Plus/store/bind"
+	"github.com/DrMaomao12345/Wetrace-Plus/store/types"
 )
 
 // GetAnnualWordCounts 计算指定年份内每个会话发送/接收的字数（消息内容字符长度）

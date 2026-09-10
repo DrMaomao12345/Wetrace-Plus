@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/afumu/wetrace/internal/model"
-	"github.com/afumu/wetrace/store/types"
+	"github.com/DrMaomao12345/Wetrace-Plus/internal/model"
+	"github.com/DrMaomao12345/Wetrace-Plus/store/types"
 )
 
 // contactProfile 定义了跨 Session 和 Message 复用的联系人简要信息

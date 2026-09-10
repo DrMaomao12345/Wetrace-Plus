@@ -4,7 +4,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/afumu/wetrace/internal/model"
+	"github.com/DrMaomao12345/Wetrace-Plus/internal/model"
 )
 
 // BuildTimeline 从已提取的月度消息数(rawFeatures.monthCounts)生成陪伴时间轴(§10-12)。
