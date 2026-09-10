@@ -1,5 +1,4 @@
 import { useState, useRef, useMemo, useEffect } from "react"
-import { useNavigate } from "react-router-dom"
 import { useQuery } from "@tanstack/react-query"
 import { useReportStream } from "@/hooks/useReportStream"
 import { useCountUp } from "@/hooks/useCountUp"
@@ -47,40 +46,6 @@ import {
 } from "recharts"
 
 const WEEKDAY_NAMES = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"]
-
-// 常用时区列表（偏移量单位：分钟，东正西负）
-const TZ_OPTIONS: { label: string; offset: number }[] = [
-  { label: "UTC-12", offset: -720 },
-  { label: "UTC-11", offset: -660 },
-  { label: "UTC-10", offset: -600 },
-  { label: "UTC-9",  offset: -540 },
-  { label: "UTC-8",  offset: -480 },
-  { label: "UTC-7",  offset: -420 },
-  { label: "UTC-6",  offset: -360 },
-  { label: "UTC-5",  offset: -300 },
-  { label: "UTC-4",  offset: -240 },
-  { label: "UTC-3",  offset: -180 },
-  { label: "UTC-2",  offset: -120 },
-  { label: "UTC-1",  offset:  -60 },
-  { label: "UTC",    offset:    0 },
-  { label: "UTC+1",  offset:   60 },
-  { label: "UTC+2",  offset:  120 },
-  { label: "UTC+3",  offset:  180 },
-  { label: "UTC+4",  offset:  240 },
-  { label: "UTC+5",  offset:  300 },
-  { label: "UTC+5:30 (印度)", offset: 330 },
-  { label: "UTC+5:45 (尼泊尔)", offset: 345 },
-  { label: "UTC+6",  offset:  360 },
-  { label: "UTC+7",  offset:  420 },
-  { label: "UTC+8 (北京/上海)", offset: 480 },
-  { label: "UTC+9 (东京/首尔)", offset: 540 },
-  { label: "UTC+9:30 (澳大利亚中部)", offset: 570 },
-  { label: "UTC+10", offset:  600 },
-  { label: "UTC+11", offset:  660 },
-  { label: "UTC+12", offset:  720 },
-  { label: "UTC+13", offset:  780 },
-  { label: "UTC+14", offset:  840 },
-]
 
 type SegmentRow = TZSegment & { _id: string }
 
@@ -210,18 +175,7 @@ function ReviewQuad({ items, privacyMode }: {
   )
 }
 
-/** 把分钟偏移显示成 UTC+8 这种标签。 */
-function tzLabel(offsetMinutes: number): string {
-  const hit = TZ_OPTIONS.find((t) => t.offset === offsetMinutes)
-  if (hit) return hit.label
-  const sign = offsetMinutes < 0 ? "-" : "+"
-  const abs = Math.abs(offsetMinutes)
-  const h = Math.floor(abs / 60), m = abs % 60
-  return `UTC${sign}${h}${m ? ":" + String(m).padStart(2, "0") : ""}`
-}
-
 export default function AnnualReportView() {
-  const navigate = useNavigate()
   const currentYear = new Date().getFullYear()
   const [inputYear, setInputYear] = useState(String(currentYear))
   const [excludeTalkers, setExcludeTalkers] = useState<string[]>(() => loadConfig().excludeTalkers ?? [])
@@ -251,7 +205,6 @@ export default function AnnualReportView() {
     localStorage.setItem(PRIVACY_KEY, privacyMode ? "1" : "0")
   }, [privacyMode])
 
-  const [showTzPanel, setShowTzPanel] = useState(false)
   const [showExcludePanel, setShowExcludePanel] = useState(false)
   const [excludeSearch, setExcludeSearch] = useState("")
   const [savedTip, setSavedTip] = useState(false)
@@ -294,15 +247,6 @@ export default function AnnualReportView() {
     if (savedTimerRef.current) clearTimeout(savedTimerRef.current)
     savedTimerRef.current = setTimeout(() => setSavedTip(false), 2000)
   }
-
-  // 显示模式：progress = 进度条；stream = 数据流（边算边显示，默认）
-  const [displayMode, setDisplayMode] = useState<"progress" | "stream">(() => {
-    const v = localStorage.getItem("annual_report_display_mode")
-    return v === "progress" ? "progress" : "stream"
-  })
-  useEffect(() => {
-    localStorage.setItem("annual_report_display_mode", displayMode)
-  }, [displayMode])
 
   // 流式生成
   const { state: stream, start: startStream } = useReportStream()
@@ -410,7 +354,7 @@ export default function AnnualReportView() {
   // 拼出 data：流跟当前 sig 匹配且完成时用 fullReport；运行中流式模式且匹配取 partial；
   // 否则回落到 localStorage 缓存
   const data: AnnualReport | null = (streamMatchesCurrent ? stream.fullReport : null)
-    ?? (streamMatchesCurrent && displayMode === "stream" && stream.status === "running"
+    ?? (streamMatchesCurrent && stream.status === "running"
       ? ({
           year: params?.year ?? currentYear,
           overview: stream.partial.overview ?? {
@@ -438,7 +382,6 @@ export default function AnnualReportView() {
       : null)
     ?? (currentSig ? findCache(currentSig)?.report ?? null : null)
 
-  const isLoading = stream.status === "running" && displayMode === "progress"
   const error = stream.status === "error" ? stream.error : null
 
   const { data: effectiveStart } = useQuery({
@@ -512,39 +455,6 @@ export default function AnnualReportView() {
     })
   }
 
-  if (isLoading) {
-    const pct = stream.total > 0 ? Math.round((stream.current / stream.total) * 100) : 0
-    const stepLabel: Record<string, string> = {
-      overview: "统计概览数据",
-      top_contacts: "计算亲密度排行",
-      monthly_trend: "分析月度趋势",
-      past_years_avg: "算往年月均",
-      weekday_dist: "分析星期分布",
-      hourly_dist: "分析小时分布",
-      message_types: "统计消息类型",
-      highlights: "提取年度亮点",
-    }
-    return (
-      <div className="flex items-center justify-center h-full">
-        <div className="flex flex-col items-center gap-5 max-w-md w-full px-6">
-          <p className="text-base font-medium">正在生成 {params?.year} 年度报告</p>
-          <div className="w-full">
-            <div className="h-2 w-full bg-muted/50 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-primary transition-all duration-300"
-                style={{ width: `${pct}%` }}
-              />
-            </div>
-            <div className="mt-2 flex justify-between text-xs text-muted-foreground">
-              <span>{stepLabel[stream.step] || "准备中..."}</span>
-              <span>{stream.current} / {stream.total} ({pct}%)</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
   if (error) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -556,217 +466,123 @@ export default function AnnualReportView() {
     )
   }
 
-  // 配置区域（始终可见）
-  const configPanel = (
-    <div className="space-y-4 print-hide">
-      <div className="flex items-center gap-2 flex-wrap">
-        <Button variant="outline" size="sm" className="gap-1" onClick={() => window.print()}>
-          导出 PDF
-        </Button>
-        <label className="flex cursor-pointer items-center gap-1 text-xs text-muted-foreground">
-          <input type="checkbox" checked={showReview} onChange={(e) => setShowReview(e.target.checked)} className="accent-primary" />
-          关系回顾
-        </label>
-        <Button
-          variant={privacyMode ? "default" : "outline"}
-          size="sm"
-          className="gap-1"
-          onClick={() => setPrivacyMode(p => !p)}
-          title="遮住联系人姓名与头像，便于截图或导出 PDF 分享"
-        >
-          {privacyMode ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-          私密模式
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          className="gap-1"
-          onClick={() => { setShowTzPanel(p => !p); setShowExcludePanel(false) }}
-        >
-          时区设置
-          {segments.length > 0 && (
-            <span className="ml-1 text-xs bg-primary/10 text-primary rounded px-1">{segments.length} 段</span>
-          )}
-          <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showTzPanel ? "rotate-180" : ""}`} />
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          className="gap-1"
-          onClick={() => { setShowExcludePanel(p => !p); setShowTzPanel(false) }}
-        >
-          排除设置
-          {excludeTalkers.length > 0 && (
-            <span className="ml-1 text-xs bg-destructive/10 text-destructive rounded px-1">{excludeTalkers.length}</span>
-          )}
-          <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showExcludePanel ? "rotate-180" : ""}`} />
-        </Button>
+  const parsedInputYear = parseInt(inputYear)
+  const yearChanged = !!params && parsedInputYear !== params.year
+  const exclusionsChanged = !!params &&
+    JSON.stringify([...excludeTalkers].sort()) !== JSON.stringify([...params.excludeTalkers].sort())
+  const hasPendingChanges = yearChanged || exclusionsChanged
+
+  // 具体联系人排除不是「设置 → 统计范围」里的类型过滤，所以保留为可选项，默认收起。
+  const excludePanel = (
+    <div className="space-y-3 rounded-xl border bg-muted/20 p-4 text-left">
+      <p className="text-xs text-muted-foreground">
+        这里只排除具体联系人或群聊；设置页里的“统计范围”负责按聊天类型过滤，两者并不重复。
+      </p>
+      <div className="relative">
+        <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
         <Input
-          type="number"
-          value={inputYear}
-          onChange={(e) => setInputYear(e.target.value)}
-          className={`w-24 h-9 ${
-            params && parseInt(inputYear) !== params.year ? "border-amber-500 ring-1 ring-amber-500" : ""
-          }`}
-          min={2000}
-          max={currentYear}
+          value={excludeSearch}
+          onChange={e => setExcludeSearch(e.target.value)}
+          placeholder="搜索联系人或群聊..."
+          className="h-8 pl-7 text-sm"
         />
-        <Button
-          size="sm"
-          onClick={handleGenerate}
-          className={
-            params && parseInt(inputYear) !== params.year ? "bg-amber-600 hover:bg-amber-700" : ""
-          }
-        >
-          生成报告
-          {params && parseInt(inputYear) !== params.year && (
-            <span className="ml-1 text-[10px] opacity-90">(待应用)</span>
-          )}
-        </Button>
-        <div className="ml-auto flex items-center gap-1 text-xs">
-          <span className="text-muted-foreground">显示模式</span>
-          <button
-            onClick={() => setDisplayMode("stream")}
-            className={`h-7 px-2 rounded ${displayMode === "stream"
-              ? "bg-primary/10 text-primary font-medium"
-              : "text-muted-foreground hover:bg-muted"}`}
-          >
-            数据流
-          </button>
-          <button
-            onClick={() => setDisplayMode("progress")}
-            className={`h-7 px-2 rounded ${displayMode === "progress"
-              ? "bg-primary/10 text-primary font-medium"
-              : "text-muted-foreground hover:bg-muted"}`}
-          >
-            进度条
-          </button>
-          {cacheList.length > 0 && (
-            <button
-              onClick={() => {
-                if (!confirm(`清空 ${cacheList.length} 份本地缓存？`)) return
-                setCacheList([])
-                try { localStorage.removeItem(REPORT_CACHE_KEY) } catch {}
-                toast.info("缓存已清空")
-              }}
-              className="h-7 px-2 rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-              title={`本地缓存共 ${cacheList.length} 份`}
-            >
-              清缓存({cacheList.length})
-            </button>
-          )}
-        </div>
       </div>
-
-      {/* 排除联系人/群聊面板 */}
-      {showExcludePanel && (
-        <div className="border rounded-lg p-4 bg-muted/30 space-y-3">
-          <p className="text-xs text-muted-foreground">勾选后，该联系人/群聊不计入亲密度排行。</p>
-          <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-            <Input
-              value={excludeSearch}
-              onChange={e => setExcludeSearch(e.target.value)}
-              placeholder="搜索联系人或群聊..."
-              className="h-8 pl-7 text-sm"
-            />
-          </div>
-          {excludeTalkers.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
-              {excludeTalkers.map(t => {
-                const session = sessionsData?.items.find(s => s.talker === t)
-                const label = session?.name || session?.talkerName || t
-                return (
-                  <span key={t} className="inline-flex items-center gap-1 text-xs bg-destructive/10 text-destructive rounded-full px-2 py-0.5">
-                    {label}
-                    <button onClick={() => setExcludeTalkers(prev => prev.filter(x => x !== t))}>
-                      <X className="w-3 h-3" />
-                    </button>
-                  </span>
+      {excludeTalkers.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {excludeTalkers.map(t => {
+            const session = sessionsData?.items.find(s => s.talker === t)
+            const label = session?.name || session?.talkerName || t
+            return (
+              <span key={t} className="inline-flex items-center gap-1 rounded-full bg-destructive/10 px-2 py-0.5 text-xs text-destructive">
+                {label}
+                <button
+                  type="button"
+                  aria-label={`不再排除 ${label}`}
+                  onClick={() => setExcludeTalkers(prev => prev.filter(x => x !== t))}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            )
+          })}
+        </div>
+      )}
+      <div className="max-h-52 overflow-y-auto rounded-md border bg-background divide-y">
+        {filteredSessions.slice(0, 100).map(s => (
+          <label key={s.talker} className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm hover:bg-muted/50">
+            <input
+              type="checkbox"
+              className="accent-primary"
+              checked={excludeTalkers.includes(s.talker)}
+              onChange={e => {
+                setExcludeTalkers(prev =>
+                  e.target.checked ? [...prev, s.talker] : prev.filter(x => x !== s.talker)
                 )
-              })}
-            </div>
-          )}
-          <div className="max-h-52 overflow-y-auto border rounded-md divide-y bg-background">
-            {filteredSessions.slice(0, 100).map(s => (
-              <label key={s.talker} className="flex items-center gap-2 px-3 py-1.5 hover:bg-muted/50 cursor-pointer text-sm">
-                <input
-                  type="checkbox"
-                  className="accent-primary"
-                  checked={excludeTalkers.includes(s.talker)}
-                  onChange={e => {
-                    setExcludeTalkers(prev =>
-                      e.target.checked ? [...prev, s.talker] : prev.filter(x => x !== s.talker)
-                    )
-                  }}
-                />
-                <span className="truncate flex-1">{s.name || s.talkerName || s.talker}</span>
-                <span className="text-xs text-muted-foreground shrink-0">
-                  {s.type === "group" ? "群聊" : s.type === "official" ? "公众号" : "私聊"}
-                </span>
-              </label>
-            ))}
-            {filteredSessions.length === 0 && (
-              <div className="px-3 py-4 text-center text-xs text-muted-foreground">暂无数据</div>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
-            <Button size="sm" onClick={handleSaveConfig}>保存配置</Button>
-            {savedTip && <span className="text-xs text-green-600">已保存</span>}
-          </div>
-        </div>
-      )}
-
-      {/* 时区配置面板 */}
-      {showTzPanel && (
-        <div className="border rounded-lg p-4 bg-muted/30 space-y-3">
-          <div className="flex items-start justify-between gap-4">
-            <p className="text-xs text-muted-foreground">
-              时区口径已统一到<span className="text-foreground">「设置 → 时区」</span>，
-              服务端存一份，联系人统计和年度报告共用同一套 —— 同一条消息不会再在两个页面
-              被切进不同的自然日。
-            </p>
-            <Button variant="outline" size="sm" className="shrink-0" onClick={() => navigate("/settings")}>
-              去设置修改
-            </Button>
-          </div>
-
-          <div className="flex items-center gap-3 text-sm">
-            <span className="w-24 shrink-0 text-muted-foreground">默认时区</span>
-            <span className="font-medium">{tzLabel(defaultTz)}</span>
-            <span className="text-xs text-muted-foreground">没有被分段覆盖的日期用它</span>
-          </div>
-
-          {segments.length > 0 ? (
-            <div className="space-y-1">
-              <div className="text-xs text-muted-foreground">时间分段（{segments.length} 段）</div>
-              {segments.map((seg) => (
-                <div key={seg._id} className="flex items-center gap-2 text-sm">
-                  <span className="tabular-nums text-muted-foreground">{seg.start_date}</span>
-                  <span className="text-muted-foreground">→</span>
-                  <span className="tabular-nums text-muted-foreground">{seg.end_date}</span>
-                  <span className="ml-2 font-medium">{tzLabel(seg.tz_offset)}</span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="text-xs text-muted-foreground">没有配置时间分段，全程使用默认时区。</div>
-          )}
-        </div>
-      )}
+              }}
+            />
+            <span className="min-w-0 flex-1 truncate">{s.name || s.talkerName || s.talker}</span>
+            <span className="shrink-0 text-xs text-muted-foreground">
+              {s.type === "group" ? "群聊" : s.type === "official" ? "公众号" : "私聊"}
+            </span>
+          </label>
+        ))}
+        {filteredSessions.length === 0 && (
+          <div className="px-3 py-4 text-center text-xs text-muted-foreground">暂无数据</div>
+        )}
+      </div>
+      <div className="flex items-center gap-2">
+        <Button size="sm" onClick={handleSaveConfig}>保存排除名单</Button>
+        {savedTip && <span className="text-xs text-green-600">已保存</span>}
+      </div>
     </div>
   )
 
   // 未生成过时显示引导界面
   if (!params) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <div className="space-y-6 w-full max-w-2xl px-4">
+      <div className="flex h-full items-center justify-center overflow-y-auto p-4 sm:p-6">
+        <div className="w-full max-w-lg rounded-2xl border bg-card p-6 shadow-sm sm:p-8">
           <div className="text-center">
+            <div className="mx-auto mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <CalendarDays className="h-5 w-5" />
+            </div>
             <h2 className="text-xl font-bold">年度社交报告</h2>
-            <p className="text-sm text-muted-foreground mt-1">配置好参数后点击「生成报告」</p>
+            <p className="mt-1 text-sm text-muted-foreground">选择年份，生成你的微信年度数据回顾</p>
           </div>
-          {configPanel}
+
+          <div className="mt-8 space-y-4">
+            <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+              <label className="space-y-1.5 text-sm font-medium">
+                <span>报告年份</span>
+                <Input
+                  type="number"
+                  aria-label="报告年份"
+                  value={inputYear}
+                  onChange={(e) => setInputYear(e.target.value)}
+                  className="h-10 w-full"
+                  min={2000}
+                  max={currentYear}
+                />
+              </label>
+              <Button className="h-10 px-6" onClick={handleGenerate}>生成报告</Button>
+            </div>
+
+            <div className="border-t pt-3">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="mx-auto flex gap-1.5 text-muted-foreground"
+                onClick={() => setShowExcludePanel(p => !p)}
+              >
+                排除联系人（可选）
+                {excludeTalkers.length > 0 && (
+                  <span className="rounded bg-destructive/10 px-1.5 text-xs text-destructive">{excludeTalkers.length}</span>
+                )}
+                <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", showExcludePanel && "rotate-180")} />
+              </Button>
+            </div>
+            {showExcludePanel && excludePanel}
+          </div>
         </div>
       </div>
     )
@@ -780,11 +596,65 @@ export default function AnnualReportView() {
     )
   }
 
+  const reportToolbar = (
+    <div className="print-hide grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center">
+      <Input
+        type="number"
+        aria-label="报告年份"
+        value={inputYear}
+        onChange={(e) => setInputYear(e.target.value)}
+        className={cn("h-9 w-full sm:w-24", yearChanged && "border-amber-500 ring-1 ring-amber-500")}
+        min={2000}
+        max={currentYear}
+      />
+      <Button
+        size="sm"
+        onClick={handleGenerate}
+        className={cn("w-full sm:w-auto", hasPendingChanges && "bg-amber-600 hover:bg-amber-700")}
+      >
+        {hasPendingChanges ? "更新报告" : "重新生成"}
+      </Button>
+      <Button
+        variant="outline"
+        size="sm"
+        className="w-full gap-1 sm:w-auto"
+        onClick={() => setShowExcludePanel(p => !p)}
+      >
+        排除联系人
+        {excludeTalkers.length > 0 && (
+          <span className="rounded bg-destructive/10 px-1 text-xs text-destructive">{excludeTalkers.length}</span>
+        )}
+        <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", showExcludePanel && "rotate-180")} />
+      </Button>
+      <Button
+        variant={showReview ? "secondary" : "outline"}
+        size="sm"
+        className="w-full sm:w-auto"
+        onClick={() => setShowReview(p => !p)}
+      >
+        关系回顾
+      </Button>
+      <Button
+        variant={privacyMode ? "default" : "outline"}
+        size="sm"
+        className="w-full gap-1 sm:w-auto"
+        onClick={() => setPrivacyMode(p => !p)}
+        title="遮住联系人姓名与头像，便于截图或导出 PDF 分享"
+      >
+        {privacyMode ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+        私密模式
+      </Button>
+      <Button variant="outline" size="sm" className="w-full sm:w-auto" onClick={() => window.print()}>
+        导出 PDF
+      </Button>
+    </div>
+  )
+
   return (
     <ScrollArea className="h-full">
       <div id="report-print" className="max-w-5xl mx-auto p-6 space-y-6 pb-20">
         {/* Header */}
-        <div className="flex items-center justify-between flex-wrap gap-4">
+        <div className="flex items-start justify-between flex-wrap gap-4">
           <div>
             <h2 className="text-2xl font-bold tracking-tight">
               {data?.year ?? params.year} 年度社交报告
@@ -793,8 +663,10 @@ export default function AnnualReportView() {
               你的微信年度数据回顾
             </p>
           </div>
-          {configPanel}
+          {reportToolbar}
         </div>
+
+        {showExcludePanel && <div className="print-hide">{excludePanel}</div>}
 
         {/* 流式生成时的进度条（只在用户停留在该流绑定的配置上时显示） */}
         {stream.status === "running" && streamMatchesCurrent && (

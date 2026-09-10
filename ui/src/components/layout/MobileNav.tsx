@@ -131,7 +131,7 @@ export function MobileNav() {
       )}
 
       {/* Bottom tab bar */}
-      <div className="h-[50px] bg-background border-t border-border flex items-center justify-around px-4 pb-safe z-50">
+      <div className="h-[50px] w-full shrink-0 bg-background border-t border-border flex items-center justify-around px-4 pb-safe z-50">
         {primaryItems.map((item) => (
           <button
             key={item.key}
