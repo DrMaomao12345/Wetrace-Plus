@@ -13,10 +13,15 @@ const (
 	ModuleBiz       StatsModule = "biz"       // 公众号订阅画像
 )
 
-// AllStatsModules 是全部可覆盖模块，顺序即前端展示顺序。
+// AllStatsModules 是**允许用户单独设置统计范围**的模块，顺序即前端展示顺序。
+//
+// ModuleBiz 故意不在里面：公众号画像的统计对象本来就只有订阅号和服务号，
+// 给它一个"统计范围"开关没有意义 —— 调成别的只会让这一页变空。
+// 它仍然是一个合法的 StatsModule（store/repo/biz.go 用它过滤），
+// 只是不作为可配置项暴露给用户，见 EffectiveTypes。
 var AllStatsModules = []StatsModule{
 	ModuleReport, ModuleInsights, ModuleGalaxy,
-	ModuleDashboard, ModuleWordCloud, ModuleReminder, ModuleBiz,
+	ModuleDashboard, ModuleWordCloud, ModuleReminder,
 }
 
 var statsModuleLabels = map[StatsModule]string{
@@ -43,9 +48,9 @@ func (m StatsModule) Valid() bool {
 //   - Modules 里出现的模块用自己的开关覆盖全局；没出现的模块继承全局
 //   - Overrides 是对单个会话手动指定的类型标签，优先于自动分类
 type StatsScope struct {
-	Global    map[TalkerType]bool                `json:"global"`
+	Global    map[TalkerType]bool                 `json:"global"`
 	Modules   map[StatsModule]map[TalkerType]bool `json:"modules,omitempty"`
-	Overrides map[string]TalkerType              `json:"overrides,omitempty"`
+	Overrides map[string]TalkerType               `json:"overrides,omitempty"`
 }
 
 // DefaultStatsScope 默认全部类型都参与统计 —— 与本功能上线前的行为一致，
@@ -113,18 +118,22 @@ func (s *StatsScope) Normalize() {
 
 // EffectiveTypes 返回某模块实际生效的类型开关（模块覆盖优先，否则继承全局）。
 //
-// 公众号画像是个例外：它的统计对象本来就是订阅号和服务号，如果跟随全局，
-// 用户一旦在全局里关掉公众号（这恰恰是这个功能最常见的用法），整个页面就会
-// 变成一片零，看起来像坏了。所以它默认统计全部类型，除非用户显式给它单独设置。
+// 公众号画像是个例外，而且是**无条件**的例外：它的统计对象本来就是订阅号和
+// 服务号，跟随全局的话，用户一旦在全局里关掉公众号（这恰恰是这个功能最常见的
+// 用法），整个页面就会变成一片零、看起来像坏了。既然它只有一种合理取值，
+// 就不该让人配 —— 所以它已经从 AllStatsModules 里拿掉，界面上也不再出现。
+//
+// 这里连历史遗留的 Modules["biz"] 也一并忽略：那个设置现在没有任何界面能看到
+// 或清掉，留着它生效就是一个用户改不了、也看不见的隐藏开关。
 func (s *StatsScope) EffectiveTypes(m StatsModule) map[TalkerType]bool {
 	if s == nil {
 		return DefaultStatsScope().Global
 	}
+	if m == ModuleBiz {
+		return DefaultStatsScope().Global // 全开，不可配置
+	}
 	if types, ok := s.Modules[m]; ok && types != nil {
 		return types
-	}
-	if m == ModuleBiz {
-		return DefaultStatsScope().Global // 全开
 	}
 	return s.Global
 }

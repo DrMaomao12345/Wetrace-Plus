@@ -168,11 +168,8 @@ export function StatsScopeSection() {
         <div className="space-y-2">
           <div className="text-sm font-medium">按统计模块单独设置</div>
           <p className="text-xs text-muted-foreground">
-            默认所有模块跟随上面的全局设置。打开开关后,该模块使用自己的一套类型范围。
-          </p>
-          <p className="text-xs text-muted-foreground">
-            例外:「公众号画像」默认统计全部公众号,不跟随全局 —— 否则你在全局里关掉
-            订阅号 / 服务号之后,这一页就会变成空的。
+            开关默认打开,表示该模块跟随上面的全局设置。
+            <span className="text-foreground">关掉</span>它,这个模块就用自己的一套类型范围。
           </p>
           <div className="space-y-2">
             {data.modules.map((m) => {
@@ -184,15 +181,13 @@ export function StatsScopeSection() {
                     <span className="text-sm">{m.label}</span>
                     <div className="flex items-center gap-2">
                       <span className="text-xs text-muted-foreground">
-                        {override
-                          ? "单独设置"
-                          : mod === "biz"
-                            ? "统计全部公众号"
-                            : "跟随全局"}
+                        {override ? "单独设置" : "跟随全局"}
                       </span>
+                      {/* 开关表示「跟随全局」：默认开。关掉才展开自己的类型范围，
+                          所以这里和 override 是反的 */}
                       <Switch
-                        checked={Boolean(override)}
-                        onCheckedChange={(v) => toggleModuleOverride(mod, v)}
+                        checked={!override}
+                        onCheckedChange={(followGlobal) => toggleModuleOverride(mod, !followGlobal)}
                       />
                     </div>
                   </div>

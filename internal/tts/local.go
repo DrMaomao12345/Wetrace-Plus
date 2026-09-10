@@ -24,10 +24,16 @@ func NewLocalClient(binaryPath, modelPath string) *LocalClient {
 }
 
 // Transcribe 识别音频数据，返回文字
-func (c *LocalClient) Transcribe(audioData []byte, _ string) (string, error) {
+func (c *LocalClient) Transcribe(audioData []byte, filename string) (string, error) {
 	tmpDir := os.TempDir()
 	uid := fmt.Sprintf("%d_%d", time.Now().UnixNano(), rand.Int63())
-	audioFile := filepath.Join(tmpDir, "wt_voice_"+uid+".mp3")
+	// 用调用方给的真实扩展名。以前这里写死 .mp3，喂 WAV 进来会被 whisper.cpp
+	// 按扩展名误判 —— 而 whisper.cpp 本来就更想要 WAV。
+	ext := strings.ToLower(filepath.Ext(filename))
+	if ext == "" {
+		ext = ".wav"
+	}
+	audioFile := filepath.Join(tmpDir, "wt_voice_"+uid+ext)
 	outBase := filepath.Join(tmpDir, "wt_out_"+uid)
 	outFile := outBase + ".txt"
 

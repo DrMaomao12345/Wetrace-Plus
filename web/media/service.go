@@ -512,3 +512,21 @@ func (s *Service) prepareVoice(data []byte) PreparedMedia {
 
 	return PreparedMedia{Content: out, ContentType: "audio/mp3"}
 }
+
+// PrepareVoiceLossless 把语音解成无损 WAV。
+//
+// 转写和音色克隆都该走这条：MP3 那条会把 4.4 kHz 以上削掉，而齿音和说话人
+// 身份特征就在那一段（详见 pkg/util/silk 的包注释）。播放仍走 prepareVoice。
+func (s *Service) PrepareVoiceLossless(data []byte) PreparedMedia {
+	if len(data) == 0 {
+		return PreparedMedia{Error: fmt.Errorf("语音数据为空")}
+	}
+
+	out, err := silk.Silk2WAV(data)
+	if err != nil {
+		log.Warn().Err(err).Msg("解码 .silk 为 WAV 失败，回退到 MP3。")
+		return s.prepareVoice(data)
+	}
+
+	return PreparedMedia{Content: out, ContentType: "audio/wav"}
+}
