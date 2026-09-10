@@ -34,7 +34,7 @@ func (r *Repository) GetMessages(ctx context.Context, q types.MessageQuery) ([]*
 	r.sortMessages(allMessages)
 
 	// 4. 分页：内存切片
-	msgs := r.paginateMessages(allMessages, q.Limit, q.Offset)
+	msgs := r.paginateMessages(allMessages, q.Limit, q.Offset, q.Reverse)
 
 	// 5. 丰富：填充头像等信息
 	if len(msgs) > 0 {
@@ -269,14 +269,25 @@ func (r *Repository) sortMessages(msgs []*model.Message) {
 	})
 }
 
-func (r *Repository) paginateMessages(msgs []*model.Message, limit, offset int) []*model.Message {
+func (r *Repository) paginateMessages(msgs []*model.Message, limit, offset int, reverse bool) []*model.Message {
 	total := len(msgs)
-	start := offset
-
-	if start >= total {
+	if offset >= total {
 		return []*model.Message{}
 	}
+	if reverse {
+		end := total - offset
+		start := 0
+		if limit > 0 && end-limit > 0 {
+			start = end - limit
+		}
+		result := make([]*model.Message, 0, end-start)
+		for i := end - 1; i >= start; i-- {
+			result = append(result, msgs[i])
+		}
+		return result
+	}
 
+	start := offset
 	end := start + limit
 	if limit == 0 || end > total {
 		end = total

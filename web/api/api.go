@@ -21,6 +21,7 @@ import (
 	"github.com/DrMaomao12345/Wetrace-Plus/store/types"
 	"github.com/DrMaomao12345/Wetrace-Plus/web/export"
 	"github.com/DrMaomao12345/Wetrace-Plus/web/media"
+	"github.com/rs/zerolog/log"
 	"github.com/spf13/viper"
 )
 
@@ -43,30 +44,36 @@ type BatchTranscribeJob struct {
 
 // API 封装了 API 处理器所需的所有依赖。
 type API struct {
-	Store             store.Store
-	Media             *media.Service
-	Export            *export.Service
-	Conf              *Config
-	AI                *ai.Client
-	Password          *PasswordManager
-	BackupScheduler   *backup.Scheduler
-	Monitor           *monitor.Store
-	MonitorChecker    *monitor.Checker
-	TgBot             *telegram.Bot
-	tgBotMu           sync.Mutex
-	TTS               tts.Transcriber
-	Transcripts       *transcripts.Store
-	VoiceMissing      *transcripts.Store // 本地没有文件的语音，跳过以免每次重试
-	MobilePairings    *MobilePairingStore
-	ExcludeConfig     *ExcludeConfigStore
-	StatsScope        *StatsScopeStore
-	ReportCache       *ReportCache
-	ImageList         *imageListCache // 图库清单缓存（枚举一次约 1.7s，翻页复用）
-	Importer          *importer.Service
-	mu                sync.Mutex
-	summarizeCancel   context.CancelFunc
-	currentSummaryJob *SummaryHistoryItem
-	batchJob          *BatchTranscribeJob
+	Store              store.Store
+	Media              *media.Service
+	Export             *export.Service
+	Conf               *Config
+	AI                 *ai.Client
+	Password           *PasswordManager
+	BackupScheduler    *backup.Scheduler
+	Monitor            *monitor.Store
+	MonitorChecker     *monitor.Checker
+	TgBot              *telegram.Bot
+	tgBotMu            sync.Mutex
+	TTS                tts.Transcriber
+	Transcripts        *transcripts.Store
+	VoiceMissing       *transcripts.Store // 本地没有文件的语音，跳过以免每次重试
+	MobilePairings     *MobilePairingStore
+	ExcludeConfig      *ExcludeConfigStore
+	StatsScope         *StatsScopeStore
+	ContactMemories    *ContactMemoryStore
+	ReportCache        *ReportCache
+	ImageList          *imageListCache // 图库清单缓存（枚举一次约 1.7s，翻页复用）
+	Importer           *importer.Service
+	contactMemoryMu    sync.Mutex
+	contactMemoryJobs  map[string]*contactMemoryJob
+	mu                 sync.Mutex
+	accountSwitching   bool
+	accountSwitchGen   uint64
+	accountSwitchError string
+	summarizeCancel    context.CancelFunc
+	currentSummaryJob  *SummaryHistoryItem
+	batchJob           *BatchTranscribeJob
 }
 
 type Config struct {
@@ -93,18 +100,24 @@ func NewAPI(s store.Store, m *media.Service, conf *Config, staticFS fs.FS) *API 
 	}
 
 	a := &API{
-		Store:    s,
-		Media:    m,
-		Export:   exportSvc,
-		Conf:     conf,
-		AI:       aiClient,
-		Password: NewPasswordManager(),
-		Importer: importer.New(conf.DataDir),
+		Store:             s,
+		Media:             m,
+		Export:            exportSvc,
+		Conf:              conf,
+		AI:                aiClient,
+		Password:          NewPasswordManager(),
+		Importer:          importer.New(conf.DataDir),
+		contactMemoryJobs: make(map[string]*contactMemoryJob),
 	}
 
 	// Initialize AI prompts JSON file path
 	initPromptsFilePath(conf.DataDir)
 	initSummaryHistoryFilePath(conf.DataDir)
+	if memories, err := NewContactMemoryStore(conf.DataDir); err == nil {
+		a.ContactMemories = memories
+	} else {
+		log.Warn().Err(err).Msg("加载联系人记忆失败，相关功能将暂不可用")
+	}
 
 	// 初始化分词器（支持用户词典 data/wordcloud_dict.txt）
 	wordcloud.Init(conf.DataDir)
