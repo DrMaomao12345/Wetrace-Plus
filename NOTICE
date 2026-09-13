@@ -1,0 +1,44 @@
+Wetrace Plus
+Copyright (c) 2026 DrMaomao12345
+
+本产品整体以 GNU Affero General Public License v3.0 发布（见 LICENSE）。
+
+---------------------------------------------------------------------
+第三方代码与署名
+---------------------------------------------------------------------
+
+本项目的部分基础代码派生自 chatlog（原仓库 https://github.com/sjzar/chatlog），
+该项目以 Apache License 2.0 发布：
+
+    Copyright (c) 2023 shenjunzheng@gmail.com
+    Licensed under the Apache License, Version 2.0
+
+受影响的文件保留了原作者的版权头，主要位于：
+
+    pkg/config/config.go
+    pkg/config/default.go
+
+Apache License 2.0 全文见 https://www.apache.org/licenses/LICENSE-2.0
+按 Apache-2.0 §4 的要求，在此说明本项目对继承代码所做的主要改动：
+
+  * 移除了微信客户端探测、进程访问与数据库密钥提取
+  * 移除了微信数据库解密与本地加密图片（.dat）解码
+  * 移除了微信安装目录的扫描与同步
+  * 数据来源改为「只接收其他工具导出的 JSON / CSV / ZIP 文件」
+  * 新增导入适配层、去重与导入历史，并重写了绝大部分分析、报表与前端代码
+
+分析框架部分曾参考同源项目 wetrace（https://github.com/afumu/wetrace），
+该仓库已不再可用；其中与密钥提取、数据库解密相关的能力未被本项目继承。
+
+---------------------------------------------------------------------
+主要开源依赖
+---------------------------------------------------------------------
+
+Gin (github.com/gin-gonic/gin)              Apache-2.0
+go-sqlite3 (github.com/mattn/go-sqlite3)    MIT
+gse (github.com/go-ego/gse)                 Apache-2.0
+zerolog (github.com/rs/zerolog)             MIT
+viper (github.com/spf13/viper)              MIT
+Recharts, React, Vite, Tailwind CSS         MIT
+
+完整依赖清单见 go.mod 与 ui/package.json，各自遵循其原有许可证。
