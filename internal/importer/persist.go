@@ -339,8 +339,36 @@ func (w *writer) upsertSession(ctx context.Context, message Message, seq int64) 
 			last_msg_sub_type = CASE WHEN excluded.last_timestamp >= SessionTable.last_timestamp THEN excluded.last_msg_sub_type ELSE SessionTable.last_msg_sub_type END,
 			last_msg_sender = CASE WHEN excluded.last_timestamp >= SessionTable.last_timestamp THEN excluded.last_msg_sender ELSE SessionTable.last_msg_sender END,
 			last_sender_display_name = CASE WHEN excluded.last_timestamp >= SessionTable.last_timestamp THEN excluded.last_sender_display_name ELSE SessionTable.last_sender_display_name END`,
-		message.TalkerID, boolInt(message.IsChatRoom), truncateRunes(message.Content, 120), message.Time.Unix(), message.Time.Unix(), seq, message.Type, message.SubType, message.SenderID, message.SenderName)
+		message.TalkerID, boolInt(message.IsChatRoom), sessionSummary(message), message.Time.Unix(), message.Time.Unix(), seq, message.Type, message.SubType, message.SenderID, message.SenderName)
 	return err
+}
+
+// sessionSummary 生成会话列表里那行预览。
+// 非文本消息的 content 往往是 XML 或附件描述，原样截断会在列表里露出一串标签，
+// 所以按类型换成微信自己那套占位文案。
+func sessionSummary(message Message) string {
+	switch message.Type {
+	case 3:
+		return "[图片]"
+	case 34:
+		return "[语音]"
+	case 42:
+		return "[名片]"
+	case 43:
+		return "[视频]"
+	case 47:
+		return "[动画表情]"
+	case 48:
+		return "[位置]"
+	case 49:
+		return "[链接]"
+	case 50:
+		return "[通话]"
+	}
+	if strings.HasPrefix(strings.TrimSpace(message.Content), "<") {
+		return "[消息]"
+	}
+	return truncateRunes(message.Content, 120)
 }
 
 func (w *writer) AddHistory(ctx context.Context, item HistoryItem) error {

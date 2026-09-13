@@ -37,6 +37,11 @@ type AnnualReportRequest struct {
 // 同一批消息在两个页面会被切进不同的自然日。字段保留只为兼容老客户端。
 func resolveTZ() (defaultOffsetSec int, segs []model.TZSegmentConfig) {
 	cfg := CurrentTZConfig()
+	// 还没配过时区时用本机时区，和 resolveTzMinutes / store 层的兜底保持一致 ——
+	// 否则年报按 UTC、其它页面按本地，同一份数据两套数字
+	if cfg.DefaultOffset == 0 && len(cfg.Segments) == 0 {
+		return localTZMinutes() * 60, nil
+	}
 	return cfg.DefaultOffset * 60, cfg.Segments
 }
 

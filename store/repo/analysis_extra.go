@@ -412,6 +412,10 @@ func (r *Repository) GetYearCompare(ctx context.Context, yearA, yearB, tzOffsetS
 	sort.Slice(falling, func(i, j int) bool { return falling[i].Delta < falling[j].Delta })
 
 	trim := func(s []*model.ContactYearDelta, n int) []*model.ContactYearDelta {
+		if len(s) == 0 {
+			// 空要序列化成 []，不能是 null —— 前端拿到 null 直接 .slice 会整页白屏
+			return []*model.ContactYearDelta{}
+		}
 		if len(s) > n {
 			return s[:n]
 		}

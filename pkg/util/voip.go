@@ -47,11 +47,13 @@ func ParseVoIP(content string) VoIPInfo {
 	}
 
 	// 判断视频通话
-	// V4 voipinvitemsg：invitetype=0/1/2，1=语音，2=视频
-	// 老版本：msg_type=1=语音, 4/5=视频
-	// datatype: 1=语音, 2=视频
-	if m := reVoipInviteTy.FindStringSubmatch(content); len(m) == 2 {
-		if v, err := strconv.Atoi(m[1]); err == nil && v == 2 {
+	// V4 新版 voipmsg：room_type 0=视频、1=语音（对着会话摘要逐条核对过，别按直觉反过来）
+	// V4 voipinvitemsg：invitetype 0=视频、1=语音
+	// 老版本：msg_type=1=语音, 4/5=视频；datatype: 1=语音, 2=视频
+	if m := reVoipRoomType.FindStringSubmatch(content); len(m) == 2 {
+		info.IsVideo = m[1] == "0"
+	} else if m := reVoipInviteTy.FindStringSubmatch(content); len(m) == 2 {
+		if v, err := strconv.Atoi(m[1]); err == nil && (v == 0 || v == 2) {
 			info.IsVideo = true
 		}
 	} else if m := reVoipDataType.FindStringSubmatch(content); len(m) == 2 {

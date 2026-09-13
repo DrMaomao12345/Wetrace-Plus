@@ -5,7 +5,8 @@ interface Props {
   data: WeekdayStat[];
 }
 
-const WEEKDAY_NAMES = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
+// 后端给的是 1=周一 … 7=周日，0 位留空（用 0 基数组会让周日变成 undefined）
+const WEEKDAY_NAMES = ["", "周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 
 export function WeekdayChart({ data }: Props) {
   const chartData = [...data]
@@ -29,7 +30,7 @@ export function WeekdayChart({ data }: Props) {
           />
           <Bar dataKey="count" radius={[4, 4, 0, 0]}>
             {chartData.map((d, i) => (
-              <Cell key={i} fill={d.weekday === 0 || d.weekday === 6 ? '#ec4899' : '#6366f1'} />
+              <Cell key={i} fill={d.weekday >= 6 ? '#ec4899' : '#6366f1'} />
             ))}
           </Bar>
         </BarChart>

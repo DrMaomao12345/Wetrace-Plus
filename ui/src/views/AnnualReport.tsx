@@ -46,7 +46,9 @@ import {
   Line,
 } from "recharts"
 
-const WEEKDAY_NAMES = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"]
+// 后端给的是 1=周一 … 7=周日（internal/model/analysis.go），所以这里留个空的 0 位；
+// 以前用 0 基数组，周日取到 undefined，图上就冒出一根「Day 7」
+const WEEKDAY_NAMES = ["", "周一", "周二", "周三", "周四", "周五", "周六", "周日"]
 
 type SegmentRow = TZSegment & { _id: string }
 
@@ -1222,7 +1224,7 @@ function WeekdayChart({ data }: { data: AnnualReport["weekday_distribution"] }) 
               <Tooltip />
               <Bar dataKey="count" radius={[4, 4, 0, 0]} name="消息数">
                 {chartData.map((_, i) => (
-                  <Cell key={i} fill={i === 0 || i === 6 ? "#ec4899" : "#6366f1"} />
+                  <Cell key={i} fill={i >= 5 ? "#ec4899" : "#6366f1"} />  /* 数组按周一→周日排，末两根是周末 */
                 ))}
               </Bar>
             </BarChart>

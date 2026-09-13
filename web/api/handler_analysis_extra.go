@@ -15,8 +15,20 @@ func resolveTzMinutes(c *gin.Context) int {
 			return n
 		}
 	}
-	off, _ := defaultTzOffsetMinutes()
+	off, ok := defaultTzOffsetMinutes()
+	if !ok {
+		return localTZMinutes()
+	}
 	return off
+}
+
+// localTZMinutes 是「还没配过时区」时的统一兜底：本机时区。
+//
+// 返回 0（UTC）会让同一份数据按 UTC 分天，而 store 层逐行换算的兜底是系统时区，
+// 两边数字对不上。桌面工具默认按本机时区算才合理，统一到这一个口径。
+func localTZMinutes() int {
+	_, off := time.Now().Zone()
+	return off / 60
 }
 
 // queryYear 取某个年份查询参数，非法/缺省则用当前年。

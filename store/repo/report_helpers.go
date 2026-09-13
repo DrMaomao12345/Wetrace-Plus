@@ -549,15 +549,17 @@ func computeEarliestLatestFromSorted(times []segTime) (earlyMinOfDay, lateMinOfD
 		if minOfDay >= 420 {
 			anyAfter7 = append(anyAfter7, cand{minOfDay, dk})
 		}
-		if minOfDay >= 390 && minOfDay <= 450 {
-			priorOK := i == 0 || (t.unix-times[i-1].unix) >= fourHours
-			nextOK := i == len(times)-1 || (times[i+1].unix-t.unix) >= fourHours
-			if priorOK {
-				morning = append(morning, cand{minOfDay, dk})
-			}
-			if nextOK {
-				night = append(night, cand{minOfDay, dk})
-			}
+		priorOK := i == 0 || (t.unix-times[i-1].unix) >= fourHours
+		nextOK := i == len(times)-1 || (times[i+1].unix-t.unix) >= fourHours
+		// 「起床后的第一条」：07:00 之后，而且前面隔了 4 小时没说话
+		if minOfDay >= 420 && priorOK {
+			morning = append(morning, cand{minOfDay, dk})
+		}
+		// 「睡前最后一条」：后面隔了 4 小时没说话。
+		// 这里**不能**再限制在早晨那个 06:30-07:30 窗口里 —— 一旦限制，
+		// 最晚永远落在 07:00 日界前的一瞬间，一年的数据必然得出 06:59。
+		if nextOK {
+			night = append(night, cand{minOfDay, dk})
 		}
 	}
 

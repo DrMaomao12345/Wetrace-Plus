@@ -260,17 +260,18 @@ function YearCompare() {
       </div>
     </div>
   )
-  const List = ({ title, items, color }: { title: string; items: any[]; color: string }) => (
+  const List = ({ title, items, color }: { title: string; items: any[] | null; color: string }) => (
     <div>
       <div className="mb-2 text-sm font-medium">{title}</div>
       <div className="space-y-1">
-        {items.slice(0, 8).map((x) => (
+        {/* 接口没数据时返回的是 null（Go 的 nil 切片），不兜住会整页白屏 */}
+        {(items ?? []).slice(0, 8).map((x) => (
           <div key={x.talker} className="flex items-center gap-2 text-sm">
             <span className="truncate">{x.name}</span>
             <span className={`ml-auto text-xs ${color}`}>{x.count_a}→{x.count_b}</span>
           </div>
         ))}
-        {items.length === 0 && <div className="text-xs text-muted-foreground">无</div>}
+        {(items ?? []).length === 0 && <div className="text-xs text-muted-foreground">无</div>}
       </div>
     </div>
   )
@@ -369,7 +370,7 @@ function ReplySpeedList({ year }: { year: number }) {
   const rows = useMemo(() => {
     const list = (data || []).filter((r: ReplySpeed) => r.my_reply_count >= 5)
     const sorted = [...list].sort((a, b) => {
-      if (sortKey === 'name') return a.name.localeCompare(b.name, 'zh')
+      if (sortKey === 'name') return (a.name || '').localeCompare(b.name || '', 'zh')
       const av = a[sortKey] as number
       const bv = b[sortKey] as number
       // 0 表示没有数据，排序时一律沉底，别让它冒充「最快」
