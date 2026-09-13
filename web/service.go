@@ -44,7 +44,7 @@ func NewService(store store.Store, conf *Config, staticFS fs.FS) *Service {
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
 
-	mediaService := media.NewService(conf.DataDir, "", "", conf.DataDir)
+	mediaService := media.NewService(conf.DataDir, conf.DataDir)
 
 	// 创建共享的 API 配置指针
 	apiConf := &api.Config{

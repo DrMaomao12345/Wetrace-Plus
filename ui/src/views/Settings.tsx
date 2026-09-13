@@ -38,7 +38,6 @@ import {
   FolderOpen,
   CalendarRange,
   Smartphone,
-  ExternalLink,
 } from "lucide-react"
 
 /* ============================================================
@@ -1718,17 +1717,8 @@ export default function SettingsView() {
         <BackupConfigSection />
 
         <div className="border-t pt-4 text-center text-xs text-muted-foreground">
-          需要从微信提取、解密或同步聊天数据？前往{" "}
-          <a
-            href="https://github.com/DrMaomao12345/Wetrace-Pro"
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1 font-medium text-primary underline-offset-4 hover:underline"
-          >
-            Wetrace-Pro
-            <ExternalLink className="h-3 w-3" />
-          </a>
-          ，Plus 仅负责导入与分析。
+          Wetrace Plus 只做导入与分析：数据来自其他工具导出的文件，
+          本机不连接微信、不读取进程、不解密任何数据库。
         </div>
       </div>
     </ScrollArea>

@@ -39,7 +39,12 @@ func (r *Repository) GetBizProfile(ctx context.Context, year, tzOffsetSec int, w
 
 	paths, err := r.router.GetAllDBPaths(strategy.BizMessage)
 	if err != nil || len(paths) == 0 {
-		return out // 没有 biz 库（老版本微信或未解密）
+		// 导入进来的数据没有独立的 biz_message 库，公众号消息和普通会话混在一起。
+		// 回退到普通消息库 —— 下面的 md5ToTalker 只收订阅号 / 服务号，不会把好友算进来。
+		paths, err = r.router.GetAllDBPaths(strategy.Message)
+		if err != nil || len(paths) == 0 {
+			return out
+		}
 	}
 	out.HasData = true
 
@@ -57,7 +62,12 @@ func (r *Repository) GetBizProfile(ctx context.Context, year, tzOffsetSec int, w
 	// 因为很多只推送不聊天的号根本不在会话里）
 	autoTypes := r.TalkerTypes(ctx)
 	md5ToTalker := make(map[string]string, len(autoTypes))
-	for talker := range autoTypes {
+	for talker, tt := range autoTypes {
+		// 只认公众号（订阅号 / 服务号）。真实微信里 biz 库本来就只装这些，
+		// 但回退到普通消息库时这层过滤是必须的，否则好友和群会被算成「公众号」。
+		if tt != model.TalkerSubscription && tt != model.TalkerService {
+			continue
+		}
 		h := md5.Sum([]byte(talker))
 		md5ToTalker[hex.EncodeToString(h[:])] = talker
 	}

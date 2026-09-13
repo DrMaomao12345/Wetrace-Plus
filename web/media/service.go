@@ -14,27 +14,23 @@ import (
 	"strings"
 
 	"github.com/DrMaomao12345/Wetrace-Plus/internal/model"
-	"github.com/DrMaomao12345/Wetrace-Plus/pkg/util/dat2img"
+	"github.com/DrMaomao12345/Wetrace-Plus/pkg/util/ffmpegpath"
 	"github.com/DrMaomao12345/Wetrace-Plus/pkg/util/silk"
 	"github.com/rs/zerolog/log"
 )
 
 // Service 处理准备用于服务的媒体文件的业务逻辑。
+//
+// 这里**不做任何解密**：Wetrace Plus 只处理导入进来的文件，
+// 微信本地那套加密图片（.dat）既拿不到也不去解。
 type Service struct {
-	DataDir         string
-	ImageKey        string
-	XorKey          string
-	WechatDbSrcPath string
+	DataDir  string
+	FilesDir string // 导入包里附带的媒体文件根目录（没有就是空的）
 }
 
 // NewService 创建一个新的媒体服务。
-func NewService(dataDir, imageKey, xorKey, wechatDbSrcPath string) *Service {
-	return &Service{
-		DataDir:         dataDir,
-		ImageKey:        imageKey,
-		XorKey:          xorKey,
-		WechatDbSrcPath: wechatDbSrcPath,
-	}
+func NewService(dataDir, filesDir string) *Service {
+	return &Service{DataDir: dataDir, FilesDir: filesDir}
 }
 
 // PreparedMedia 保存媒体文件的最终内容和内容类型。
@@ -182,68 +178,30 @@ func (s *Service) Prepare(media *model.Media, isThumb bool) PreparedMedia {
 }
 
 func (s *Service) prepareImageWithFallback(relativePath string, isThumb bool) PreparedMedia {
-	var candidates []string
-
-	ext := strings.ToLower(filepath.Ext(relativePath))
-	base := relativePath
-	if ext == ".dat" {
-		base = strings.TrimSuffix(relativePath, ext)
-	}
-	// 如果本身已经是 _t 结尾，也去掉以便统一构造
+	// 导入包里可能只带了缩略图或只带了原图，两个都试一次。
+	// 不再找 .dat —— 那是微信本地的加密图片，这里既没有密钥也不解密。
+	base := strings.TrimSuffix(relativePath, filepath.Ext(relativePath))
 	if strings.HasSuffix(strings.ToLower(base), "_t") {
-		base = strings.TrimSuffix(base, base[len(base)-2:])
+		base = base[:len(base)-2]
 	}
+	ext := filepath.Ext(relativePath)
 
+	candidates := []string{relativePath, base + ext, base + "_t" + ext}
 	if isThumb {
-		// 缩略图模式优先级：_t.dat -> .dat -> 原路径
-		candidates = []string{
-			base + "_t.dat",
-			base + ".dat",
-			base,
-			relativePath,
-		}
-	} else {
-		// 原图模式优先级：.dat -> 原路径 -> _t.dat (回退)
-		candidates = []string{
-			base + ".dat",
-			base,
-			relativePath,
-			base + "_t.dat",
-		}
+		candidates = []string{base + "_t" + ext, relativePath, base + ext}
 	}
 
-	// 去重并过滤空
-	seen := make(map[string]bool)
-	uniqueCandidates := make([]string, 0, len(candidates))
+	seen := map[string]bool{}
 	for _, c := range candidates {
-		if c != "" && !seen[c] {
-			seen[c] = true
-			uniqueCandidates = append(uniqueCandidates, c)
-		}
-	}
-
-	var encrypted *PreparedMedia
-	for _, c := range uniqueCandidates {
-		abs := filepath.Join(s.WechatDbSrcPath, c)
-		res := s.doPrepareFile(abs, false)
-		if res.Error != nil {
+		if c == "" || seen[c] {
 			continue
 		}
-		if res.Encrypted {
-			// 记下来但先别返回 —— 也许别的候选（比如明文的 _M.dat）能解出来
-			if encrypted == nil {
-				r := res
-				encrypted = &r
-			}
-			continue
+		seen[c] = true
+		if res := s.doPrepareFile(filepath.Join(s.FilesDir, c), false); res.Error == nil {
+			return res
 		}
-		return res
 	}
-	if encrypted != nil {
-		return *encrypted
-	}
-
-	return PreparedMedia{Error: fmt.Errorf("图片文件不存在 (磁盘及缓存均未找到): %s", relativePath)}
+	return PreparedMedia{Error: fmt.Errorf("图片文件不存在（导入包里没有附件）: %s", relativePath)}
 }
 
 func (s *Service) prepareFile(relativePath string, isVideo bool) PreparedMedia {
@@ -251,73 +209,32 @@ func (s *Service) prepareFile(relativePath string, isVideo bool) PreparedMedia {
 		return PreparedMedia{Error: fmt.Errorf("无效的文件路径: %s", relativePath)}
 	}
 
-	baseDir := s.WechatDbSrcPath
+	baseDir := s.FilesDir
 	absolutePath := filepath.Join(baseDir, relativePath)
 
 	return s.doPrepareFile(absolutePath, isVideo)
 }
 
 func (s *Service) doPrepareFile(absolutePath string, isVideo bool) PreparedMedia {
-	// 1. 检查缓存 (仅针对图片/解密类文件)
-	// 计算相对于微信根目录的路径，用于建立缓存镜像
-	relPath, err := filepath.Rel(s.WechatDbSrcPath, absolutePath)
-	isDat := false
-	if err == nil && !isVideo {
-		ext := strings.ToLower(filepath.Ext(absolutePath))
-		isDat = strings.HasSuffix(ext, ".dat") || strings.Contains(strings.ToLower(filepath.ToSlash(absolutePath)), "/img/")
-
-		if isDat {
-			cachePath := filepath.Join(s.DataDir, "cache", "images", relPath)
-			// 只认「确实是图片」的缓存。早期版本把解密失败的乱码也写进过缓存，
-			// 校验一下就能自动跳过那些坏条目，不用手动清理。
-			if cacheContent, err := os.ReadFile(cachePath); err == nil && looksLikeImage(cacheContent) {
-				return PreparedMedia{
-					Content:     cacheContent,
-					ContentType: detectContentType(cacheContent),
-				}
-			}
-		}
-	}
-
-	// 2. 如果缓存不存在，则检查原文件是否存在
 	if _, err := os.Stat(absolutePath); os.IsNotExist(err) {
 		return PreparedMedia{Error: fmt.Errorf("文件在磁盘上不存在: %s", absolutePath)}
 	}
 
-	// 3. 如果是视频，尝试转码
+	// 视频先转码成兼容性好的 H.264/AAC MP4
 	if isVideo {
-		transcodedPath, err := s.ensureVideoTranscoded(absolutePath)
-		if err == nil {
+		if transcodedPath, err := s.ensureVideoTranscoded(absolutePath); err == nil {
 			absolutePath = transcodedPath
 		}
 	}
 
-	// 3. 处理解密或直接读取
-	var res PreparedMedia
-	if isDat {
-		res = s.prepareDatFile(absolutePath)
-		// 只缓存真正解出来的图片：解不开的（Encrypted）内容是空的，缓存了反而有害
-		if res.Error == nil && !res.Encrypted && len(res.Content) > 0 {
-			cachePath := filepath.Join(s.DataDir, "cache", "images", relPath)
-			go func(path string, content []byte) {
-				os.MkdirAll(filepath.Dir(path), 0755)
-				_ = os.WriteFile(path, content, 0644)
-			}(cachePath, res.Content)
-		}
-	} else {
-		ext := strings.ToLower(filepath.Ext(absolutePath))
-		contentType := getMimeTypeByExtension(ext)
-		content, err := os.ReadFile(absolutePath)
-		if err != nil {
-			return PreparedMedia{Error: fmt.Errorf("读取文件失败: %w", err)}
-		}
-		res = PreparedMedia{
-			Content:     content,
-			ContentType: contentType,
-		}
+	content, err := os.ReadFile(absolutePath)
+	if err != nil {
+		return PreparedMedia{Error: fmt.Errorf("读取文件失败: %w", err)}
 	}
-
-	return res
+	return PreparedMedia{
+		Content:     content,
+		ContentType: getMimeTypeByExtension(strings.ToLower(filepath.Ext(absolutePath))),
+	}
 }
 
 // ensureVideoTranscoded 确保视频被转码为兼容性好的格式（H.264/AAC MP4）。
@@ -352,7 +269,7 @@ func (s *Service) ensureVideoTranscoded(srcPath string) (string, error) {
 	// -preset ultrafast 加速转码（牺牲压缩率）
 	log.Info().Str("src", srcPath).Msg("开始视频转码 (HEVC -> H.264)...")
 
-	cmd := exec.Command(dat2img.FFMpegPath,
+	cmd := exec.Command(ffmpegpath.Path,
 		"-y",
 		"-i", srcPath,
 		"-c:v", "libx264",
@@ -368,39 +285,6 @@ func (s *Service) ensureVideoTranscoded(srcPath string) (string, error) {
 
 	log.Info().Str("dst", dstPath).Msg("视频转码成功")
 	return dstPath, nil
-}
-
-func (s *Service) prepareDatFile(path string) PreparedMedia {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return PreparedMedia{Error: fmt.Errorf("读取 .dat 文件失败: %w", err)}
-	}
-
-	// 使用配置的密钥
-	foundKey := hex.EncodeToString([]byte(s.ImageKey))
-	dat2img.SetAesKey(foundKey)
-	_ = dat2img.SetV4XorKey(s.XorKey)
-
-	out, ext, err := dat2img.Dat2Image(b)
-
-	// 微信 4.x 的加密图片（魔数 07085631/07085632）需要 16 字节 AES 密钥，
-	// 该密钥由微信自研加密处理、不经过系统加密接口，目前提取不到。
-	// 用错误的密钥解 AES-ECB 不会报错，只会产出一堆乱码 —— 所以不能只看 err，
-	// 还要检查解出来的东西到底是不是图片。
-	if isWeChatV4Encrypted(b) && (err != nil || !looksLikeImage(out)) {
-		return PreparedMedia{
-			Encrypted: true,
-			Reason:    "这张图片由微信加密存储（2025 年 5 月后的新版格式），当前无法解出",
-		}
-	}
-
-	if err != nil {
-		log.Warn().Err(err).Str("path", path).Msg("解码 .dat 文件失败，提供原始数据。")
-		return PreparedMedia{Content: b, ContentType: "application/octet-stream"}
-	}
-
-	contentType := getMimeTypeByExtension(ext)
-	return PreparedMedia{Content: out, ContentType: contentType}
 }
 
 // looksLikeImage 检查一段数据是不是常见图片格式的开头。
@@ -426,14 +310,6 @@ func looksLikeImage(b []byte) bool {
 	return false
 }
 
-// isWeChatV4Encrypted 判断是否是微信 4.x 的加密图片容器。
-// 头 4 字节为 0x07085631（V1）或 0x07085632（V2）。
-func isWeChatV4Encrypted(b []byte) bool {
-	if len(b) < 4 {
-		return false
-	}
-	return (b[0] == 0x07 && b[1] == 0x08 && b[2] == 0x56 && (b[3] == 0x31 || b[3] == 0x32))
-}
 
 func getMimeTypeByExtension(ext string) string {
 	ext = strings.ToLower(strings.TrimPrefix(ext, "."))

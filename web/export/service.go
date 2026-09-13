@@ -205,7 +205,7 @@ func (s *Service) processMedia(ctx context.Context, zw *zip.Writer, msg *model.M
 	}
 
 	if (prepared.Error != nil || len(prepared.Content) == 0) && mediaInfo.Path != "" {
-		roots := []string{s.Media.WechatDbSrcPath, filepath.Join(s.Media.WechatDbSrcPath, "Msg")}
+		roots := []string{s.Media.FilesDir, filepath.Join(s.Media.FilesDir, "Msg")}
 		for _, root := range roots {
 			fullPath := filepath.Join(root, mediaInfo.Path)
 			if data, err := os.ReadFile(fullPath); err == nil {
