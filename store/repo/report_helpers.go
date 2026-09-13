@@ -555,10 +555,11 @@ func computeEarliestLatestFromSorted(times []segTime) (earlyMinOfDay, lateMinOfD
 		if minOfDay >= 420 && priorOK {
 			morning = append(morning, cand{minOfDay, dk})
 		}
-		// 「睡前最后一条」：后面隔了 4 小时没说话。
-		// 这里**不能**再限制在早晨那个 06:30-07:30 窗口里 —— 一旦限制，
-		// 最晚永远落在 07:00 日界前的一瞬间，一年的数据必然得出 06:59。
-		if nextOK {
+		// 「睡前最后一条」：后面隔了 4 小时没说话，而且前面**没有**隔 4 小时 ——
+		// 也就是一段对话的结尾，而不是一条孤零零的消息。
+		// 少了 !priorOK 这个条件，清晨 06:5x 那种「醒得早、发一条又没下文」的孤立消息
+		// 会拿到最大的 shifted 值（07:00 是日界），一年的数据必然得出 06:59。
+		if nextOK && !priorOK {
 			night = append(night, cand{minOfDay, dk})
 		}
 	}
