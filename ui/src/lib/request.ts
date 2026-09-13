@@ -150,7 +150,11 @@ service.interceptors.response.use(
       return service(config)
     }
     
-    console.error('❌ API Error:', error.message)
+    // 409 + need_profile（还没设置出生年月）是预期状态，不是故障：
+    // 用 error 级别打日志会让控制台看起来出了问题，页面自己会给提示。
+    const expected = error.response?.status === 409 && (error.response.data as any)?.need_profile === true
+    if (expected) console.debug('ℹ️ API:', error.message)
+    else console.error('❌ API Error:', error.message)
     return Promise.reject(error)
   }
 )

@@ -1,4 +1,5 @@
 import { useState, useRef, useMemo, useEffect } from "react"
+import { useNavigate } from "react-router-dom"
 import { useQuery } from "@tanstack/react-query"
 import { useReportStream } from "@/hooks/useReportStream"
 import { useCountUp } from "@/hooks/useCountUp"
@@ -175,7 +176,38 @@ function ReviewQuad({ items, privacyMode }: {
   )
 }
 
+/**
+ * 关系回顾没能展开时的说明卡片。
+ * 关系星图要先有出生年月才能划分人生阶段，没设过时接口返回 409 ——
+ * 这不是错误，所以这里给一句可操作的提示，而不是让按钮看起来失灵。
+ */
+function RelationshipReviewNotice({ state, year, onSetup }: {
+  state: "ready" | "need-profile" | "error"
+  year: number | string
+  onSetup: () => void
+}) {
+  const text = state === "need-profile"
+    ? "关系回顾来自关系星图，需要先设置出生年月才能划分人生阶段。设置出生年月后可用。"
+    : state === "error"
+      ? "暂时读不到关系星图数据，稍后再试，或先到关系星图页面重新生成一次。"
+      : `${year} 年还没有足够的互动数据，生成不了关系回顾。换一个年份，或到关系星图里补充重要联系人。`
+  return (
+    <Card className="print-hide">
+      <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <p className="text-sm font-medium">关系回顾</p>
+          <p className="mt-0.5 text-sm text-muted-foreground">{text}</p>
+        </div>
+        <Button variant="outline" size="sm" className="shrink-0" onClick={onSetup}>
+          {state === "need-profile" ? "去设置出生年月" : "打开关系星图"}
+        </Button>
+      </CardContent>
+    </Card>
+  )
+}
+
 export default function AnnualReportView() {
+  const navigate = useNavigate()
   const currentYear = new Date().getFullYear()
   const [inputYear, setInputYear] = useState(String(currentYear))
   const [excludeTalkers, setExcludeTalkers] = useState<string[]>(() => loadConfig().excludeTalkers ?? [])
@@ -195,7 +227,21 @@ export default function AnnualReportView() {
   )
   const [galaxy, setGalaxy] = useState<RelationshipGraph | null>(null)
   const [showReview, setShowReview] = useState(true)
-  useEffect(() => { galaxyApi.getGraph().then(setGalaxy).catch(() => setGalaxy(null)) }, [])
+  // 没设过出生年月时 /galaxy/graph 返回 409，这是预期状态而不是故障：
+  // 记下来单独提示「设置出生年月后可用」，否则按钮点了什么都不发生。
+  const [galaxyState, setGalaxyState] = useState<"loading" | "ready" | "need-profile" | "error">("loading")
+  useEffect(() => {
+    let alive = true
+    galaxyApi.getGraph()
+      .then((g) => { if (!alive) return; setGalaxy(g); setGalaxyState("ready") })
+      .catch((err: any) => {
+        if (!alive) return
+        setGalaxy(null)
+        const needProfile = err?.response?.status === 409 || err?.response?.data?.need_profile === true
+        setGalaxyState(needProfile ? "need-profile" : "error")
+      })
+    return () => { alive = false }
+  }, [])
   // 私密模式：把联系人姓名和头像遮住，方便把报告截图/导 PDF 分享出去。
   // 存 localStorage，下次打开保持 —— 一旦有人习惯开着，默认关掉会造成意外泄露。
   const [privacyMode, setPrivacyMode] = useState(
@@ -631,6 +677,7 @@ export default function AnnualReportView() {
         size="sm"
         className="w-full sm:w-auto"
         onClick={() => setShowReview(p => !p)}
+        title={galaxyState === "need-profile" ? "设置出生年月后可用" : "显示/隐藏来自关系星图的年度关系回顾"}
       >
         关系回顾
       </Button>
@@ -677,6 +724,18 @@ export default function AnnualReportView() {
           <div className="border rounded-lg bg-blue-500/5 px-4 py-2 text-xs text-muted-foreground">
             后台仍在生成 {stream.params?.year} 年报告（{stream.current}/{stream.total}），完成后自动写入缓存。
           </div>
+        )}
+
+        {/* 展开了但没内容可展示时，说清楚缺什么，别让按钮看起来失灵 */}
+        {showReview && galaxyState !== "loading" && !(galaxy && (() => {
+          const rv = computeYearReview(galaxy, String(data?.year ?? params.year))
+          return rv && rv.top.length > 0
+        })()) && (
+          <RelationshipReviewNotice
+            state={galaxyState}
+            year={data?.year ?? params.year}
+            onSetup={() => navigate("/galaxy")}
+          />
         )}
 
         {/* Phase3 §14 关系回顾（来自关系星图，配置里可开关，随报告一起导出 PDF） */}
