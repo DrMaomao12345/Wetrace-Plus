@@ -207,7 +207,10 @@ func (s *Service) processMedia(ctx context.Context, zw *zip.Writer, msg *model.M
 	if (prepared.Error != nil || len(prepared.Content) == 0) && mediaInfo.Path != "" {
 		roots := []string{s.Media.FilesDir, filepath.Join(s.Media.FilesDir, "Msg")}
 		for _, root := range roots {
-			fullPath := filepath.Join(root, mediaInfo.Path)
+			fullPath, err := media.SafeJoin(root, mediaInfo.Path)
+			if err != nil {
+				continue // 导入数据里的路径不可信，越界的直接跳过
+			}
 			if data, err := os.ReadFile(fullPath); err == nil {
 				prepared = media.PreparedMedia{
 					Content:     data,

@@ -1,4 +1,5 @@
 import { useState, useCallback } from "react"
+import { HighlightText } from "@/components/search/HighlightText"
 import { useQuery } from "@tanstack/react-query"
 import { searchApi, type SearchParams, type SearchItem } from "@/api/search"
 import { Input } from "@/components/ui/input"
@@ -212,12 +213,9 @@ export default function SearchView() {
                         </span>
                       </div>
 
-                      <div
-                        className="text-sm text-foreground/80 line-clamp-3"
-                        dangerouslySetInnerHTML={{
-                          __html: item.highlight || item.content,
-                        }}
-                      />
+                      <div className="text-sm text-foreground/80 line-clamp-3">
+                        <HighlightText text={item.content} keyword={searchKeyword} />
+                      </div>
 
                       <div className="flex gap-2 mt-1">
                         <Button

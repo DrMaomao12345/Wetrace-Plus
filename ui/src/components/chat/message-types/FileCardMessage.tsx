@@ -1,4 +1,5 @@
 import type { Message } from "@/types/message"
+import { openSafe } from "@/lib/openSafe"
 import { mediaApi } from "@/api/media"
 import { FileText, Music, Video, Image as ImageIcon } from "lucide-react"
 
@@ -28,7 +29,7 @@ export function FileCardMessage({ message }: FileCardMessageProps) {
   const handleOpen = () => {
     if (md5) {
       const url = mediaApi.getFileUrl(md5)
-      window.open(url, '_blank')
+      openSafe(url)
     }
   }
 

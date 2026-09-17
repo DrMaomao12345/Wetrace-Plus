@@ -29,18 +29,9 @@ func main() {
 	// --- 加载配置 ---
 	viper.SetConfigFile(".env")
 	viper.SetConfigType("env")
+	// .env 里有 API Key 和密码哈希，只给当前用户读写（viper 默认 0644）
+	viper.SetConfigPermissions(0o600)
 	viper.AutomaticEnv()
-
-	// 读完之后按字面值再覆盖一遍：viper 的 .env 解析器会对未加引号的值做
-	// `$` 变量展开，把 bcrypt 哈希、含 `$` 的 API Key 这类值悄悄改写。
-	// 详见 internal/envfile。
-	defer func() {
-		for k, v := range envfile.Load(".env") {
-			if viper.GetString(k) != v {
-				viper.Set(k, v)
-			}
-		}
-	}()
 
 	if err := viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
@@ -53,6 +44,22 @@ func main() {
 		} else {
 			log.Printf("注意: 读取 .env 文件出错: %v. 将使用默认值或环境变量。", err)
 		}
+	}
+
+	// 读完之后按字面值再覆盖一遍：viper 的 .env 解析器会对未加引号的值做
+	// `$` 变量展开，把 bcrypt 哈希、含 `$` 的 API Key 这类值悄悄改写。
+	// 详见 internal/envfile。
+	//
+	// 这段以前写在 defer 里 —— defer 要等 main 返回才执行，而 main 会一直阻塞到
+	// 进程退出，所以这层保护实际上从来没生效过。
+	for k, v := range envfile.Load(".env") {
+		if viper.GetString(k) != v {
+			viper.Set(k, v)
+		}
+	}
+	// 老版本创建的 .env 是 0644，顺手收紧
+	if info, err := os.Stat(".env"); err == nil && info.Mode().Perm()&0o077 != 0 {
+		_ = os.Chmod(".env", 0o600)
 	}
 
 	// --- 配置 ---
@@ -76,9 +83,12 @@ func main() {
 	log.Printf("使用工作目录: %s", workDir)
 
 	// 确保工作目录存在
-	if err := os.MkdirAll(workDir, 0755); err != nil {
+	if err := os.MkdirAll(workDir, 0o700); err != nil {
 		log.Fatalf("创建工作目录失败: %v", err)
 	}
+	// 分析库、配对 token、转写、备份都在这里。老版本建的目录是 0755，
+	// 同一台机器上的其他用户能进去读；目录收紧到 0700 就一并挡住了里面的文件。
+	_ = os.Chmod(workDir, 0o700)
 
 	// --- 初始化 Store ---
 	newStore, err := store.NewStore(workDir)
@@ -97,6 +107,7 @@ func main() {
 	// --- 初始化 Web 服务 ---
 	webConf := web.Config{
 		ListenAddr:       listenAddr,
+		AllowedHosts:     splitList(viper.GetString("ALLOWED_HOSTS")),
 		DataDir:          workDir,
 		AIEnabled:        viper.GetBool("AI_ENABLED"),
 		AIProvider:       viper.GetString("AI_PROVIDER"),
@@ -151,4 +162,9 @@ func openBrowser(url string) {
 	if err != nil {
 		log.Printf("无法自动打开浏览器: %v", err)
 	}
+}
+
+// splitList 把逗号 / 空白分隔的配置拆成列表。
+func splitList(s string) []string {
+	return strings.FieldsFunc(s, func(r rune) bool { return r == ',' || r == ' ' || r == '\t' })
 }

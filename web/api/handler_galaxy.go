@@ -27,11 +27,11 @@ func readJSONFile(path string, v any) bool {
 }
 
 func writeJSONFile(path string, v any) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
 	b, _ := json.MarshalIndent(v, "", "  ")
-	return os.WriteFile(path, b, 0644)
+	return os.WriteFile(path, b, 0o600)
 }
 
 // GetGalaxyProfile GET /api/v1/galaxy/profile —— 读用户出生年月/人生阶段。

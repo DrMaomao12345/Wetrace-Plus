@@ -68,5 +68,5 @@ func (s *Store) save() error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(s.path, b, 0644)
+	return os.WriteFile(s.path, b, 0o600)
 }

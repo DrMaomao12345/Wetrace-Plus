@@ -228,7 +228,7 @@ func writeDictLines(dataDir, fileName string, lines []string, header string) err
 	if fileName == "" {
 		return nil
 	}
-	if err := os.MkdirAll(dataDir, 0755); err != nil {
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
 		return err
 	}
 	seen := make(map[string]bool)
@@ -251,7 +251,7 @@ func writeDictLines(dataDir, fileName string, lines []string, header string) err
 		sb.WriteString("\n")
 	}
 	p := filepath.Join(dataDir, fileName)
-	return os.WriteFile(p, []byte(sb.String()), 0644)
+	return os.WriteFile(p, []byte(sb.String()), 0o600)
 }
 
 // GetWordCloudDict 查看当前词典/停用词内容

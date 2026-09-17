@@ -145,7 +145,7 @@ func PrepareDir(path string) error {
 	stat, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			if err := os.MkdirAll(path, 0755); err != nil {
+			if err := os.MkdirAll(path, 0o700); err != nil {
 				return err
 			}
 		} else {

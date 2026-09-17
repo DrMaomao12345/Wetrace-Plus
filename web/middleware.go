@@ -1,8 +1,10 @@
 package web
 
 import (
+	"net"
 	"strings"
 
+	"github.com/DrMaomao12345/Wetrace-Plus/web/middleware"
 	"github.com/DrMaomao12345/Wetrace-Plus/web/transport"
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog/log"
@@ -13,7 +15,9 @@ func (s *Service) setupMiddleware() {
 	s.router.Use(
 		gin.LoggerWithWriter(log.Logger, "/health"),
 		recoveryMiddleware(),
+		middleware.HostGuard(s.allowedHosts()),
 		corsMiddleware(),
+		middleware.CSRFGuard(),
 	)
 }
 
@@ -55,4 +59,13 @@ func recoveryMiddleware() gin.HandlerFunc {
 		}()
 		c.Next()
 	}
+}
+
+// allowedHosts 显式配置的主机名，加上监听地址本身是主机名时的那个名字。
+func (s *Service) allowedHosts() []string {
+	hosts := append([]string{}, s.conf.AllowedHosts...)
+	if h, _, err := net.SplitHostPort(s.conf.ListenAddr); err == nil && h != "" && net.ParseIP(h) == nil {
+		hosts = append(hosts, h)
+	}
+	return hosts
 }

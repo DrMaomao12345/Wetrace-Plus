@@ -54,14 +54,14 @@ func loadSummaryHistory() ([]SummaryHistoryItem, error) {
 
 func saveSummaryHistory(items []SummaryHistoryItem) error {
 	dir := filepath.Dir(summaryHistoryFilePath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
 	data, err := json.MarshalIndent(items, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(summaryHistoryFilePath, data, 0644)
+	return os.WriteFile(summaryHistoryFilePath, data, 0o600)
 }
 
 func appendSummaryHistory(item SummaryHistoryItem) {

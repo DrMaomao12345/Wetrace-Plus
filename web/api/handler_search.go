@@ -113,10 +113,12 @@ func (a *API) SearchContext(c *gin.Context) {
 
 // highlightKeyword 对内容中的关键词进行 HTML 高亮标记
 func highlightKeyword(content, keyword string) string {
-	if keyword == "" || content == "" {
-		return content
-	}
 	escaped := html.EscapeString(content)
+	// 没有关键词时也必须转义：这个字段的约定是「可以当 HTML 用」，
+	// 以前直接返回原文，调用方一旦照做就是存储型 XSS
+	if keyword == "" || content == "" {
+		return escaped
+	}
 	escapedKeyword := html.EscapeString(keyword)
 	return strings.ReplaceAll(escaped, escapedKeyword, "<em>"+escapedKeyword+"</em>")
 }

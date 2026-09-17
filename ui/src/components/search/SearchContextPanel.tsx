@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query"
+import { HighlightText } from "./HighlightText"
 import { searchApi, type SearchItem } from "@/api/search"
 import { createPortal } from "react-dom"
 import { X, ExternalLink } from "lucide-react"
@@ -18,12 +19,6 @@ export function SearchContextPanel({ item, keyword, onClose, onJumpToChat }: Pro
     queryKey: ["search-context", item.talker, item.seq],
     queryFn: () => searchApi.getContext(item.talker, item.seq, 10, 10),
   })
-
-  const highlightText = (text: string) => {
-    if (!keyword) return text
-    const regex = new RegExp(`(${keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gi")
-    return text.replace(regex, "<em class='bg-yellow-200 dark:bg-yellow-800 not-italic px-0.5 rounded'>$1</em>")
-  }
 
   return createPortal(
     <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in duration-200 p-4">
@@ -82,14 +77,9 @@ export function SearchContextPanel({ item, keyword, onClose, onJumpToChat }: Pro
                       {new Date(msg.time).toLocaleString()}
                     </span>
                   </div>
-                  <div
-                    className="text-foreground/80 break-words"
-                    dangerouslySetInnerHTML={{
-                      __html: idx === data.anchor_index
-                        ? highlightText(msg.content)
-                        : msg.content,
-                    }}
-                  />
+                  <div className="text-foreground/80 break-words">
+                    <HighlightText text={msg.content} keyword={idx === data.anchor_index ? keyword : undefined} />
+                  </div>
                 </div>
               ))}
             </div>

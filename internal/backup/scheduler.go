@@ -243,14 +243,14 @@ func (s *Scheduler) saveHistory() {
 		return
 	}
 	dir := filepath.Dir(s.historyFile)
-	_ = os.MkdirAll(dir, 0755)
+	_ = os.MkdirAll(dir, 0o700)
 
 	data, err := json.MarshalIndent(records, "", "  ")
 	if err != nil {
 		log.Error().Err(err).Msg("failed to marshal backup history")
 		return
 	}
-	if err := os.WriteFile(s.historyFile, data, 0644); err != nil {
+	if err := os.WriteFile(s.historyFile, data, 0o600); err != nil {
 		log.Error().Err(err).Msg("failed to save backup history")
 	}
 }

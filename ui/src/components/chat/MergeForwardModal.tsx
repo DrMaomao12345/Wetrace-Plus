@@ -1,4 +1,5 @@
 import { X } from 'lucide-react'
+import { openSafe } from "@/lib/openSafe"
 import type { RecordInfo, RecordItem } from '@/types/message'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { EmojiText } from './EmojiText'
@@ -90,7 +91,7 @@ function MergeForwardImage({ item }: { item: RecordItem }) {
         alt="聊天图片" 
         className="max-w-full h-auto max-h-[300px] object-contain cursor-zoom-in block"
         loading="lazy"
-        onClick={() => window.open(imageUrl || thumbUrl, '_blank')}
+        onClick={() => openSafe(imageUrl || thumbUrl)}
         onError={(e) => {
           const target = e.target as HTMLImageElement
           if (thumbUrl && target.src !== thumbUrl && !target.src.endsWith(thumbUrl)) {

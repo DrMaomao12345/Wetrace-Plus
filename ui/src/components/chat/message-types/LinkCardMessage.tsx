@@ -1,4 +1,5 @@
 import type { Message } from "@/types/message"
+import { openSafe } from "@/lib/openSafe"
 import { cn } from "@/lib/utils"
 
 interface LinkCardMessageProps {
@@ -13,7 +14,7 @@ export function LinkCardMessage({ message }: LinkCardMessageProps) {
 
   const handleClick = () => {
     if (targetUrl) {
-      window.open(targetUrl, '_blank')
+      openSafe(targetUrl)
     }
   }
 

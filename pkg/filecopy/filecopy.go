@@ -291,10 +291,10 @@ func newManager(instanceID string) *FileCopyManager {
 	tempDir := filepath.Join(os.TempDir(), "filecopy_"+procName)
 
 	// Create temporary directory with improved error handling
-	if err := os.MkdirAll(tempDir, 0755); err != nil {
+	if err := os.MkdirAll(tempDir, 0o700); err != nil {
 		// Try fallback directory
 		tempDir = filepath.Join(os.TempDir(), "filecopy")
-		if err := os.MkdirAll(tempDir, 0755); err != nil {
+		if err := os.MkdirAll(tempDir, 0o700); err != nil {
 			// If both fail, use system temp directly (last resort)
 			tempDir = os.TempDir()
 		}

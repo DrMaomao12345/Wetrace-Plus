@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"path/filepath"
 	"time"
 
 	"github.com/DrMaomao12345/Wetrace-Plus/store"
@@ -30,6 +31,7 @@ type Service struct {
 // Config 保存 web 服务的配置。
 type Config struct {
 	ListenAddr       string
+	AllowedHosts     []string // 除 IP 与 localhost 外，允许通过的主机名（如 Tailscale MagicDNS 名）
 	DataDir          string
 	AIEnabled        bool
 	AIProvider       string
@@ -44,7 +46,9 @@ func NewService(store store.Store, conf *Config, staticFS fs.FS) *Service {
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
 
-	mediaService := media.NewService(conf.DataDir, conf.DataDir)
+	// 媒体根目录用专用子目录：以前直接是数据目录本身，?path=message/message_0.db
+	// 就能把整个分析库当「图片」下载走。导入包目前不带附件，这个目录多半是空的。
+	mediaService := media.NewService(conf.DataDir, filepath.Join(conf.DataDir, "files"))
 
 	// 创建共享的 API 配置指针
 	apiConf := &api.Config{
@@ -76,10 +80,7 @@ func NewService(store store.Store, conf *Config, staticFS fs.FS) *Service {
 
 // Start 开始提供 web 应用服务。
 func (s *Service) Start() error {
-	s.server = &http.Server{
-		Addr:    s.conf.ListenAddr,
-		Handler: s.router,
-	}
+	s.server = newHTTPServer(s.conf.ListenAddr, s.router)
 
 	log.Info().Msg(fmt.Sprintf("在 %s 上启动 web 服务", s.conf.ListenAddr))
 
@@ -95,7 +96,7 @@ func (s *Service) Start() error {
 	// 受密码保护；本机这份让桌面快捷方式、书签、以及免密的本地访问照常可用
 	// —— 鉴权中间件正是靠请求源是不是回环来区分这两者的。
 	if extra := loopbackCompanion(s.conf.ListenAddr); extra != "" {
-		s.localServer = &http.Server{Addr: extra, Handler: s.router}
+		s.localServer = newHTTPServer(extra, s.router)
 		log.Info().Msg(fmt.Sprintf("同时在 %s 上监听（本机免密访问）", extra))
 		go func() {
 			if err := s.localServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -105,6 +106,21 @@ func (s *Service) Start() error {
 	}
 
 	return nil
+}
+
+// newHTTPServer 统一设置超时。
+//
+// 只设 ReadHeaderTimeout / IdleTimeout：慢速发送请求头（Slowloris）会占满连接。
+// 不设 ReadTimeout / WriteTimeout —— 大文件导入要慢慢传，年度报告是流式推送，
+// 设了会把正常请求截断。
+func newHTTPServer(addr string, h http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           h,
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20,
+	}
 }
 
 // loopbackCompanion 给一个非回环的监听地址算出配套的 127.0.0.1 地址。

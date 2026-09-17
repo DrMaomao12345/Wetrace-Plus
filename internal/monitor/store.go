@@ -93,14 +93,14 @@ func (s *Store) load() error {
 // save 保存数据到文件
 func (s *Store) save() error {
 	dir := filepath.Dir(s.filePath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
 	data, err := json.MarshalIndent(s.data, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(s.filePath, data, 0644)
+	return os.WriteFile(s.filePath, data, 0o600)
 }
 
 // ListConfigs 获取所有监控配置

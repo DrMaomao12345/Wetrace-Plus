@@ -1,5 +1,61 @@
 # Changelog
 
+## 1.0.6 — 安全加固
+
+公开之后做的第一次按模块安全审计。下面每一条都先写了能复现的 PoC，修完再用同一个 PoC 验证。
+
+### 高危
+
+- **任意文件读取**：`GET /api/v1/media/image/x?path=../../../../etc/hosts` 能读出机器上任意文件
+  （包括 `.env` 里的 API Key）。图片分支直接 `filepath.Join(root, path)`，没有越界检查。
+  现在所有媒体路径都走 `media.SafeJoin`（词法 + 符号链接双重检查），导出也一样；
+  媒体根目录从整个数据目录收窄到 `data/files/`，分析库本身不再能被当成「图片」下载。
+- **DNS 重绑定**：服务不校验 `Host`，恶意网页把自己的域名切到 127.0.0.1 后，
+  就能以「同源」身份读全部聊天记录。新增 `HostGuard`：只接受 IP、localhost 和
+  `ALLOWED_HOSTS` 里显式配置的域名。
+- **跨站写请求**：`<form enctype="text/plain">` 能不经预检 POST 一段「像 JSON 的」正文，
+  而 `ShouldBindJSON` 不看 Content-Type。实测跨站请求能改 AI 服务地址（聊天内容外泄）、
+  改本地语音识别的可执行文件路径（任意程序执行）、设密码把你锁在外面。
+  新增 `CSRFGuard`：写方法检查 `Origin` / `Sec-Fetch-Site`；Cookie 改成 `SameSite=Strict`。
+- **存储型 XSS**：搜索的「查看上下文」用 `dangerouslySetInnerHTML` 渲染聊天内容，
+  任何人发一条 `<img src=x onerror=…>`，你一打开上下文就执行。改成纯 React 文本渲染
+  （`HighlightText`），后端高亮在没有关键词时也转义。
+- **`.env` 换行注入**：viper 写 `.env` 不转义，设置字段里带一个换行就能凭空多出一行配置
+  （比如 `LISTEN_ADDR=0.0.0.0:5200`）。所有写配置统一走 `saveConfig()`，落盘前去掉换行。
+- **远程无凭据访问**：没设密码、没有配对时，只要把监听地址改成 `0.0.0.0`，
+  局域网里任何人都能读全部数据、甚至给自己创建配对。现在远程请求必须带凭据。
+
+### 中危
+
+- **移动端 token 权限过大**：配对 token 能调用所有接口，包括改设置、设密码、
+  列出其它设备的 token。现在是「读随便、写要白名单」，白名单来自 iOS App 实际发出的请求。
+- **SSRF**：表情包代理 `/api/v1/media/emoji?url=` 会去抓任意地址并把内容返回，
+  没有超时和大小上限。现在只允许微信 CDN、15 秒超时、10 MB 上限，解不出图片就不返回。
+- **`javascript:` 链接**：链接卡片的地址来自消息，`window.open("javascript:…")` 点一下就执行。
+  所有 `window.open` 统一走 `openSafe`（只放行 http/https，带 `noopener`）。
+- **密码暴力破解**：解锁接口不限速，最短 4 位的密码在局域网上几分钟就能穷举。
+  现在同一来源 5 次失败后按 30 秒起翻倍锁定，最长 15 分钟；服务端会话 24 小时过期。
+- **本地语音识别路径**：设置里填的可执行文件会被原样 exec，现在只接受 whisper.cpp 的文件名。
+- **依赖漏洞**：`govulncheck` 报 7 个可达漏洞（5 个在 Go 标准库）。工具链固定到 go1.26.6，
+  升级 excelize、x/net、x/crypto、x/text；现在可达漏洞为 0。
+- **Slowloris**：HTTP 服务加了 `ReadHeaderTimeout`。
+
+### 低危 / 顺手修的
+
+- `.env` 以前以 0644 创建（含 API Key 和密码哈希），数据目录 0755；现在分别是 0600 / 0700，
+  启动时顺手收紧老文件。配对 token、转写、备份、AI 历史等文件也改成 0600。
+- `main.go` 里「按字面值覆盖 `.env`」的逻辑写在 `defer` 里，要到进程退出才执行，
+  等于从没生效过；挪到读配置之后立即执行。
+- 语音识别的临时文件改用私有临时目录，不再用 `math/rand` 拼文件名。
+- 新增 `SECURITY.md`。
+
+### 审计时确认没问题的
+
+- SQL：表名来自 `sqlite_master`，时区片段全由整数拼出，用户输入一律参数绑定
+- 导入：上传文件按序号重命名；ZIP 流式读取不落盘，有条目数与解压总量上限
+- 密码存储：bcrypt；API Key 在接口里打码返回
+
+
 ## 1.0.5 — 首个公开版本
 
 - 许可证换成 **AGPL-3.0**（原来的 CC BY-NC-SA 与继承自 Apache-2.0 的文件冲突，

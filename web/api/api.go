@@ -140,7 +140,7 @@ func NewAPI(s store.Store, m *media.Service, conf *Config, staticFS fs.FS) *API 
 	if legacy := viper.GetString(mobileTokenViperKey); legacy != "" {
 		a.MobilePairings.MigrateLegacyToken(legacy)
 		viper.Set(mobileTokenViperKey, "")
-		_ = viper.WriteConfig()
+		_ = saveConfig()
 	}
 
 	// 启动时把全站时区口径同步到 Store。
@@ -213,7 +213,11 @@ func NewAPI(s store.Store, m *media.Service, conf *Config, staticFS fs.FS) *API 
 			binPath := viper.GetString("TTS_LOCAL_BINARY")
 			modelPath := viper.GetString("TTS_LOCAL_MODEL")
 			if binPath != "" && modelPath != "" {
-				a.TTS = tts.NewLocalClient(binPath, modelPath)
+				if err := tts.ValidateLocalBinary(binPath); err != nil {
+					log.Warn().Err(err).Msg("本地语音识别未启用")
+				} else {
+					a.TTS = tts.NewLocalClient(binPath, modelPath)
+				}
 			}
 		} else {
 			ttsKey := viper.GetString("TTS_API_KEY")
@@ -257,7 +261,7 @@ func (a *API) createBackupFunc(exportSvc *export.Service) backup.BackupFunc {
 		// Create timestamped subdirectory: backupPath/backup_20250211_150405/
 		timestamp := time.Now().Format("20060102_150405")
 		backupDir := filepath.Join(backupPath, fmt.Sprintf("backup_%s", timestamp))
-		if err := os.MkdirAll(backupDir, 0755); err != nil {
+		if err := os.MkdirAll(backupDir, 0o700); err != nil {
 			return "", 0, fmt.Errorf("创建备份目录失败: %w", err)
 		}
 
@@ -290,7 +294,7 @@ func (a *API) createBackupFunc(exportSvc *export.Service) backup.BackupFunc {
 				ext = ".txt"
 			}
 			fname := filepath.Join(backupDir, fmt.Sprintf("%s_%s%s", name, timestamp, ext))
-			if writeErr := os.WriteFile(fname, data, 0644); writeErr != nil {
+			if writeErr := os.WriteFile(fname, data, 0o600); writeErr != nil {
 				continue
 			}
 			count++
@@ -299,7 +303,7 @@ func (a *API) createBackupFunc(exportSvc *export.Service) backup.BackupFunc {
 		// Write a summary marker file as the "output"
 		summaryFile := filepath.Join(backupDir, "summary.txt")
 		summary := fmt.Sprintf("Backup completed at %s, %d sessions exported", timestamp, count)
-		_ = os.WriteFile(summaryFile, []byte(summary), 0644)
+		_ = os.WriteFile(summaryFile, []byte(summary), 0o600)
 
 		return backupDir, count, nil
 	}

@@ -8,10 +8,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	neturl "net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/DrMaomao12345/Wetrace-Plus/internal/model"
 	"github.com/DrMaomao12345/Wetrace-Plus/pkg/util/ffmpegpath"
@@ -45,17 +47,56 @@ type PreparedMedia struct {
 	Reason string
 }
 
+// 表情包只允许从微信自己的 CDN 下载。
+//
+// cdnurl 来自消息 XML —— 也就是来自导入文件、来自任何给你发过消息的人。
+// 以前这里对任意地址发 GET、跟随重定向、没有超时也没有大小上限，还会把内容原样返回：
+// 等于一个能读内网的代理（SSRF）。
+var emojiHostSuffixes = []string{".qq.com", ".qpic.cn", ".qlogo.cn", ".wechat.com"}
+
+const maxEmojiBytes = 10 << 20
+
+func emojiURLAllowed(u *neturl.URL) bool {
+	if u == nil || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	for _, suf := range emojiHostSuffixes {
+		if host == strings.TrimPrefix(suf, ".") || strings.HasSuffix(host, suf) {
+			return true
+		}
+	}
+	return false
+}
+
+var emojiClient = &http.Client{
+	Timeout: 15 * time.Second,
+	CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 3 {
+			return errors.New("重定向次数过多")
+		}
+		if !emojiURLAllowed(req.URL) {
+			return errors.New("重定向到了非微信 CDN 的地址")
+		}
+		return nil
+	},
+}
+
 // DownloadAndDecryptEmoji 下载并解密表情包
 func (s *Service) DownloadAndDecryptEmoji(url string, keyHex string) PreparedMedia {
 	// 1. 下载文件
-	req, err := http.NewRequest("GET", url, nil)
+	parsed, err := neturl.Parse(url)
+	if err != nil || !emojiURLAllowed(parsed) {
+		return PreparedMedia{Error: errors.New("表情包地址不是微信 CDN，已拒绝")}
+	}
+	req, err := http.NewRequest("GET", parsed.String(), nil)
 	if err != nil {
 		return PreparedMedia{Error: fmt.Errorf("创建请求失败: %w", err)}
 	}
 	// 模拟微信 User-Agent，防止被拦截
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36 MicroMessenger/7.0.20.1781(0x6700143B)")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := emojiClient.Do(req)
 	if err != nil {
 		return PreparedMedia{Error: fmt.Errorf("下载失败: %w", err)}
 	}
@@ -65,9 +106,12 @@ func (s *Service) DownloadAndDecryptEmoji(url string, keyHex string) PreparedMed
 		return PreparedMedia{Error: fmt.Errorf("下载返回状态码: %d", resp.StatusCode)}
 	}
 
-	data, err := io.ReadAll(resp.Body)
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxEmojiBytes+1))
 	if err != nil {
 		return PreparedMedia{Error: fmt.Errorf("读取内容失败: %w", err)}
+	}
+	if len(data) > maxEmojiBytes {
+		return PreparedMedia{Error: errors.New("表情包超过 10 MB，已拒绝")}
 	}
 
 	// 2. 检查是否已经是图片 (未加密)
@@ -94,8 +138,7 @@ func (s *Service) DownloadAndDecryptEmoji(url string, keyHex string) PreparedMed
 	}
 
 	if len(data)%aes.BlockSize != 0 {
-		// 数据长度不是块大小的倍数，尝试直接返回（可能下载不完整或不是加密数据）
-		return PreparedMedia{Content: data, ContentType: "application/octet-stream"}
+		return PreparedMedia{Error: errors.New("表情包数据不完整")}
 	}
 
 	decrypted := make([]byte, len(data))
@@ -109,8 +152,11 @@ func (s *Service) DownloadAndDecryptEmoji(url string, keyHex string) PreparedMed
 		unpadded = decrypted
 	}
 
-	// 5. 再次检测类型
+	// 5. 再次检测类型：解出来不是图片就不返回
 	contentType = detectContentType(unpadded)
+	if contentType == "application/octet-stream" {
+		return PreparedMedia{Error: errors.New("表情包解码后不是图片")}
+	}
 
 	return PreparedMedia{
 		Content:     unpadded,
@@ -197,7 +243,11 @@ func (s *Service) prepareImageWithFallback(relativePath string, isThumb bool) Pr
 			continue
 		}
 		seen[c] = true
-		if res := s.doPrepareFile(filepath.Join(s.FilesDir, c), false); res.Error == nil {
+		abs, err := SafeJoin(s.FilesDir, c)
+		if err != nil {
+			continue
+		}
+		if res := s.doPrepareFile(abs, false); res.Error == nil {
 			return res
 		}
 	}
@@ -205,13 +255,10 @@ func (s *Service) prepareImageWithFallback(relativePath string, isThumb bool) Pr
 }
 
 func (s *Service) prepareFile(relativePath string, isVideo bool) PreparedMedia {
-	if strings.Contains(relativePath, "..") {
+	absolutePath, err := SafeJoin(s.FilesDir, relativePath)
+	if err != nil {
 		return PreparedMedia{Error: fmt.Errorf("无效的文件路径: %s", relativePath)}
 	}
-
-	baseDir := s.FilesDir
-	absolutePath := filepath.Join(baseDir, relativePath)
-
 	return s.doPrepareFile(absolutePath, isVideo)
 }
 
@@ -244,7 +291,7 @@ func (s *Service) ensureVideoTranscoded(srcPath string) (string, error) {
 	// 这里简单使用文件名加后缀，保存在系统临时目录的 chatlog_video_cache 子目录下
 	fileName := filepath.Base(srcPath)
 	cacheDir := filepath.Join(os.TempDir(), "chatlog_video_cache")
-	if err := os.MkdirAll(cacheDir, 0755); err != nil {
+	if err := os.MkdirAll(cacheDir, 0o700); err != nil {
 		return "", fmt.Errorf("创建缓存目录失败: %w", err)
 	}
 
@@ -309,7 +356,6 @@ func looksLikeImage(b []byte) bool {
 	}
 	return false
 }
-
 
 func getMimeTypeByExtension(ext string) string {
 	ext = strings.ToLower(strings.TrimPrefix(ext, "."))

@@ -1,4 +1,5 @@
 import { SessionList } from "@/components/chat/SessionList"
+import { openSafe } from "@/lib/openSafe"
 import { MessageList } from "@/components/chat/MessageList"
 import { useAppStore } from "@/stores/app"
 import { cn } from "@/lib/utils"
@@ -192,7 +193,7 @@ export default function Chat() {
       // fillToNow 缺省为 true，只有明确关掉时才带上参数
       const fill = opts?.fillToNow === false ? '&fill_to_now=0' : ''
       const url = `/api/v1/export/monthly_stats?talker=${encodeURIComponent(activeTalker)}&name=${encodeURIComponent(displayName)}&format=${fmt}${fill}`
-      window.open(url, '_blank')
+      openSafe(url)
     } else if (type === 'json') {
       const url = `/api/v1/messages?talker_id=${activeTalker}&limit=1000000${timeRangeParam}`
       const a = document.createElement('a')
@@ -204,11 +205,11 @@ export default function Chat() {
       document.body.removeChild(a)
     } else if (type === 'forensic') {
       const url = `/api/v1/export/forensic?talker=${activeTalker}&name=${encodeURIComponent(displayName)}${timeRangeParam}`
-      window.open(url, '_blank')
+      openSafe(url)
     } else {
       const formatParam = type !== 'html' ? `&format=${type}` : ''
       const url = `/api/v1/export/chat?talker=${activeTalker}&name=${encodeURIComponent(displayName)}${formatParam}${timeRangeParam}`
-      window.open(url, '_blank')
+      openSafe(url)
     }
   }
   

@@ -60,7 +60,7 @@ func savePromptsToFile(prompts map[string]string) error {
 	defer promptsMu.Unlock()
 
 	dir := filepath.Dir(promptsFilePath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
 
@@ -68,7 +68,7 @@ func savePromptsToFile(prompts map[string]string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(promptsFilePath, data, 0644)
+	return os.WriteFile(promptsFilePath, data, 0o600)
 }
 
 // GetSystemStatus 返回应用程序的当前状态。
@@ -175,7 +175,7 @@ func (a *API) UpdateAIConfig(c *gin.Context) {
 	viper.Set("AI_BASE_URL", req.BaseURL)
 	viper.Set("AI_API_KEY", req.APIKey)
 
-	if err := viper.WriteConfig(); err != nil {
+	if err := saveConfig(); err != nil {
 		transport.InternalServerError(c, "保存配置失败: "+err.Error())
 		return
 	}
@@ -475,7 +475,7 @@ func (a *API) AgreeCompliance(c *gin.Context) {
 	viper.Set("COMPLIANCE_AGREED_AT", now)
 	viper.Set("COMPLIANCE_VERSION", req.Version)
 
-	if err := viper.WriteConfig(); err != nil {
+	if err := saveConfig(); err != nil {
 		transport.InternalServerError(c, "保存配置失败: "+err.Error())
 		return
 	}
@@ -523,6 +523,13 @@ func (a *API) UpdateTTSConfig(c *gin.Context) {
 		return
 	}
 
+	if req.LocalMode && req.LocalBinary != "" {
+		if err := tts.ValidateLocalBinary(req.LocalBinary); err != nil {
+			transport.BadRequest(c, err.Error())
+			return
+		}
+	}
+
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
@@ -537,7 +544,7 @@ func (a *API) UpdateTTSConfig(c *gin.Context) {
 	viper.Set("TTS_LOCAL_BINARY", req.LocalBinary)
 	viper.Set("TTS_LOCAL_MODEL", req.LocalModel)
 
-	if err := viper.WriteConfig(); err != nil {
+	if err := saveConfig(); err != nil {
 		transport.InternalServerError(c, "保存配置失败: "+err.Error())
 		return
 	}
@@ -579,7 +586,7 @@ func (a *API) OpenDataDir(c *gin.Context) {
 	if err != nil {
 		abs = a.Conf.DataDir
 	}
-	if err := os.MkdirAll(abs, 0755); err != nil {
+	if err := os.MkdirAll(abs, 0o700); err != nil {
 		transport.InternalServerError(c, "目录不存在: "+err.Error())
 		return
 	}
@@ -619,7 +626,7 @@ func (a *API) UpdateEffectiveChatStart(c *gin.Context) {
 		return
 	}
 	viper.Set("EFFECTIVE_CHAT_START_YEAR", req.Year)
-	if err := viper.WriteConfig(); err != nil {
+	if err := saveConfig(); err != nil {
 		transport.InternalServerError(c, "保存配置失败: "+err.Error())
 		return
 	}
@@ -656,7 +663,7 @@ func (a *API) UpdateDefaultTimezone(c *gin.Context) {
 	}
 	viper.Set("DEFAULT_TZ_OFFSET_MINUTES", req.Offset)
 	viper.Set("DEFAULT_TZ_OFFSET_SET", true)
-	if err := viper.WriteConfig(); err != nil {
+	if err := saveConfig(); err != nil {
 		transport.InternalServerError(c, "保存配置失败: "+err.Error())
 		return
 	}
@@ -775,7 +782,7 @@ func (a *API) UpdateTZConfig(c *gin.Context) {
 	viper.Set("DEFAULT_TZ_OFFSET_MINUTES", req.DefaultOffset)
 	viper.Set("DEFAULT_TZ_OFFSET_SET", true)
 	viper.Set("TZ_SEGMENTS", string(blob))
-	if err := viper.WriteConfig(); err != nil {
+	if err := saveConfig(); err != nil {
 		transport.InternalServerError(c, "保存配置失败: "+err.Error())
 		return
 	}

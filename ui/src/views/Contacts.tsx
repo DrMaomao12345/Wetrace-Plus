@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react"
+import { openSafe } from "@/lib/openSafe"
 import { useQuery } from "@tanstack/react-query"
 import { contactApi } from "@/api"
 import type { Contact, Session } from "@/types"
@@ -93,7 +94,7 @@ export default function ContactsView() {
 
   const handleExport = (format: "csv" | "xlsx") => {
     const url = contactApi.exportContacts(format, searchKeyword || undefined)
-    window.open(url, "_blank")
+    openSafe(url)
     setShowExportMenu(false)
   }
 

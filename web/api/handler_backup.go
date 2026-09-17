@@ -50,7 +50,7 @@ func (a *API) UpdateBackupConfig(c *gin.Context) {
 	viper.Set("BACKUP_INTERVAL_HOURS", req.IntervalHours)
 	viper.Set("BACKUP_PATH", req.BackupPath)
 	viper.Set("BACKUP_FORMAT", req.Format)
-	_ = viper.WriteConfig()
+	_ = saveConfig()
 
 	transport.SendSuccess(c, gin.H{"status": "configured"})
 }

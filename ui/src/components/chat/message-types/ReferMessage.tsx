@@ -1,4 +1,5 @@
 import { MessageType, type Message } from '@/types/message'
+import { openSafe } from "@/lib/openSafe"
 import { cn } from '@/lib/utils'
 import { EmojiText } from '../EmojiText'
 import { useState } from 'react'
@@ -30,7 +31,7 @@ export function ReferMessage({ message, isSelf }: ReferMessageProps) {
           onError={() => setImageError(true)}
           onClick={(e) => {
             e.stopPropagation()
-            window.open(`/api/v1/media/image/${refer.contents?.md5}`, '_blank')
+            openSafe(`/api/v1/media/image/${refer.contents?.md5}`)
           }}
         />
       )

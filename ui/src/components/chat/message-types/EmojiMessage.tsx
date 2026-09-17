@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { openSafe } from "@/lib/openSafe"
 
 interface EmojiMessageProps {
   contents?: {
@@ -15,7 +16,7 @@ export function EmojiMessage({ contents }: EmojiMessageProps) {
     return <div className="text-xs text-red-500">[表情包参数缺失]</div>
   }
 
-  const url = `/api/v1/media/emoji?url=${encodeURIComponent(contents.cdnurl)}&key=${contents.aeskey}`
+  const url = `/api/v1/media/emoji?url=${encodeURIComponent(contents.cdnurl)}&key=${encodeURIComponent(contents.aeskey ?? "")}`
 
   if (error) {
     return (
@@ -35,7 +36,7 @@ export function EmojiMessage({ contents }: EmojiMessageProps) {
       className="max-w-[150px] max-h-[150px] object-contain cursor-pointer hover:opacity-90 transition-opacity"
       loading="lazy"
       onError={() => setError(true)}
-      onClick={() => window.open(url, '_blank')}
+      onClick={() => openSafe(url)}
     />
   )
 }

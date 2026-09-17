@@ -62,6 +62,6 @@ func (s *StatsScopeStore) Set(scope *model.StatsScope) {
 	path := s.path
 	s.mu.Unlock()
 
-	_ = os.MkdirAll(filepath.Dir(path), 0755)
-	_ = os.WriteFile(path, data, 0644)
+	_ = os.MkdirAll(filepath.Dir(path), 0o700)
+	_ = os.WriteFile(path, data, 0o600)
 }
